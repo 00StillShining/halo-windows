@@ -12,10 +12,13 @@ A native Windows companion app for the Teenage Engineering **EP-40 Riddim**: a t
 | Audio monitor: EP-40 USB input to any PC output, gain (default -12 dB), -1 dBFS safety limiter, meters with clip | Working (WASAPI shared mode). It refuses EP-40-to-EP-40 feedback and stops on unplug |
 | Recorder: raw pre-monitor takes, 24-bit WAV, in `Music\Halo\Recordings` | Working; the file is fully finalised before it's read back |
 | GRAB: the last 4/8/16 bars (clock + transport playing) or 5/10/30 s, zero-cross trimmed | Working; downbeats are exact audio frames from MIDI timestamps |
-| LOAD, EDIT, CAPTURE, BACKUPS modes | Not ported yet; each shows a "not ported yet" plate |
+| CAPTURE: library of takes, grabs and imported files (WAV/AIFF/FLAC/OGG/MP3/M4A; drag-and-drop) | Working |
+| EDIT: trim, equal-power fades, gain, normalise, mono/stereo, EP-40 quality presets, exact size, audition, export 16-bit WAV | Working |
+| LOAD: honest "device library not readable yet" plus the working path (export, then TE's EP Sample Tool) | Working |
+| BACKUPS mode | Not ported yet; shows a "not ported yet" plate |
 | Dub RACK: TAPE ECHO (tempo-sync / tap), SPRING, SWEEP, LOW END; PRINT FX records post-rack | Working; bit-transparent when bypassed |
-| CHOP | Not ported yet (see `docs/plan.md`) |
-| Sending samples to the EP-40 | Not possible yet anywhere: needs TE's private protocol (plan §5) |
+| CHOP: onset slicing (editable cuts), slice audition (click or 1-9, 0), pad plan, export slices + pads.txt | Working |
+| Sending samples / reading the device library | Blocked on the EP-40 protocol; buttons shown disabled with the reason |
 
 ## Build
 
@@ -47,10 +50,13 @@ Debug builds read these environment variables, so each state can be screenshotte
 | `HALO_AUTOMONITOR=1` | Starts the monitor |
 | `HALO_AUTORECORD=<seconds>` | Records one take of that length |
 | `HALO_AUTOGRAB=<seconds>[,bars]` | GRABs once after that long |
+| `HALO_OPEN=<path>[\|chop]` | Opens a file in EDIT (or CHOP) without importing it |
+| `HALO_AUTOEXPORT=edit\|slices` | Exports once the opened file has loaded |
 
 Tools:
 - `tools\dev\screenshot.ps1` captures just the Halo window.
 - `tools\dev\inspect_take.py` prints a take's format and level.
+- `tools\dev\make_test_loop.py` writes a 2-bar drum loop for testing EDIT and CHOP.
 
 Keyboard shortcuts: Ctrl+1..6 switch modes, Ctrl+M toggles the monitor, Ctrl+R toggles recording, Ctrl+G grabs.
 

@@ -1,0 +1,280 @@
+#include "UI/ChopSurface.h"
+#include "Audio/SampleIO.h"
+#include "Core/Ep40MidiMapping.h"
+#include "UI/HaloColours.h"
+#include "UI/HaloLookAndFeel.h"
+
+namespace halo
+{
+    namespace
+    {
+        const auto& c = HaloColours::graphPaper;
+        constexpr Treatment treatments[] { Treatment::original, Treatment::high, Treatment::balanced,
+                                           Treatment::loFi22k, Treatment::loFi11k };
+    }
+
+    //==============================================================================
+    juce::Rectangle<float> ChopSurface::PadGrid::cell (int gridIndex) const
+    {
+        const float w = (float) getWidth() / 3.0f, h = (float) getHeight() / 4.0f;
+        return { (float) (gridIndex % 3) * w, (float) (gridIndex / 3) * h, w, h };
+    }
+
+    void ChopSurface::PadGrid::paint (juce::Graphics& g)
+    {
+        const auto plan = session.plan();
+        for (int i = 0; i < ep40::padsPerGroup; ++i)
+        {
+            const auto r = cell (i).reduced (4.0f);
+            const chop::PadWrite* write = nullptr;
+            for (const auto& w : plan.writes)
+                if (w.gridIndex == i)
+                    write = &w;
+
+            g.setColour (c.ink.withAlpha (0.25f));
+            g.fillRoundedRectangle (r.translated (2.0f, 3.0f), 3.0f);
+            g.setColour (write != nullptr ? c.paperHigh : c.paper.darker (0.04f));
+            g.fillRoundedRectangle (r, 3.0f);
+            if (i == plan.startGridIndex)
+            {
+                g.setColour (c.orange);
+                g.drawRoundedRectangle (r, 3.0f, 2.0f);
+            }
+
+            g.setFont (HaloType::label (10.0f));
+            g.setColour (c.inkSoft);
+            g.drawText (juce::String (ep40::gridLabels[(size_t) i].data()), r.reduced (5.0f, 3.0f), juce::Justification::topLeft);
+            if (write != nullptr)
+            {
+                g.setFont (HaloType::label (15.0f));
+                g.setColour (session.selectedSlice == write->sliceIndex ? c.orange : c.riddimGreen);
+                g.drawText (juce::String (write->sliceIndex + 1), r, juce::Justification::centred);
+            }
+        }
+    }
+
+    void ChopSurface::PadGrid::mouseUp (const juce::MouseEvent& e)
+    {
+        for (int i = 0; i < ep40::padsPerGroup; ++i)
+            if (cell (i).contains (e.position))
+            {
+                session.startPad = i;
+                session.changed();
+            }
+    }
+
+    //==============================================================================
+    ChopSurface::ChopSurface (AppModel& m)
+        : model (m), session (m.editor()), waveform (m.editor(), WaveformView::Style::chop), pads (m.editor())
+    {
+        setWantsKeyboardFocus (true);
+        addAndMakeVisible (waveform);
+        addAndMakeVisible (pads);
+
+        sensitivity.setSliderStyle (juce::Slider::LinearHorizontal);
+        sensitivity.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        sensitivity.setRange (0.0, 1.0);
+        sensitivity.setValue (session.onsetParameters.sensitivity, juce::dontSendNotification);
+        sensitivity.onDragEnd = [this]
+        {
+            session.onsetParameters.sensitivity = sensitivity.getValue();
+            session.detect();
+        };
+        addAndMakeVisible (sensitivity);
+
+        detectButton.onClick = [this] { session.detect(); };
+        clearButton.onClick = [this] { session.slices.clear(); session.selectedSlice.reset(); session.changed(); };
+        closeButton.onClick = [this] { session.closeChop(); };
+        exportButton.onClick = [this] { session.exportSlices(); };
+        showButton.onClick = [this]
+        {
+            const auto f = session.lastExport();
+            (f.exists() ? f : SampleIO::exportFolder()).revealToUser();
+        };
+        sendButton.setEnabled (false); // needs the transfer protocol (Phase 0B)
+
+        for (size_t i = 0; i < groupButtons.size(); ++i)
+        {
+            groupButtons[i].setButtonText (juce::String (ep40::groupLabels[i].data()));
+            groupButtons[i].onClick = [this, i] { session.group = (int) i; session.changed(); };
+            addAndMakeVisible (groupButtons[i]);
+        }
+        for (size_t i = 0; i < qualityButtons.size(); ++i)
+        {
+            qualityButtons[i].setButtonText (juce::String (label (treatments[i])).replace ("LO-FI ", "LO "));
+            qualityButtons[i].onClick = [this, i] { session.treatment = treatments[i]; session.changed(); };
+            addAndMakeVisible (qualityButtons[i]);
+        }
+
+        nameEditor.setFont (HaloType::mono (14.0f));
+        nameEditor.setInputRestrictions (8, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
+        nameEditor.setColour (juce::TextEditor::backgroundColourId, c.paperHigh);
+        nameEditor.setColour (juce::TextEditor::textColourId, c.ink);
+        nameEditor.setColour (juce::TextEditor::outlineColourId, c.ink.withAlpha (0.25f));
+        nameEditor.setColour (juce::TextEditor::focusedOutlineColourId, c.orange);
+        nameEditor.onTextChange = [this] { session.baseName = nameEditor.getText().toUpperCase(); session.changed(); };
+        addAndMakeVisible (nameEditor);
+
+        for (auto* b : { &detectButton, &clearButton, &closeButton, &exportButton, &sendButton, &showButton })
+            addAndMakeVisible (b);
+
+        session.addChangeListener (this);
+        refresh();
+    }
+
+    ChopSurface::~ChopSurface()
+    {
+        session.removeChangeListener (this);
+    }
+
+    void ChopSurface::refresh()
+    {
+        for (size_t i = 0; i < groupButtons.size(); ++i)
+            groupButtons[i].setToggleState (session.group == (int) i, juce::dontSendNotification);
+        for (size_t i = 0; i < qualityButtons.size(); ++i)
+            qualityButtons[i].setToggleState (session.treatment == treatments[i], juce::dontSendNotification);
+        if (! nameEditor.hasKeyboardFocus (false) && nameEditor.getText() != session.baseName)
+            nameEditor.setText (session.baseName, false);
+        showButton.setVisible (session.lastExport().exists());
+        exportButton.setEnabled (session.slices.sliceCount() > 0);
+        pads.repaint();
+        repaint();
+    }
+
+    bool ChopSurface::keyPressed (const juce::KeyPress& key)
+    {
+        // 1-9 then 0 audition slices 1-10; Delete removes the selected slice's leading cut.
+        const auto code = key.getKeyCode();
+        if (! key.getModifiers().isAnyModifierKeyDown() && code >= '0' && code <= '9')
+        {
+            session.auditionSlice (code == '0' ? 9 : code - '1');
+            return true;
+        }
+        if ((code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey) && session.selectedSlice && *session.selectedSlice > 0)
+        {
+            session.slices.removeCut (*session.selectedSlice - 1);
+            session.selectedSlice = *session.selectedSlice - 1;
+            session.changed();
+            return true;
+        }
+        if (code == juce::KeyPress::escapeKey)
+        {
+            session.closeChop();
+            return true;
+        }
+        return false;
+    }
+
+    void ChopSurface::resized()
+    {
+        auto area = getLocalBounds().reduced (24, 18);
+        headerArea = area.removeFromTop (40);
+        closeButton.setBounds (headerArea.withLeft (headerArea.getRight() - 110).withSizeKeepingCentre (110, 34));
+
+        auto controls = area.removeFromTop (36);
+        sensitivityLabel = controls.removeFromLeft (100);
+        sensitivity.setBounds (controls.removeFromLeft (220));
+        controls.removeFromLeft (12);
+        detectButton.setBounds (controls.removeFromLeft (100).reduced (2));
+        clearButton.setBounds (controls.removeFromLeft (130).reduced (2));
+        hintArea = area.removeFromTop (22);
+        area.removeFromTop (6);
+
+        waveform.setBounds (area.removeFromTop (juce::jmax (160, area.getHeight() - 300)));
+        area.removeFromTop (14);
+
+        auto bottom = area;
+        auto left = bottom.removeFromLeft (juce::jmin (440, bottom.getWidth() / 2));
+        auto groups = left.removeFromTop (34);
+        for (auto& b : groupButtons)
+            b.setBounds (groups.removeFromLeft (groups.getWidth() / 4 + 1).reduced (2));
+        left.removeFromTop (8);
+        pads.setBounds (left.removeFromLeft (juce::jmin (240, left.getWidth() / 2)).withHeight (juce::jmin (left.getHeight(), 230)));
+        planArea = left.reduced (12, 0);
+
+        bottom.removeFromLeft (24);
+        qualityLabel = bottom.removeFromTop (18);
+        auto quality = bottom.removeFromTop (34);
+        const int each = quality.getWidth() / 5;
+        for (auto& b : qualityButtons)
+            b.setBounds (quality.removeFromLeft (each).reduced (2));
+        bottom.removeFromTop (10);
+        auto nameRow = bottom.removeFromTop (30);
+        nameLabel = nameRow.removeFromLeft (70);
+        nameEditor.setBounds (nameRow.removeFromLeft (140));
+        bottom.removeFromTop (8);
+        totalsArea = bottom.removeFromTop (40);
+        auto actions = bottom.removeFromTop (38);
+        exportButton.setBounds (actions.removeFromLeft (160).reduced (2));
+        sendButton.setBounds (actions.removeFromLeft (150).reduced (2));
+        showButton.setBounds (actions.removeFromLeft (80).reduced (2));
+        noteArea = bottom.removeFromTop (32);
+        statusArea = bottom.removeFromTop (24);
+    }
+
+    void ChopSurface::paint (juce::Graphics& g)
+    {
+        g.fillAll (c.canvas);
+        HaloLookAndFeel::drawPanel (g, getLocalBounds().toFloat().reduced (8.0f), c.paper);
+
+        auto header = headerArea;
+        g.setFont (HaloType::label (11.0f));
+        g.setColour (c.orange);
+        g.drawText ("CHOP", header.removeFromTop (16), juce::Justification::centredLeft);
+        g.setFont (HaloType::body (17.0f));
+        g.setColour (c.ink);
+        g.drawText (session.item().title, header.withTrimmedRight (130), juce::Justification::centredLeft, true);
+
+        g.setFont (HaloType::label (11.0f, false));
+        g.setColour (c.inkSoft);
+        g.drawText ("SENSITIVITY", sensitivityLabel, juce::Justification::centredLeft);
+        g.setFont (HaloType::mono (11.0f));
+        g.drawText ("click a slice or press 1-9, 0 to hear it  |  double-click: add cut  |  drag a marker: move  |  right-click a marker or Delete: remove",
+                    hintArea, juce::Justification::centredLeft, true);
+
+        const auto plan = session.plan();
+        const int count = session.slices.sliceCount();
+
+        // Plan summary beside the pad grid.
+        auto p = planArea;
+        g.setFont (HaloType::label (11.0f));
+        g.setColour (c.inkSoft);
+        g.drawText ("PADS", p.removeFromTop (18), juce::Justification::centredLeft);
+        g.setFont (HaloType::mono (12.0f));
+        g.setColour (c.ink);
+        g.drawText (juce::String (count) + (count == 1 ? " slice" : " slices"), p.removeFromTop (20), juce::Justification::centredLeft);
+        g.drawText ("from pad " + juce::String (ep40::gridLabels[(size_t) plan.startGridIndex].data())
+                        + " of group " + ep40::groupLabels[(size_t) plan.group].data(),
+                    p.removeFromTop (20), juce::Justification::centredLeft);
+        if (plan.overflowCount > 0)
+        {
+            g.setColour (c.warning);
+            g.drawFittedText (juce::String (plan.overflowCount) + " slice(s) don't fit on this group's pads. They're still exported.",
+                              p.removeFromTop (40), juce::Justification::topLeft, 3);
+        }
+        g.setColour (c.inkSoft);
+        g.setFont (HaloType::mono (11.0f));
+        g.drawFittedText ("Click a pad to start there.", p.removeFromTop (30), juce::Justification::topLeft, 2);
+
+        g.setFont (HaloType::label (11.0f, false));
+        g.setColour (c.inkSoft);
+        g.drawText ("EP-40 QUALITY", qualityLabel, juce::Justification::centredLeft);
+        g.drawText ("NAME", nameLabel, juce::Justification::centredLeft);
+
+        g.setFont (HaloType::mono (13.0f));
+        g.setColour (c.ink);
+        g.drawText (juce::String (formatBytes (plan.totalBytes)) + " on " + juce::String ((int) plan.writes.size()) + " pads",
+                    totalsArea.withHeight (20), juce::Justification::centredLeft);
+        g.setFont (HaloType::mono (11.0f));
+        g.setColour (c.inkSoft);
+        g.drawText (juce::String (plan.totalBytes / deviceMemoryBytes * 100.0, 2) + "% of ~122 MB, 16-bit at "
+                        + juce::String (resolvedSampleRate (session.treatment, session.audio() != nullptr ? session.audio()->sampleRate : 0.0) / 1000.0, 3) + " kHz",
+                    totalsArea.withTrimmedTop (20), juce::Justification::centredLeft);
+
+        g.drawFittedText ("SEND TO PADS needs the EP-40's transfer protocol. EXPORT writes the slices plus a pads.txt for TE's EP Sample Tool.",
+                          noteArea, juce::Justification::centredLeft, 2, 1.0f);
+        g.setFont (HaloType::mono (11.5f));
+        g.setColour (session.status().startsWith ("Export failed") ? c.warning : c.ink);
+        g.drawText (session.status(), statusArea, juce::Justification::centredLeft, true);
+    }
+}

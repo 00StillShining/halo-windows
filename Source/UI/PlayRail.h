@@ -1,6 +1,9 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "UI/EditPanel.h"
+#include "UI/LibraryPanel.h"
+#include "UI/LoadPanel.h"
 #include "UI/MonitorPanel.h"
 #include "UI/RackPanel.h"
 
@@ -19,7 +22,7 @@ namespace halo
         ~PlayRail() override;
 
         // The width the rail wants right now (spine when collapsed in PLAY).
-        int preferredWidth() const;
+        int preferredWidth (int windowWidth) const;
         void setExpanded (bool shouldExpand);
         std::function<void()> onPreferredWidthChanged;
 
@@ -44,6 +47,9 @@ namespace halo
         AppModel& model;
         MonitorPanel monitorPanel { model };
         RackPanel rackPanel { model };
+        LibraryPanel libraryPanel { model };
+        EditPanel editPanel { model };
+        LoadPanel loadPanel { model };
         bool expanded = false;
         bool dirty = true;
     };

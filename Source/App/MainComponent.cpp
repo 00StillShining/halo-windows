@@ -11,7 +11,9 @@ namespace halo
         addAndMakeVisible (rail);
         addAndMakeVisible (modeBar);
 
+        addChildComponent (chopSurface);
         rail.onPreferredWidthChanged = [this] { resized(); };
+        model.editor().addChangeListener (this);
         setWantsKeyboardFocus (true);
         setSize (HaloMetrics::windowDefaultWidth, HaloMetrics::windowDefaultHeight);
 
@@ -31,7 +33,22 @@ namespace halo
 
     MainComponent::~MainComponent()
     {
+        model.editor().removeChangeListener (this);
         setLookAndFeel (nullptr);
+    }
+
+    void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
+    {
+        // CHOP opens over the stage; the 3D model comes back when it closes.
+        const bool chop = model.editor().chopOpen;
+        if (chop != chopSurface.isVisible())
+        {
+            chopSurface.setVisible (chop);
+            stage.setVisible (! chop);
+            if (chop)
+                chopSurface.grabKeyboardFocus();
+            resized();
+        }
     }
 
     void MainComponent::resized()
@@ -39,8 +56,9 @@ namespace halo
         auto area = getLocalBounds();
         statusBar.setBounds (area.removeFromTop (HaloMetrics::statusBarHeight));
         modeBar.setBounds (area.removeFromBottom (HaloMetrics::modeBarHeight));
-        rail.setBounds (area.removeFromRight (rail.preferredWidth()));
+        rail.setBounds (area.removeFromRight (rail.preferredWidth (getWidth())));
         stage.setBounds (area);
+        chopSurface.setBounds (area);
     }
 
     bool MainComponent::keyPressed (const juce::KeyPress& key)

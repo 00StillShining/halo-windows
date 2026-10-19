@@ -49,6 +49,23 @@ namespace halo
             // HALO_AUTOMONITOR=1 starts the route, HALO_AUTORECORD=<seconds>
             // records one take of that length.
             const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
+            // HALO_OPEN=<path>[|chop]: open a file in EDIT (or CHOP) without importing it.
+            if (const auto open = juce::StringArray::fromTokens (env ("HALO_OPEN"), "|", {}); open.size() > 0)
+            {
+                Library::Item item;
+                item.file = juce::File (open[0]);
+                item.title = item.file.getFileNameWithoutExtension();
+                model->openInEditor (item, open[1] == "chop");
+
+                // HALO_AUTOEXPORT=edit|slices: export once the file has loaded.
+                const auto what = env ("HALO_AUTOEXPORT");
+                if (what.isNotEmpty())
+                    juce::Timer::callAfterDelay (3000, [this, what]
+                    {
+                        if (what == "slices") model->editor().exportSlices();
+                        else model->editor().exportEdit();
+                    });
+            }
             if (env ("HALO_MONITOR_DB").isNotEmpty())
                 model->monitor().setGainDb (env ("HALO_MONITOR_DB").getDoubleValue());
             if (const auto wanted = env ("HALO_OUTPUT"); wanted.isNotEmpty())

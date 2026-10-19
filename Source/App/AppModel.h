@@ -1,5 +1,7 @@
 #pragma once
 
+#include "App/EditSession.h"
+#include "App/Library.h"
 #include "App/RackModel.h"
 #include "App/Settings.h"
 #include "Audio/GrabController.h"
@@ -76,6 +78,11 @@ namespace halo
         // The dub rack (runs on the monitor route).
         RackModel& rack() noexcept { return rackModel; }
 
+        // Local samples (takes, grabs, imports) and the EDIT / CHOP session.
+        Library& library() noexcept { return sampleLibrary; }
+        EditSession& editor() noexcept { return editSession; }
+        void openInEditor (const Library::Item&, bool chop);
+
         // Persisted conveniences.
         void setMonitorGainDb (double db);
         void setMonitorOutput (const juce::String& name);
@@ -99,6 +106,8 @@ namespace halo
         Settings settings;
         MonitorEngine engine;
         RackModel rackModel { engine.rackParameters() };
+        Library sampleLibrary { settings };
+        EditSession editSession { engine };
         GrabController grab;
         juce::String grabStatus;
         double grabStatusUntil = 0.0;

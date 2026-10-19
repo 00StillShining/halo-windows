@@ -38,6 +38,16 @@ Repo: `00StillShining/halo` (25 commits, last activity 2026-07-14). Reviewed 202
 >   - Bit-transparent bypass, with 8 DSP tests.
 >   - Fixed a Mac bug: SWEEP and LOW END controls took ~10 s instead of 20 ms to glide.
 >   - **Not yet felt on hardware:** how the rack sounds on the EP-40.
+> - **B5 (LOAD / EDIT / CHOP, local): done**, re-scoped to real work instead of mock device data.
+>   - CAPTURE is the library: takes, grabs and imported files.
+>   - EDIT does non-destructive prep, EP-40 quality presets, exact size estimates, audition at the treatment rate, and 16-bit WAV export.
+>   - CHOP finds onsets and slices, lets you edit cuts, plays slices back, plans pads (bytes and overflow), and exports slices with a pads.txt.
+>   - LOAD shows the honest state, plus the working path: export, then TE's EP Sample Tool.
+>   - New on Windows: a band-limited Kaiser-sinc resampler, so LO-FI exports don't alias.
+>   - The Mac's mock device library and slot numbers were dropped; they need the protocol.
+> - **CHOP improvement over the Mac:**
+>   - Log-compressed spectral flux. On a 16-hit drum loop the Mac's linear flux found 20 cuts at every sensitivity, so the slider did nothing; this finds the 16 hits.
+>   - Cuts closer than the minimum slice length to either end are dropped.
 > - **More Mac bugs found while porting (all fixed here):**
 >   - Meter ballistics ran once per block with per-sample coefficients.
 >   - Rack control smoothing had the same problem.

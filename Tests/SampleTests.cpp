@@ -175,6 +175,47 @@ TEST_CASE ("size estimate reflects trim, mono and treatment exactly")
     CHECK (formatBytes (3 * 1024 * 1024) == "3.00 MB");
 }
 
+TEST_CASE ("resample: exact length, keeps an in-band tone, removes what can't fit")
+{
+    const double src = 44100.0, dst = 11025.0;
+    auto tone = [src] (double hz, int frames)
+    {
+        std::vector<float> v ((size_t) frames);
+        for (int i = 0; i < frames; ++i)
+            v[(size_t) i] = 0.5f * (float) std::sin (2.0 * 3.141592653589793 * hz * i / src);
+        return v;
+    };
+    auto rms = [] (const std::vector<float>& v, size_t from, size_t to)
+    {
+        double s = 0.0;
+        for (size_t i = from; i < to; ++i) s += (double) v[i] * v[i];
+        return std::sqrt (s / (double) (to - from));
+    };
+
+    // 1 kHz survives 44.1 -> 11.025 kHz at its level (0.5 / sqrt 2).
+    const auto low = resample (tone (1000.0, 44100), src, dst);
+    CHECK (low.size() == 11025);
+    CHECK (rms (low, 1000, 10000) == doctest::Approx (0.5 / std::sqrt (2.0)).epsilon (0.02));
+
+    // 9 kHz is above the new Nyquist (5.5 kHz): it must be filtered, not aliased to 2 kHz.
+    const auto high = resample (tone (9000.0, 44100), src, dst);
+    CHECK (rms (high, 1000, 10000) < 0.01);
+
+    // The length always matches the size estimate.
+    CHECK ((int) resample (tone (440.0, 12345), src, 46875.0).size() == outputFrameCount (Treatment::high, 12345, src));
+}
+
+TEST_CASE ("render = prep then treatment rate")
+{
+    const auto src = stereoRamp (44100, 44100.0);
+    SamplePrep p;
+    p.channelMode = SamplePrep::Channels::mono;
+    const auto out = render (src, p, Treatment::loFi22k);
+    CHECK (out.sampleRate == 22050.0);
+    CHECK (out.channelCount() == 1);
+    CHECK (out.frameCount() == 22050);
+}
+
 TEST_CASE ("waveform summary: min/max per bucket, tiles the signal, never more buckets than frames")
 {
     std::vector<float> v { 0.1f, -0.5f, 0.3f, 0.9f, -0.2f };
@@ -198,6 +239,20 @@ TEST_CASE ("onsets: planted transients are found within one hop")
     REQUIRE (onsets.size() == planted.size());
     for (size_t i = 0; i < planted.size(); ++i)
         CHECK (std::abs (onsets[i] - (int) (planted[i] * sr)) <= 1024);
+}
+
+TEST_CASE ("onsets: noisy snare tails don't add extra cuts, and no sliver slice at the start")
+{
+    // 16 hits on 8ths at 120 BPM, the first at 0 s, each a long noisy decay.
+    const double sr = 44100.0;
+    std::vector<double> hits;
+    for (int i = 0; i < 16; ++i)
+        hits.push_back (i * 0.25);
+    const auto mono = clickTrack (sr, hits, 4.0);
+    const auto onsets = chop::detectOnsets (mono, sr, {});
+    CHECK (onsets.size() == 15); // every hit after the first, nothing else
+    for (int o : onsets)
+        CHECK (o >= (int) (0.040 * sr));
 }
 
 TEST_CASE ("onsets: higher sensitivity never finds fewer; silence and short input find none")

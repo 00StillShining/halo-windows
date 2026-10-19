@@ -49,8 +49,12 @@ target_sources(Halo PRIVATE
     Source/App/Main.cpp
     Source/App/MainComponent.cpp
     Source/App/AppModel.cpp
+    Source/App/EditSession.cpp
+    Source/App/Library.cpp
+    Source/Audio/AuditionPlayer.cpp
     Source/Audio/GrabController.cpp
     Source/Audio/MonitorEngine.cpp
+    Source/Audio/SampleIO.cpp
     Source/Audio/SessionRecorder.cpp
     Source/Device/Ep40MidiConnection.cpp
     Source/Stage/HaloMesh.cpp
@@ -61,11 +65,18 @@ target_sources(Halo PRIVATE
     Source/UI/ModeBar.cpp
     Source/UI/PlayRail.cpp
     Source/UI/MonitorPanel.cpp
-    Source/UI/RackPanel.cpp)
+    Source/UI/RackPanel.cpp
+    Source/UI/WaveformView.cpp
+    Source/UI/LibraryPanel.cpp
+    Source/UI/EditPanel.cpp
+    Source/UI/ChopSurface.cpp
+    Source/UI/LoadPanel.cpp)
 
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
+    JUCE_USE_MP3AUDIOFORMAT=1
+    JUCE_USE_WINDOWS_MEDIA_FORMAT=1
     JUCE_DISPLAY_SPLASH_SCREEN=0
     JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:Halo,JUCE_PRODUCT_NAME>"
     JUCE_APPLICATION_VERSION_STRING="$<TARGET_PROPERTY:Halo,JUCE_VERSION>")

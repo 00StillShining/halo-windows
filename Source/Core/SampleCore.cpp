@@ -205,6 +205,93 @@ namespace halo
         return e;
     }
 
+    namespace
+    {
+        // Modified Bessel function of the first kind, order 0 (for the Kaiser window).
+        double besselI0 (double x)
+        {
+            double sum = 1.0, term = 1.0;
+            for (int k = 1; k < 50; ++k)
+            {
+                term *= (x / (2.0 * k)) * (x / (2.0 * k));
+                sum += term;
+                if (term < 1.0e-12 * sum)
+                    break;
+            }
+            return sum;
+        }
+    }
+
+    std::vector<float> resample (const std::vector<float>& in, double srcRate, double dstRate)
+    {
+        const auto n = (long long) in.size();
+        if (n == 0 || srcRate <= 0.0 || dstRate <= 0.0)
+            return {};
+        if (srcRate == dstRate)
+            return in;
+
+        const auto outFrames = (long long) std::llround ((double) n * dstRate / srcRate);
+        std::vector<float> out ((size_t) outFrames, 0.0f);
+
+        // Cutoff at the lower of the two Nyquists (slightly inside it).
+        const double cutoff = std::min (1.0, dstRate / srcRate) * 0.95;
+        constexpr int zeroCrossings = 16;
+        const double halfWidth = zeroCrossings / cutoff; // in input samples
+        // Kaiser window as a table over |t| in [0, 1], linearly interpolated.
+        constexpr double beta = 8.0;
+        constexpr int tableSize = 4096;
+        static const std::vector<double> kaiser = []
+        {
+            std::vector<double> w (tableSize + 2);
+            const double i0Beta = besselI0 (beta);
+            for (int k = 0; k <= tableSize; ++k)
+            {
+                const double t = (double) k / tableSize;
+                w[(size_t) k] = besselI0 (beta * std::sqrt (std::max (0.0, 1.0 - t * t))) / i0Beta;
+            }
+            w[tableSize + 1] = 0.0;
+            return w;
+        }();
+        const double step = srcRate / dstRate;
+
+        for (long long j = 0; j < outFrames; ++j)
+        {
+            const double centre = (double) j * step;
+            const auto first = (long long) std::ceil (centre - halfWidth);
+            const auto last = (long long) std::floor (centre + halfWidth);
+            double acc = 0.0;
+            for (long long i = std::max (0LL, first); i <= std::min (n - 1, last); ++i)
+            {
+                const double x = (double) i - centre;
+                const double pos = std::min (1.0, std::abs (x / halfWidth)) * tableSize;
+                const auto k = (size_t) pos;
+                const double window = kaiser[k] + (kaiser[k + 1] - kaiser[k]) * (pos - (double) k);
+                const double arg = 3.141592653589793 * x * cutoff;
+                const double sinc = std::abs (arg) < 1.0e-9 ? 1.0 : std::sin (arg) / arg;
+                acc += in[(size_t) i] * cutoff * sinc * window;
+            }
+            out[(size_t) j] = (float) acc;
+        }
+        return out;
+    }
+
+    AudioData resample (const AudioData& a, double dstRate)
+    {
+        if (a.sampleRate == dstRate)
+            return a;
+        AudioData out;
+        out.sampleRate = dstRate;
+        for (const auto& c : a.channels)
+            out.channels.push_back (resample (c, a.sampleRate, dstRate));
+        return out;
+    }
+
+    AudioData render (const AudioData& source, const SamplePrep& prep, Treatment t)
+    {
+        const auto prepped = prep.apply (source);
+        return resample (prepped, resolvedSampleRate (t, prepped.sampleRate));
+    }
+
     std::string formatBytes (long long bytes)
     {
         char text[32];

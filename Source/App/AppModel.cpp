@@ -44,6 +44,7 @@ namespace halo
         engine.onTakeFinished = [this] (const SessionRecorder::Take& take)
         {
             latestTake = take;
+            sampleLibrary.refresh();
             appendLog ("take saved: " + take.file.getFileName() + " (" + juce::String (take.seconds, 1) + " s)");
             if (take.droppedSamples > 0)
                 appendLog ("warning: " + juce::String (juce::roundToInt ((double) take.droppedSamples / take.sampleRate * 1000.0))
@@ -77,6 +78,7 @@ namespace halo
             {
                 latestTake = SessionRecorder::Take { r.file, r.seconds, engine.route().sampleRate, 0 };
                 appendLog ("grab saved: " + r.file.getFileName());
+                sampleLibrary.refresh();
             }
             else
             {
@@ -84,6 +86,12 @@ namespace halo
             }
             listeners.call ([] (Listener& l) { l.statusChanged(); });
         };
+    }
+
+    void AppModel::openInEditor (const Library::Item& item, bool chop)
+    {
+        editSession.open (item, chop);
+        setMode (AppMode::edit);
     }
 
     void AppModel::grabNow()

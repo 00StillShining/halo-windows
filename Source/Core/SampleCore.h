@@ -91,4 +91,13 @@ namespace halo
                                const SamplePrep&, Treatment);
 
     std::string formatBytes (long long bytes);
+
+    // Band-limited resampling (Kaiser-windowed sinc, cutoff at the lower
+    // Nyquist, so downsampling doesn't alias). Output length is exactly
+    // llround(frames * dst / src), matching the size estimate.
+    std::vector<float> resample (const std::vector<float>& input, double srcRate, double dstRate);
+    AudioData resample (const AudioData&, double dstRate);
+
+    // Prep, then resample to the treatment's rate: what gets exported or sent.
+    AudioData render (const AudioData& source, const SamplePrep&, Treatment);
 }

@@ -36,8 +36,8 @@ namespace halo
 
     PlayRail::PlayRail (AppModel& m) : model (m)
     {
-        addChildComponent (monitorPanel);
-        addChildComponent (rackPanel);
+        for (auto* panel : std::initializer_list<juce::Component*> { &monitorPanel, &rackPanel, &libraryPanel, &editPanel, &loadPanel })
+            addChildComponent (panel);
         model.addListener (this);
         startTimerHz (20); // coalesce bursty MIDI into at most 20 repaints a second
     }
@@ -47,13 +47,19 @@ namespace halo
         model.removeListener (this);
     }
 
-    int PlayRail::preferredWidth() const
+    int PlayRail::preferredWidth (int windowWidth) const
     {
-        if (model.mode() == AppMode::rack)
-            return 420;
-        if (model.mode() != AppMode::play)
-            return 360;
-        return expanded ? HaloMetrics::railPlayWidth : HaloMetrics::railSpineWidth;
+        switch (model.mode())
+        {
+            case AppMode::play:    return expanded ? HaloMetrics::railPlayWidth : HaloMetrics::railSpineWidth;
+            case AppMode::rack:    return 420;
+            case AppMode::backups: return 360;
+            case AppMode::load:
+            case AppMode::capture:
+            case AppMode::edit:    break;
+        }
+        // Data-heavy modes take ~37% of the window (HaloMetrics.dataRailWidth on the Mac).
+        return juce::jlimit (520, 640, (int) (windowWidth * 0.37f));
     }
 
     void PlayRail::statusChanged()
@@ -101,8 +107,8 @@ namespace halo
         g.setColour (c.ink.withAlpha (0.16f));
         g.fillRect (getLocalBounds().removeFromLeft (1));
 
-        if (model.mode() == AppMode::rack)
-            return; // the rack panel draws itself
+        if (model.mode() != AppMode::play && model.mode() != AppMode::backups)
+            return; // the mode's own panel draws itself
         if (model.mode() != AppMode::play)
         {
             paintPlate (g, getLocalBounds());
@@ -137,10 +143,17 @@ namespace halo
         if (show)
             monitorPanel.setBounds (contentArea().withTrimmedTop (infoHeight).withHeight (MonitorPanel::preferredHeight));
 
-        const bool showRack = model.mode() == AppMode::rack;
-        rackPanel.setVisible (showRack);
-        if (showRack)
-            rackPanel.setBounds (getLocalBounds().withTrimmedLeft (1));
+        auto showFor = [this] (juce::Component& panel, AppMode mode)
+        {
+            const bool visible = model.mode() == mode;
+            panel.setVisible (visible);
+            if (visible)
+                panel.setBounds (getLocalBounds().withTrimmedLeft (1));
+        };
+        showFor (rackPanel, AppMode::rack);
+        showFor (libraryPanel, AppMode::capture);
+        showFor (editPanel, AppMode::edit);
+        showFor (loadPanel, AppMode::load);
     }
 
     void PlayRail::paintPlay (juce::Graphics& g, juce::Rectangle<int> area)
