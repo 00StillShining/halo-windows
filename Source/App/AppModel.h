@@ -83,8 +83,11 @@ namespace halo
         DeviceClient& client() noexcept { return deviceClient; }
         Ep40Backup& backup() noexcept { return backupJob; }
         Ep40Writer& deviceWriter() noexcept { return writer; }
-        // Writes to the EP-40 need a connected, synced device with a complete backup.
-        bool writesUnlocked() const { return deviceLibrary.state() == Ep40Library::State::ready && Ep40Backup::hasCompleteBackup (deviceLibrary.info().serial); }
+        // Writes to the EP-40 need a connected, synced device with a complete
+        // backup. The one formula (H3); it reads the backup cache, never the disk.
+        bool writesUnlocked() const { return deviceLibrary.state() == Ep40Library::State::ready && backupJob.hasCompleteBackup (deviceLibrary.info().serial); }
+        // The complete backup writes rely on (named in every write confirm).
+        std::optional<Ep40Backup::Entry> latestBackup() const { return backupJob.latestComplete (deviceLibrary.info().serial); }
 
         // Audio monitor + recorder. Starts only on explicit action.
         MonitorEngine& monitor() noexcept { return engine; }
@@ -165,6 +168,13 @@ namespace halo
         double lastPreviewTime = 0.0;
         int mockStep = 0;
         double mockNextTime = 0.0;
+        // Deterministic mock (plan section 6.1): HALO_MOCK_TRANSPORT=stopped sends
+        // no clock and no pads; HALO_MOCK_SEED=<n> picks a seeded pad sequence
+        // (0 = no pad strikes). Unset: the classic 120 BPM walk.
+        bool mockTransportRunning = true;
+        int mockSeed = -1;
+        std::uint32_t mockRng = 0;
+        int mockLastNote = -1;
 
         std::deque<juce::String> log;
         juce::ListenerList<Listener> listeners;

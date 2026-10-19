@@ -1,4 +1,5 @@
 #include "Audio/SampleIO.h"
+#include "App/HaloPaths.h"
 
 namespace halo
 {
@@ -90,6 +91,6 @@ namespace halo
 
     juce::File SampleIO::exportFolder()
     {
-        return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Halo").getChildFile ("Export");
+        return HaloPaths::exports();
     }
 }

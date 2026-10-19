@@ -1,4 +1,5 @@
 #include "Audio/SessionRecorder.h"
+#include "App/HaloPaths.h"
 
 namespace halo
 {
@@ -11,7 +12,7 @@ namespace halo
 
     juce::File SessionRecorder::recordingsFolder()
     {
-        return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Halo").getChildFile ("Recordings");
+        return HaloPaths::recordings();
     }
 
     bool SessionRecorder::isLowOnDisk() const

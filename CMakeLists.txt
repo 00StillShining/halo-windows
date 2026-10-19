@@ -128,3 +128,21 @@ target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
 add_test(NAME HaloTests COMMAND HaloTests)
+
+# ---------------------------------------------------------------------------
+# UI redesign (docs/redesign/plan.md). Kept in its own blocks so it merges
+# cleanly with the 3D stage work, which keeps its own blocks too.
+# ---------------------------------------------------------------------------
+target_sources(HaloCore PRIVATE
+    Source/Core/HonestState.cpp)
+
+target_sources(HaloTests PRIVATE
+    Tests/HonestStateTests.cpp)
+
+# H3: no file under Source/UI may call an Ep40Writer write method outside the
+# write gate (tools/dev/check_write_sites.py).
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME check_write_sites
+             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/dev/check_write_sites.py ${CMAKE_SOURCE_DIR})
+endif()

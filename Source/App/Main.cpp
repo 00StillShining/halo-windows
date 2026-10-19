@@ -1,4 +1,6 @@
 #include "App/AppModel.h"
+#include "App/DevLog.h"
+#include "App/HaloPaths.h"
 #include "App/MainComponent.h"
 #include "Audio/SampleIO.h"
 #include "Core/Ep40MidiMapping.h"
@@ -18,6 +20,12 @@ namespace halo
             setContentOwned (new MainComponent (model), true);
             setResizable (true, true);
             setResizeLimits (HaloMetrics::windowMinimumWidth, HaloMetrics::windowMinimumHeight, 10000, 10000);
+           #if JUCE_DEBUG
+            // HALO_WINDOW_SIZE=w,h: the client size, for screenshots.
+            const auto size = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("HALO_WINDOW_SIZE", {}), ",", {});
+            if (size.size() == 2 && size[0].getIntValue() > 0 && size[1].getIntValue() > 0)
+                setSize (size[0].getIntValue(), size[1].getIntValue());
+           #endif
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
         }
@@ -47,15 +55,39 @@ namespace halo
             const bool mock = commandLine.contains ("--mock-midi")
                            || juce::SystemStats::getEnvironmentVariable ("HALO_MOCK_MIDI", {}) == "1";
 
+           #if JUCE_DEBUG
+            const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
+            // The screenshot harness never mixes with device tests (plan section 6.1).
+            if (env ("HALO_UI_SHOTS") == "1" && env ("HALO_DEVTEST").isNotEmpty())
+            {
+                DevLog::line ("HALO_UI_REFUSED: HALO_DEVTEST is set in a ui_shots run");
+                quit();
+                return;
+            }
+            // HALO_UI_SCALE=1.25|1.5: emulate a display scale for DPI shots.
+            if (const auto scale = env ("HALO_UI_SCALE").getFloatValue(); scale >= 0.5f && scale <= 3.0f)
+                juce::Desktop::getInstance().setGlobalScaleFactor (scale);
+            if (HaloPaths::sandboxed())
+                DevLog::line ("data root: " + HaloPaths::sandboxRoot().getFullPathName());
+           #endif
+
             model = std::make_unique<AppModel> (mock);
             window = std::make_unique<MainWindow> (getApplicationName(), *model);
             model->start();
 
            #if JUCE_DEBUG
+            // HALO_UI_READY: the window is up and laid out (the harness waits for it).
+            juce::Timer::callAfterDelay (1200, [this]
+            {
+                if (window != nullptr)
+                    DevLog::line ("HALO_UI_READY size=" + juce::String (window->getContentComponent()->getWidth()) + ","
+                                  + juce::String (window->getContentComponent()->getHeight())
+                                  + " scale=" + juce::String (juce::Desktop::getInstance().getGlobalScaleFactor(), 2));
+            });
+
             // Debug-only verification hooks: HALO_MONITOR_DB sets the level,
             // HALO_AUTOMONITOR=1 starts the route, HALO_AUTORECORD=<seconds>
             // records one take of that length.
-            const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
             // HALO_OPEN=<path>[|chop]: open a file in EDIT (or CHOP) without importing it.
             if (const auto open = juce::StringArray::fromTokens (env ("HALO_OPEN"), "|", {}); open.size() > 0)
             {

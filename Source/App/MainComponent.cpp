@@ -21,8 +21,9 @@ namespace halo
         // Debug-only capture hooks (like the Mac's DD-015 gate hooks), so UI
         // states can be screenshotted without clicking: HALO_RAIL=open,
         // HALO_MODE=1...6.
-        if (juce::SystemStats::getEnvironmentVariable ("HALO_RAIL", {}) == "open")
-            rail.setExpanded (true);
+        const auto railHook = juce::SystemStats::getEnvironmentVariable ("HALO_RAIL", {});
+        if (railHook == "open" || railHook == "closed")
+            rail.setExpanded (railHook == "open");
         const int modeIndex = juce::SystemStats::getEnvironmentVariable ("HALO_MODE", "1").getIntValue() - 1;
         constexpr AppMode modes[] { AppMode::play, AppMode::load, AppMode::edit,
                                     AppMode::capture, AppMode::rack, AppMode::backups };

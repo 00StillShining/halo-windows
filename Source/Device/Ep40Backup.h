@@ -14,10 +14,18 @@ namespace halo
     //   sounds\NNN.json                (the sound's full metadata)
     //   backup.json                    (written LAST, with "complete": true)
     // Halo only allows writes to a device that has a complete backup.
-    class Ep40Backup : public juce::ChangeBroadcaster
+    //
+    // The backup folder is scanned off the message thread and cached
+    // (docs/redesign/plan.md section 5.1): latestComplete() and entries() never
+    // touch the disk, so the status strip, write keys and paint code can ask as
+    // often as they like. The cache is refreshed by start(), finish(), a 10 s
+    // background rescan, window activation (rescanAsync) and forceRescan() (the
+    // write confirm's last check). A change sends a change message.
+    class Ep40Backup : public juce::ChangeBroadcaster, private juce::Timer
     {
     public:
         explicit Ep40Backup (Ep40Library&);
+        ~Ep40Backup() override;
 
         struct Entry
         {
@@ -25,11 +33,25 @@ namespace halo
             juce::String serial, os, created;
             int sounds = 0, projects = 0;
             bool complete = false;
+
+            juce::Time createdTime() const;
+            bool operator== (const Entry&) const = default;
         };
 
         static juce::File backupsFolder();
+        // Scans the disk. Never call it from paint or a poll; use the cache.
         static std::vector<Entry> list();
-        static bool hasCompleteBackup (const juce::String& serial);
+
+        // ---- Cached view (message thread, no disk access) --------------------
+        const std::vector<Entry>& entries() const noexcept { return cache; }
+        std::optional<Entry> latestComplete (const juce::String& serial) const;
+        bool hasCompleteBackup (const juce::String& serial) const { return latestComplete (serial).has_value(); }
+        void rescanAsync();
+        void forceRescan();
+        // "backup 18 oct 2026 21:04 Â· complete Â· 477 sounds"
+        static juce::String describe (const Entry&);
+        // Debug stats: how many scans ran on the message thread.
+        int messageThreadScans() const noexcept { return syncScans; }
 
         void start();
         void cancel();
@@ -38,6 +60,8 @@ namespace halo
         const juce::String& status() const noexcept { return statusLine; }
 
     private:
+        void timerCallback() override { rescanAsync(); }
+        void adopt (std::vector<Entry>);
         void nextProject (int project);
         void nextSound (size_t index);
         void finish (bool ok, const juce::String& message);
@@ -53,5 +77,10 @@ namespace halo
         juce::StringArray problems;
         double startedAt = 0.0;
         int generation = 0;
+
+        std::vector<Entry> cache;
+        bool scanPending = false, rescanAgain = false;
+        int syncScans = 0;
+        std::shared_ptr<bool> alive = std::make_shared<bool> (true);
     };
 }

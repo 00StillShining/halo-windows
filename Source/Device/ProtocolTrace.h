@@ -1,5 +1,6 @@
 #pragma once
 
+#include "App/HaloPaths.h"
 #include "Core/SysEx.h"
 
 #include <juce_core/juce_core.h>
@@ -14,8 +15,7 @@ namespace halo
     public:
         static juce::File file()
         {
-            return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                .getChildFile ("Halo").getChildFile ("protocol-trace.log");
+            return HaloPaths::protocolTrace();
         }
 
         void log (const char* direction, const sysex::Bytes& bytes, const juce::String& note = {})

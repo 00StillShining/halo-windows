@@ -33,6 +33,7 @@ namespace halo
         void rebuildVisible();
         void audition (int row);
         void saveToLibrary (int row);
+        void confirmAssign (int gridIndex, const Ep40Library::Sound&);
         void withAudio (int slot, std::function<void (std::shared_ptr<const AudioData>)>);
         juce::Rectangle<float> padCell (int gridIndex) const;
         const Ep40Library::Sound* selectedSound() const;

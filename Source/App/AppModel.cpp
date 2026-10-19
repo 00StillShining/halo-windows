@@ -66,6 +66,17 @@ namespace halo
             deviceLibrary.deviceReportedError (text);
         };
         deviceLibrary.addChangeListener (this);
+        backupJob.addChangeListener (this); // the backup cache can unlock writes
+
+        if (mock)
+        {
+            mockTransportRunning = juce::SystemStats::getEnvironmentVariable ("HALO_MOCK_TRANSPORT", "running") != "stopped";
+            if (const auto seed = juce::SystemStats::getEnvironmentVariable ("HALO_MOCK_SEED", {}); seed.isNotEmpty())
+            {
+                mockSeed = juce::jmax (0, seed.getIntValue());
+                mockRng = (std::uint32_t) mockSeed;
+            }
+        }
 
         engine.onStateChanged = [this]
         {
@@ -298,8 +309,14 @@ namespace halo
         refreshStatus();
     }
 
-    void AppModel::changeListenerCallback (juce::ChangeBroadcaster*)
+    void AppModel::changeListenerCallback (juce::ChangeBroadcaster* source)
     {
+        if (source == &backupJob)
+        {
+            listeners.call ([] (Listener& l) { l.statusChanged(); });
+            return;
+        }
+
         // Device library progress: surface the OS version and outcomes once.
         const auto& lib = deviceLibrary;
         if (lib.info().os.isNotEmpty() && deviceOs != lib.info().os)
@@ -463,11 +480,21 @@ namespace halo
         if (! endpointConnected)
         {
             connectionChanged (Ep40MidiConnection::Status::connected, "MOCK EP-40");
-            MidiEvent startEvent;
-            startEvent.kind = MidiKind::start;
-            startEvent.timeSeconds = t;
-            receive (startEvent);
+            if (mockTransportRunning)
+            {
+                MidiEvent startEvent;
+                startEvent.kind = MidiKind::start;
+                startEvent.timeSeconds = t;
+                receive (startEvent);
+            }
             mockNextTime = t;
+            return;
+        }
+
+        // HALO_MOCK_TRANSPORT=stopped: connected, but no clock and no pads.
+        if (! mockTransportRunning)
+        {
+            mockNextTime = t + 1.0;
             return;
         }
 
@@ -479,8 +506,34 @@ namespace halo
             clock.timeSeconds = mockNextTime;
             receive (clock);
 
+            // HALO_MOCK_SEED=<n>: a seeded pad sequence (0 = no pads at all).
+            if (mockSeed >= 0 && mockStep % 12 == 0)
+            {
+                if (mockLastNote >= 0)
+                {
+                    MidiEvent off;
+                    off.kind = MidiKind::noteOff;
+                    off.data1 = (std::uint8_t) mockLastNote;
+                    off.timeSeconds = mockNextTime;
+                    receive (off);
+                    mockLastNote = -1;
+                }
+                if (mockSeed > 0)
+                {
+                    mockRng = mockRng * 1664525u + 1013904223u;
+                    const int group = (int) ((mockRng >> 24) % 4);
+                    const int pad = (int) ((mockRng >> 16) % 12);
+                    MidiEvent on;
+                    on.kind = MidiKind::noteOn;
+                    on.data1 = (std::uint8_t) (36 + group * 12 + pad);
+                    on.data2 = (std::uint8_t) (60 + (int) ((mockRng >> 8) % 67));
+                    on.timeSeconds = mockNextTime;
+                    receive (on);
+                    mockLastNote = on.data1;
+                }
+            }
             // Every 8th note (12 clocks): release the last pad, strike the next.
-            if (mockStep % 12 == 0)
+            else if (mockSeed < 0 && mockStep % 12 == 0)
             {
                 static constexpr std::uint8_t offsets[] { 7, 4, 1, 9, 10, 3, 5, 11 };
                 const int beat = mockStep / 12;

@@ -1,4 +1,5 @@
 #include "Device/Ep40Backup.h"
+#include "App/HaloPaths.h"
 
 namespace halo
 {
@@ -31,11 +32,86 @@ namespace halo
         }
     }
 
-    Ep40Backup::Ep40Backup (Ep40Library& l) : lib (l) {}
+    Ep40Backup::Ep40Backup (Ep40Library& l) : lib (l)
+    {
+        // One synchronous scan at start-up, so the very first gate check is
+        // right; from then on the disk is only read off the message thread.
+        cache = list();
+        startTimer (10000);
+    }
+
+    Ep40Backup::~Ep40Backup()
+    {
+        *alive = false;
+        stopTimer();
+    }
 
     juce::File Ep40Backup::backupsFolder()
     {
-        return juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("Halo").getChildFile ("Backups");
+        return HaloPaths::backups();
+    }
+
+    juce::Time Ep40Backup::Entry::createdTime() const
+    {
+        const auto t = juce::Time::fromISO8601 (created);
+        return t.toMilliseconds() != 0 ? t : folder.getCreationTime();
+    }
+
+    juce::String Ep40Backup::describe (const Entry& e)
+    {
+        const auto t = e.createdTime();
+        return "backup " + juce::String (t.getDayOfMonth()) + " " + t.getMonthName (true).toLowerCase() + " "
+               + juce::String (t.getYear()) + " " + t.formatted ("%H:%M") + juce::String::fromUTF8 (" \xc2\xb7 ")
+               + (e.complete ? "complete" : "incomplete") + juce::String::fromUTF8 (" \xc2\xb7 ")
+               + juce::String (e.sounds) + " sounds";
+    }
+
+    std::optional<Ep40Backup::Entry> Ep40Backup::latestComplete (const juce::String& serial) const
+    {
+        if (serial.isEmpty())
+            return std::nullopt;
+        for (const auto& e : cache) // newest first
+            if (e.complete && e.serial == serial)
+                return e;
+        return std::nullopt;
+    }
+
+    void Ep40Backup::adopt (std::vector<Entry> fresh)
+    {
+        if (fresh == cache)
+            return;
+        cache = std::move (fresh);
+        sendChangeMessage();
+    }
+
+    void Ep40Backup::rescanAsync()
+    {
+        if (scanPending)
+        {
+            rescanAgain = true; // the running scan may predate this change
+            return;
+        }
+        scanPending = true;
+        rescanAgain = false;
+        juce::Thread::launch ([this, token = std::weak_ptr<bool> (alive)]
+        {
+            auto fresh = list();
+            juce::MessageManager::callAsync ([this, token, fresh = std::move (fresh)]() mutable
+            {
+                if (token.expired())
+                    return;
+                scanPending = false;
+                adopt (std::move (fresh));
+                if (rescanAgain)
+                    rescanAsync();
+            });
+        });
+    }
+
+    void Ep40Backup::forceRescan()
+    {
+        ++syncScans;
+        adopt (list());
     }
 
     std::vector<Ep40Backup::Entry> Ep40Backup::list()
@@ -64,16 +140,6 @@ namespace halo
         return out;
     }
 
-    bool Ep40Backup::hasCompleteBackup (const juce::String& serial)
-    {
-        if (serial.isEmpty())
-            return false;
-        for (const auto& e : list())
-            if (e.complete && e.serial == serial)
-                return true;
-        return false;
-    }
-
     void Ep40Backup::setStatus (const juce::String& s)
     {
         statusLine = s;
@@ -100,6 +166,7 @@ namespace halo
             totalBytes += s.bytes;
         startedAt = juce::Time::getMillisecondCounterHiRes();
         generation = lib.currentGeneration();
+        rescanAsync();
         nextProject (1);
     }
 
@@ -189,6 +256,7 @@ namespace halo
         meta->setProperty ("problems", problems.joinIntoString ("\n"));
         meta->setProperty ("made_by", "Halo for Windows");
         folder.getChildFile ("backup.json").replaceWithText (juce::JSON::toString (juce::var (meta)));
+        rescanAsync();
 
         const double minutes = (juce::Time::getMillisecondCounterHiRes() - startedAt) / 60000.0;
         setStatus (ok ? "Backup complete: " + juce::String (soundsSaved) + " sounds, " + juce::String (projectsSaved)

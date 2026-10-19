@@ -1,4 +1,5 @@
 #include "UI/LoadPanel.h"
+#include "App/HaloPaths.h"
 #include "Audio/SampleIO.h"
 #include "Core/Ep40MidiMapping.h"
 #include "UI/HaloColours.h"
@@ -189,8 +190,7 @@ namespace halo
         const auto& s = lib.sounds()[(size_t) visible[(size_t) row]];
         withAudio (s.slot, [this, slot = s.slot, name = s.name] (std::shared_ptr<const AudioData> audio)
         {
-            const auto folder = juce::File::getSpecialLocation (juce::File::userMusicDirectory)
-                                    .getChildFile ("Halo").getChildFile ("From EP-40");
+            const auto folder = HaloPaths::fromEp40();
             folder.createDirectory();
             const auto file = folder.getNonexistentChildFile (juce::String (slot).paddedLeft ('0', 3) + " "
                                                                   + (name.isNotEmpty() ? name : juce::String ("sound")), ".wav");
@@ -205,6 +205,42 @@ namespace halo
             }
             repaint();
         });
+    }
+
+    void LoadPanel::confirmAssign (int gridIndex, const Ep40Library::Sound& sound)
+    {
+        // ASSIGN changes a pad on the device, so it asks first like every other
+        // write (plan U20 / H3), naming the pad's current sound and the backup.
+        const int project = lib.activeProject();
+        const int targetGroup = group;
+        const auto soundName = sound.name.isNotEmpty() ? sound.name : "sound " + juce::String (sound.slot);
+        const int oldSlot = lib.padSound (targetGroup, gridIndex);
+        const auto* old = oldSlot > 0 ? lib.sound (oldSlot) : nullptr;
+        const auto oldName = old != nullptr && old->name.isNotEmpty() ? old->name : "sound " + juce::String (oldSlot);
+        const auto padName = juce::String (ep40::groupLabels[(size_t) targetGroup].data()) + " "
+                           + juce::String (ep40::gridLabels[(size_t) gridIndex].data());
+
+        juce::String body = "Put \"" + soundName + "\" on pad " + padName + " in project " + juce::String (project) + "? ";
+        body << (oldSlot > 0 ? "It currently plays \"" + oldName + "\". Nothing is deleted: \"" + oldName + "\" stays in the library."
+                             : juce::String ("The pad is empty now."));
+        const auto backup = model.latestBackup();
+        body << juce::newLine << juce::newLine
+             << (backup ? Ep40Backup::describe (*backup) : juce::String ("no complete backup: writes are locked"));
+
+        juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Assign to pad?", body, "Assign", "Cancel", this,
+            juce::ModalCallbackFunction::create ([this, project, targetGroup, gridIndex, slot = sound.slot, soundName, padName] (int result)
+            {
+                // Re-check the gate: the device or the backup may have gone while the dialog was open.
+                if (result == 0 || ! model.writesUnlocked() || model.deviceWriter().isBusy())
+                    return;
+                status = "Assigning...";
+                model.deviceWriter().assignPad (project, targetGroup, gridIndex, slot, [this, soundName, padName] (Ep40Writer::Result r)
+                {
+                    status = r.ok ? "\"" + soundName + "\" is now on pad " + padName : "Assign failed: " + r.message;
+                    refresh();
+                });
+                refresh();
+            }));
     }
 
     juce::Rectangle<float> LoadPanel::padCell (int gridIndex) const
@@ -223,16 +259,7 @@ namespace halo
                 {
                     assignMode = false;
                     if (const auto* s = selectedSound(); s != nullptr && model.writesUnlocked())
-                    {
-                        status = "Assigning...";
-                        model.deviceWriter().assignPad (lib.activeProject(), group, i, s->slot, [this, i, name = s->name] (Ep40Writer::Result r)
-                        {
-                            status = r.ok ? "\"" + name + "\" is now on pad " + juce::String (ep40::groupLabels[(size_t) group].data())
-                                                + " " + juce::String (ep40::gridLabels[(size_t) i].data())
-                                          : "Assign failed: " + r.message;
-                            refresh();
-                        });
-                    }
+                        confirmAssign (i, *s);
                     refresh();
                     return;
                 }

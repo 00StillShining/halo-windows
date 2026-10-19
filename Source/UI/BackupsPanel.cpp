@@ -39,7 +39,8 @@ namespace halo
 
     void BackupsPanel::reload()
     {
-        entries = Ep40Backup::list();
+        model.backup().rescanAsync();
+        entries = model.backup().entries();
         list.updateContent();
         changeListenerCallback (nullptr);
     }
@@ -51,9 +52,9 @@ namespace halo
         backupButton.setEnabled (ready && ! b.isRunning());
         cancelButton.setVisible (b.isRunning());
         if (b.isRunning()) startTimerHz (4); else stopTimer();
-        if (! b.isRunning() && (int) entries.size() != (int) Ep40Backup::list().size())
+        if (entries != b.entries())
         {
-            entries = Ep40Backup::list();
+            entries = b.entries();
             list.updateContent();
         }
         list.repaint();
@@ -114,7 +115,7 @@ namespace halo
         g.drawText ("BACKUPS", header.removeFromTop (16), juce::Justification::centredLeft);
 
         const auto& info = model.device().info();
-        const bool backedUp = Ep40Backup::hasCompleteBackup (info.serial);
+        const bool backedUp = model.backup().hasCompleteBackup (info.serial);
         g.setFont (HaloType::mono (12.0f));
         g.setColour (backedUp ? c.riddimGreen : c.ink);
         g.drawText (model.device().state() != Ep40Library::State::ready ? juce::String ("Connect the EP-40 (see LOAD) to back it up")
