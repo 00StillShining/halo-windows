@@ -116,3 +116,20 @@ TEST_CASE ("meter: release takes ~300 ms whatever the block size (Mac applied pe
         CHECK (peakDb == doctest::Approx (20.0 * std::log10 (std::exp (-1.0))).epsilon (0.05));
     }
 }
+
+TEST_CASE ("meter: the limit lamp lights from the pre-limiter peak above -1 dBFS")
+{
+    std::vector<float> l (256, 0.1f), r (256, 0.1f);
+    AudioMeter meter;
+    // 0.95 is above the limiter's ceiling (-1 dBFS = 0.891) but not a clip.
+    meter.publish (l.data(), r.data(), 256, 0.95f, 0.5f);
+    auto s = meter.snapshot();
+    CHECK (s.limitedL);
+    CHECK_FALSE (s.limitedR);
+    CHECK_FALSE (s.clippedL);
+    // Reading clears it, like the clip flag.
+    CHECK_FALSE (meter.snapshot().limitedL);
+    // Exactly at the ceiling is not "limited".
+    meter.publish (l.data(), r.data(), 256, SafetyLimiter::ceiling, 0.0f);
+    CHECK_FALSE (meter.snapshot().limitedL);
+}

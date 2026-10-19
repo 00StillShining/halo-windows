@@ -93,6 +93,22 @@ namespace halo
         void toggleMonitor();
         void toggleRecording();
         const std::optional<SessionRecorder::Take>& lastTake() const noexcept { return latestTake; }
+        // The newest recorded take and the newest grab, kept apart for PLAY's lines.
+        const std::optional<SessionRecorder::Take>& lastRecording() const noexcept { return latestRecording; }
+        const std::optional<SessionRecorder::Take>& lastGrab() const noexcept { return latestGrab; }
+        juce::Time lastRecordingTime() const noexcept { return latestRecordingAt; }
+        juce::Time lastGrabTime() const noexcept { return latestGrabAt; }
+        int lastGrabBars() const noexcept { return latestGrabBars; }
+        // The monitor stopped because the EP-40 went away (cleared on the next start).
+        bool monitorStoppedByDisconnect() const noexcept { return stoppedByDisconnect; }
+
+        // The meters, polled once per UI tick for everyone (H7: the deck VU,
+        // PLAY's arcs and ladders all read this). The limit lamp holds 1.5 s.
+        const StereoLevels& meterLevels() const noexcept { return meters; }
+        bool limitLit (int channel) const noexcept { return now() < limitUntil[(size_t) juce::jlimit (0, 1, channel)]; }
+
+        // Clocks since Start (the bar phase), for the PLAY lane's bar.beat and ruler.
+        int clockTicks() const noexcept { return reducer.clock().clockCount(); }
 
         // GRAB: last N bars (clock + transport playing) or last N seconds.
         GrabController& grabber() noexcept { return grab; }
@@ -153,7 +169,12 @@ namespace halo
         GrabController grab;
         juce::String grabStatus;
         double grabStatusUntil = 0.0;
-        std::optional<SessionRecorder::Take> latestTake;
+        std::optional<SessionRecorder::Take> latestTake, latestRecording, latestGrab;
+        juce::Time latestRecordingAt, latestGrabAt;
+        int latestGrabBars = 0;
+        bool stoppedByDisconnect = false;
+        StereoLevels meters;
+        std::array<double, 2> limitUntil {};
         std::optional<double> recordingStartedAt;
         int diskCheckCountdown = 0;
         DisplayReducer reducer;

@@ -125,6 +125,40 @@ namespace halo::layout
         return f;
     }
 
+    // ---- PLAY ---------------------------------------------------------------------
+    PlayLayout playLayout (const Frame& f, bool railOpen)
+    {
+        PlayLayout p;
+        p.railOpen = railOpen;
+        const auto& b = f.body;
+        const float railW = railOpen ? (f.narrow ? 346.0f : 406.0f) : PlayLayout::spineWidth;
+        p.rail = { b.right() - railW, b.y, railW, b.h };
+        p.stage = { b.x, b.y, b.w - railW - 10.0f, b.h };
+        if (! railOpen)
+        {
+            p.spine = p.rail;
+            return p;
+        }
+        // Section heights at 1440 [compact] {ultra}: 84 [64] {64}, 182 [150]
+        // {140}, 106 [90] {84}, 80 [30] {30}; events take the rest (>= 3 lines).
+        const bool regular = f.density == Density::regular;
+        const bool ultra = f.density == Density::ultra;
+        const float lastPad = regular ? 84.0f : 64.0f;
+        const float monitor = regular ? 182.0f : ultra ? 140.0f : 150.0f;
+        const float grab = regular ? 106.0f : ultra ? 84.0f : 90.0f;
+        const float rack = regular ? 80.0f : 30.0f;
+        p.rackOneLine = ! regular;
+        float y = b.y;
+        auto take = [&] (float h) { Rect r { p.rail.x, y, p.rail.w, h }; y += h + PlayLayout::gap; return r; };
+        p.lastPad = take (lastPad);
+        p.monitor = take (monitor);
+        p.grab = take (grab);
+        p.rack = take (rack);
+        p.events = { p.rail.x, y, p.rail.w, b.bottom() - y };
+        p.eventLines = std::max (0, (int) ((p.events.h - 18.0f) / 18.0f)); // an 18 px header, 18 px rows
+        return p;
+    }
+
     // ---- Status strip -----------------------------------------------------------
     namespace
     {

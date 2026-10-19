@@ -160,3 +160,29 @@ TEST_CASE ("layout: measuring uses the generated metrics")
     CHECK (plain > 10.0f);
     CHECK (measure (halo::fontmetrics::kUi, 25.0f, "abc") == doctest::Approx (plain * 2.0f));
 }
+
+TEST_CASE ("layout: the PLAY rail's sections fit at every size, with at least 3 event lines")
+{
+    for (float w : { 1180.0f, 1280.0f, 1440.0f, 1920.0f, 2560.0f })
+        for (float h : { 660.0f, 699.0f, 720.0f, 819.0f, 900.0f, 1200.0f })
+        {
+            INFO ("size " << w << " x " << h);
+            const auto f = frame (w, h);
+            const auto p = playLayout (f, true);
+            CHECK (p.eventLines >= 3);
+            CHECK (p.events.bottom() <= f.body.bottom() + 0.01f);
+            CHECK (f.body.contains (p.lastPad));
+            CHECK_FALSE (p.stage.overlaps (p.rail));
+            CHECK (p.stage.w >= 600.0f);
+            const auto closed = playLayout (f, false);
+            CHECK (closed.stage.w > p.stage.w);
+            CHECK (closed.spine.w == doctest::Approx (PlayLayout::spineWidth));
+        }
+    // The plan's compact sum: 64 + 150 + 90 + 30 + 72 + 4 x 8 = 438 <= 462.
+    const auto c = playLayout (frame (1180, 720), true);
+    CHECK (c.rackOneLine);
+    CHECK (c.lastPad.h + c.monitor.h + c.grab.h + c.rack.h + 4 * PlayLayout::gap + 72.0f <= 462.0f);
+    const auto r = playLayout (frame (1440, 900), true);
+    CHECK (r.rail.x == doctest::Approx (1010.0f));
+    CHECK (r.stage.right() == doctest::Approx (1000.0f));
+}

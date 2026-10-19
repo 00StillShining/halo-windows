@@ -93,6 +93,8 @@ namespace halo
         engine.onTakeFinished = [this] (const SessionRecorder::Take& take)
         {
             latestTake = take;
+            latestRecording = take;
+            latestRecordingAt = juce::Time::getCurrentTime();
             sampleLibrary.refresh();
             appendLog ("take saved: " + take.file.getFileName() + " (" + juce::String (take.seconds, 1) + " s)");
             if (take.droppedSamples > 0)
@@ -126,6 +128,9 @@ namespace halo
             if (r.file.existsAsFile())
             {
                 latestTake = SessionRecorder::Take { r.file, r.seconds, engine.route().sampleRate, 0 };
+                latestGrab = latestTake;
+                latestGrabAt = juce::Time::getCurrentTime();
+                latestGrabBars = r.gotBars;
                 appendLog ("grab saved: " + r.file.getFileName());
                 sampleLibrary.refresh();
             }
@@ -186,6 +191,7 @@ namespace halo
         engine.start();
         if (engine.isRunning())
         {
+            stoppedByDisconnect = false;
             const auto& r = engine.route();
             appendLog ("monitor on: " + r.outputName + " @ " + juce::String (r.sampleRate / 1000.0, 1) + " kHz, "
                        + juce::String (r.bufferSize) + " frames, ~" + juce::String (juce::roundToInt (r.latencyMs)) + " ms");
@@ -291,6 +297,7 @@ namespace halo
             if (! connected && ! mock && engine.isRunning())
             {
                 engine.stop();
+                stoppedByDisconnect = true;
                 appendLog ("monitor stopped: EP-40 disconnected");
             }
             grab.setTransportPlaying (false);
@@ -460,6 +467,18 @@ namespace halo
 
         if (mock)
             runMockStep();
+
+        // One meter poll for the whole UI (the snapshot clears the flags).
+        if (engine.isRunning())
+        {
+            meters = engine.levels();
+            if (meters.limitedL) limitUntil[0] = t + 1.5;
+            if (meters.limitedR) limitUntil[1] = t + 1.5;
+        }
+        else if (std::isfinite (meters.peakL) || std::isfinite (meters.peakR))
+        {
+            meters = {};
+        }
 
         if (--diskCheckCountdown <= 0)
         {

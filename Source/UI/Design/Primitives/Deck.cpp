@@ -188,7 +188,7 @@ namespace halo
         }
         if (metersLive && frame.showVu)
         {
-            levels = model.monitor().levels();
+            levels = model.meterLevels();
             repaint (local (frame.vu));
         }
     }

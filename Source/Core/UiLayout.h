@@ -54,6 +54,19 @@ namespace halo::layout
 
     Frame frame (float width, float height, float physicalScale = 1.0f);
 
+    // ---- PLAY (plan section 3.5) ---------------------------------------------
+    struct PlayLayout
+    {
+        Rect stage, rail, spine;
+        bool railOpen = true;
+        // Rail sections, top to bottom, with 8 px between them.
+        Rect lastPad, monitor, grab, rack, events;
+        bool rackOneLine = false; // compact: "rack engaged · echo spring · mix 35"
+        int eventLines = 3;
+        static constexpr float gap = 8.0f, spineWidth = 28.0f;
+    };
+    PlayLayout playLayout (const Frame&, bool railOpen);
+
     // ---- Text measurement from the generated metrics -------------------------
     float measure (const fontmetrics::Role&, std::string_view utf8);
     float measure (const fontmetrics::Role&, float em, std::string_view utf8);

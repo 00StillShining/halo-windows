@@ -152,6 +152,9 @@ namespace halo
         float rmsL = -std::numeric_limits<float>::infinity(), rmsR = rmsL;
         float peakL = rmsL, peakR = rmsL;
         bool clippedL = false, clippedR = false;
+        // The safety limiter acted: the pre-limiter peak went above its
+        // -1 dBFS ceiling (the `limit` lamp on the level arcs).
+        bool limitedL = false, limitedR = false;
     };
 
     // Lock-free stereo meter: the audio thread publishes, the UI snapshots.
@@ -187,17 +190,22 @@ namespace halo
             unsigned clip = (rawPeakL >= 1.0f ? 1u : 0u) | (rawPeakR >= 1.0f ? 2u : 0u);
             if (clip != 0)
                 clipBits.fetch_or (clip, std::memory_order_relaxed);
+            unsigned limit = (rawPeakL > SafetyLimiter::ceiling ? 1u : 0u) | (rawPeakR > SafetyLimiter::ceiling ? 2u : 0u);
+            if (limit != 0)
+                limitBits.fetch_or (limit, std::memory_order_relaxed);
         }
 
         // UI thread. Reading clears the clip flags.
         StereoLevels snapshot() noexcept
         {
             const unsigned clip = clipBits.exchange (0, std::memory_order_relaxed);
+            const unsigned limit = limitBits.exchange (0, std::memory_order_relaxed);
             return { MeterMath::linearToDb (rmsL.load (std::memory_order_relaxed)),
                      MeterMath::linearToDb (rmsR.load (std::memory_order_relaxed)),
                      MeterMath::linearToDb (peakL.load (std::memory_order_relaxed)),
                      MeterMath::linearToDb (peakR.load (std::memory_order_relaxed)),
-                     (clip & 1u) != 0, (clip & 2u) != 0 };
+                     (clip & 1u) != 0, (clip & 2u) != 0,
+                     (limit & 1u) != 0, (limit & 2u) != 0 };
         }
 
         // Only while the audio callback isn't running.
@@ -206,6 +214,7 @@ namespace halo
             heldPeakL = heldPeakR = heldRmsL = heldRmsR = 0.0f;
             peakL = peakR = rmsL = rmsR = 0.0f;
             clipBits = 0;
+            limitBits = 0;
         }
 
     private:
@@ -218,5 +227,6 @@ namespace halo
         float heldPeakL = 0.0f, heldPeakR = 0.0f, heldRmsL = 0.0f, heldRmsR = 0.0f;
         std::atomic<float> peakL { 0.0f }, peakR { 0.0f }, rmsL { 0.0f }, rmsR { 0.0f };
         std::atomic<unsigned> clipBits { 0 };
+        std::atomic<unsigned> limitBits { 0 };
     };
 }
