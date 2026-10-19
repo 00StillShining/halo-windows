@@ -21,7 +21,21 @@ namespace halo::chop
         int hopSize = 512;
     };
 
+    struct Onset
+    {
+        int frame = 0;
+        float strength = 0.0f; // spectral-flux peak height
+    };
+
+    std::vector<Onset> detectOnsetsWithStrength (const std::vector<float>& mono, double sampleRate, const OnsetParameters&);
     std::vector<int> detectOnsets (const std::vector<float>& mono, double sampleRate, const OnsetParameters&);
+
+    // The strongest maxCuts onsets (each at least minGap from the others),
+    // returned in time order. Fewer if fewer were detected.
+    std::vector<int> strongestCuts (const std::vector<Onset>&, int maxCuts, int minGap);
+
+    // Cuts that divide the source into `slices` equal parts.
+    std::vector<int> evenCuts (int sourceFrames, int slices);
 
     struct Slice
     {

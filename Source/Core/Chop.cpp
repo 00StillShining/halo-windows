@@ -43,8 +43,19 @@ namespace halo::chop
             }
         }
 
-        // Half-wave-rectified spectral flux per hop, Hann-windowed.
-        std::vector<float> spectralFlux (const std::vector<float>& mono, int windowSize, int hopSize)
+        struct Flux
+        {
+            std::vector<float> log;    // for finding onsets
+            std::vector<float> linear; // for ranking them by loudness
+        };
+
+        // Half-wave-rectified spectral flux per hop, Hann-windowed, two ways.
+        //  - Log-compressed magnitude (log(1 + 100|X|)) finds onsets. The Mac used
+        //    linear magnitude, whose flux flickers on noisy tails: on a 16-hit drum
+        //    loop it found 20 cuts at every sensitivity; this finds the 16 hits.
+        //  - Linear magnitude ranks them, because log compression rates a quiet hit
+        //    after silence almost as highly as a loud one.
+        Flux spectralFlux (const std::vector<float>& mono, int windowSize, int hopSize)
         {
             const int half = windowSize / 2;
             std::vector<float> window ((size_t) windowSize);
@@ -52,8 +63,8 @@ namespace halo::chop
                 window[(size_t) i] = 0.5f - 0.5f * std::cos (2.0f * 3.14159265358979f * (float) i / (float) windowSize);
 
             std::vector<std::complex<float>> frame ((size_t) windowSize);
-            std::vector<float> mag ((size_t) half), prev ((size_t) half);
-            std::vector<float> flux;
+            std::vector<float> lin ((size_t) half), prevLin ((size_t) half);
+            Flux flux;
             bool first = true;
 
             for (size_t start = 0; start + (size_t) windowSize <= mono.size(); start += (size_t) hopSize)
@@ -61,20 +72,21 @@ namespace halo::chop
                 for (int i = 0; i < windowSize; ++i)
                     frame[(size_t) i] = { mono[start + (size_t) i] * window[(size_t) i], 0.0f };
                 fft (frame);
-                // Log-compressed magnitude (log(1 + 100|X|)). The Mac used linear
-                // magnitude, whose flux flickers on noisy tails: on a 16-hit drum loop
-                // it found 20 cuts at every sensitivity; this finds the 16 hits.
                 for (int k = 0; k < half; ++k)
-                    mag[(size_t) k] = std::log1p (100.0f * std::abs (frame[(size_t) k]));
+                    lin[(size_t) k] = std::abs (frame[(size_t) k]);
 
                 // The first frame has no predecessor: zero it so there's no phantom onset.
-                float s = 0.0f;
+                float sLog = 0.0f, sLin = 0.0f;
                 if (! first)
                     for (int k = 0; k < half; ++k)
-                        s += std::max (0.0f, mag[(size_t) k] - prev[(size_t) k]);
-                flux.push_back (s);
+                    {
+                        sLog += std::max (0.0f, std::log1p (100.0f * lin[(size_t) k]) - std::log1p (100.0f * prevLin[(size_t) k]));
+                        sLin += std::max (0.0f, lin[(size_t) k] - prevLin[(size_t) k]);
+                    }
+                flux.log.push_back (sLog);
+                flux.linear.push_back (sLin);
                 first = false;
-                std::swap (prev, mag);
+                std::swap (prevLin, lin);
             }
             return flux;
         }
@@ -82,12 +94,47 @@ namespace halo::chop
 
     std::vector<int> detectOnsets (const std::vector<float>& mono, double sampleRate, const OnsetParameters& p)
     {
+        std::vector<int> frames;
+        for (const auto& o : detectOnsetsWithStrength (mono, sampleRate, p))
+            frames.push_back (o.frame);
+        return frames;
+    }
+
+    std::vector<int> strongestCuts (const std::vector<Onset>& onsets, int maxCuts, int minGap)
+    {
+        auto byStrength = onsets;
+        std::stable_sort (byStrength.begin(), byStrength.end(), [] (const Onset& a, const Onset& b) { return a.strength > b.strength; });
+
+        std::vector<int> chosen;
+        for (const auto& o : byStrength)
+        {
+            if ((int) chosen.size() >= maxCuts)
+                break;
+            const bool clear = std::none_of (chosen.begin(), chosen.end(), [&] (int f) { return std::abs (f - o.frame) < minGap; });
+            if (clear)
+                chosen.push_back (o.frame);
+        }
+        std::sort (chosen.begin(), chosen.end());
+        return chosen;
+    }
+
+    std::vector<int> evenCuts (int sourceFrames, int slices)
+    {
+        std::vector<int> cuts;
+        for (int i = 1; i < slices && sourceFrames > 0; ++i)
+            cuts.push_back ((int) std::llround ((double) sourceFrames * i / slices));
+        return cuts;
+    }
+
+    std::vector<Onset> detectOnsetsWithStrength (const std::vector<float>& mono, double sampleRate, const OnsetParameters& p)
+    {
         const int n = (int) mono.size();
         const bool powerOfTwo = p.windowSize > 0 && (p.windowSize & (p.windowSize - 1)) == 0;
         if (n < p.windowSize || sampleRate <= 0.0 || ! powerOfTwo || p.hopSize <= 0)
             return {};
 
-        const auto flux = spectralFlux (mono, p.windowSize, p.hopSize);
+        const auto both = spectralFlux (mono, p.windowSize, p.hopSize);
+        const auto& flux = both.log;
         if (flux.size() <= 2)
             return {};
 
@@ -96,7 +143,7 @@ namespace halo::chop
         const int minGap = std::max (1, (int) (p.minSliceMilliseconds / 1000.0 * sampleRate));
         constexpr int W = 6;
 
-        std::vector<int> onsets;
+        std::vector<Onset> onsets;
         int last = -minGap;
         for (int m = 1; m < (int) flux.size() - 1; ++m)
         {
@@ -105,11 +152,22 @@ namespace halo::chop
             const bool localMax = flux[(size_t) m] > flux[(size_t) m - 1] && flux[(size_t) m] >= flux[(size_t) m + 1];
             const int frame = m * p.hopSize;
             // Cuts closer than minGap to either end would make a sliver slice.
-            if (flux[(size_t) m] > mean * mult + 1.0e-6f && localMax && frame - last >= minGap
-                && frame >= minGap && frame <= n - minGap)
+            if (flux[(size_t) m] > mean * mult + 1.0e-6f && localMax && frame >= minGap && frame <= n - minGap)
             {
-                onsets.push_back (frame);
-                last = frame;
+                // Rank by loudness: the strongest linear flux right around the onset.
+                const float strength = std::max ({ both.linear[(size_t) m - 1], both.linear[(size_t) m], both.linear[(size_t) m + 1] });
+                if (frame - last >= minGap)
+                {
+                    onsets.push_back ({ frame, strength });
+                    last = frame;
+                }
+                else if (! onsets.empty() && strength > onsets.back().strength)
+                {
+                    // Two candidates inside the gap: keep the stronger, not just the
+                    // earlier (a quiet pre-hit used to mask the real hit after it).
+                    onsets.back() = { frame, strength };
+                    last = frame;
+                }
             }
         }
         return onsets;

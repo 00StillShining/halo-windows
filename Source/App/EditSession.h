@@ -46,6 +46,17 @@ namespace halo
         // ---- CHOP ---------------------------------------------------------
         bool chopOpen = false;
         chop::OnsetParameters onsetParameters;
+
+        // How many slices: FIT = the pads left in the group from the start pad
+        // (the default, so a chop fits without overflow), a fixed count, or ALL
+        // detected cuts. EVEN splits into equal parts instead of transients.
+        static constexpr int sliceFit = 0, sliceAll = -1;
+        int sliceChoice = sliceFit;
+        bool evenSlices = false;
+        void setSliceChoice (int choice) { sliceChoice = choice; applySliceChoice(); }
+        void setEvenSlices (bool even) { evenSlices = even; applySliceChoice(); }
+        void setStartPad (int pad);
+        int targetSliceCount() const; // 0 = no limit (ALL transients)
         chop::SliceSet slices;
         std::optional<int> selectedSlice;
         int group = 0, startPad = 0;
@@ -66,6 +77,7 @@ namespace halo
         const juce::File& lastExport() const noexcept { return exported; }
 
     private:
+        void applySliceChoice();
         void setStatus (const juce::String&);
         void play (std::shared_ptr<const AudioData>, int token);
         template <typename Work, typename Done>
@@ -76,6 +88,7 @@ namespace halo
         Library::Item current;
         std::shared_ptr<const AudioData> source;
         std::vector<float> mono;
+        std::vector<chop::Onset> detected; // every onset found, before the SLICES choice
         WaveformSummary wave;
         bool loading = false;
         juce::String lastError, statusLine;

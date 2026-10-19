@@ -11,6 +11,7 @@ namespace halo
         const auto& c = HaloColours::graphPaper;
         constexpr Treatment treatments[] { Treatment::original, Treatment::high, Treatment::balanced,
                                            Treatment::loFi22k, Treatment::loFi11k };
+        constexpr int sliceChoices[] { EditSession::sliceFit, 4, 8, 16, EditSession::sliceAll };
     }
 
     //==============================================================================
@@ -58,7 +59,7 @@ namespace halo
         for (int i = 0; i < ep40::padsPerGroup; ++i)
             if (cell (i).contains (e.position))
             {
-                session.startPad = i;
+                session.setStartPad (i);
                 session.changed();
             }
     }
@@ -92,6 +93,16 @@ namespace halo
             (f.exists() ? f : SampleIO::exportFolder()).revealToUser();
         };
         sendButton.setEnabled (false); // needs the transfer protocol (Phase 0B)
+
+        const char* sliceNames[] { "FIT", "4", "8", "16", "ALL" };
+        for (size_t i = 0; i < sliceButtons.size(); ++i)
+        {
+            sliceButtons[i].setButtonText (sliceNames[i]);
+            sliceButtons[i].onClick = [this, i] { session.setSliceChoice (sliceChoices[i]); };
+            addAndMakeVisible (sliceButtons[i]);
+        }
+        evenButton.onClick = [this] { session.setEvenSlices (! session.evenSlices); };
+        addAndMakeVisible (evenButton);
 
         for (size_t i = 0; i < groupButtons.size(); ++i)
         {
@@ -129,6 +140,12 @@ namespace halo
 
     void ChopSurface::refresh()
     {
+        for (size_t i = 0; i < sliceButtons.size(); ++i)
+            sliceButtons[i].setToggleState (session.sliceChoice == sliceChoices[i], juce::dontSendNotification);
+        sliceButtons[0].setButtonText ("FIT " + juce::String (juce::jmax (1, ep40::padsPerGroup - session.startPad)));
+        evenButton.setToggleState (session.evenSlices, juce::dontSendNotification);
+        sensitivity.setEnabled (! session.evenSlices);
+        detectButton.setEnabled (! session.evenSlices);
         for (size_t i = 0; i < groupButtons.size(); ++i)
             groupButtons[i].setToggleState (session.group == (int) i, juce::dontSendNotification);
         for (size_t i = 0; i < qualityButtons.size(); ++i)
@@ -177,10 +194,18 @@ namespace halo
         controls.removeFromLeft (12);
         detectButton.setBounds (controls.removeFromLeft (100).reduced (2));
         clearButton.setBounds (controls.removeFromLeft (130).reduced (2));
+
+        area.removeFromTop (4);
+        auto sliceRow = area.removeFromTop (34);
+        slicesLabel = sliceRow.removeFromLeft (100);
+        for (auto& b : sliceButtons)
+            b.setBounds (sliceRow.removeFromLeft (&b == &sliceButtons[0] ? 84 : 60).reduced (2));
+        sliceRow.removeFromLeft (16);
+        evenButton.setBounds (sliceRow.removeFromLeft (80).reduced (2));
         hintArea = area.removeFromTop (22);
         area.removeFromTop (6);
 
-        waveform.setBounds (area.removeFromTop (juce::jmax (160, area.getHeight() - 300)));
+        waveform.setBounds (area.removeFromTop (juce::jmax (140, area.getHeight() - 300)));
         area.removeFromTop (14);
 
         auto bottom = area;
@@ -228,6 +253,7 @@ namespace halo
         g.setFont (HaloType::label (11.0f, false));
         g.setColour (c.inkSoft);
         g.drawText ("SENSITIVITY", sensitivityLabel, juce::Justification::centredLeft);
+        g.drawText ("SLICES", slicesLabel, juce::Justification::centredLeft);
         g.setFont (HaloType::mono (11.0f));
         g.drawText ("click a slice or press 1-9, 0 to hear it  |  double-click: add cut  |  drag a marker: move  |  right-click a marker or Delete: remove",
                     hintArea, juce::Justification::centredLeft, true);

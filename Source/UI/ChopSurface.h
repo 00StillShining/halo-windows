@@ -42,6 +42,9 @@ namespace halo
         juce::Slider sensitivity;
         juce::TextButton detectButton { "DETECT" }, clearButton { "CLEAR CUTS" }, closeButton { "CLOSE" },
                          exportButton { "EXPORT SLICES" }, sendButton { "SEND TO PADS" }, showButton { "SHOW" };
+        std::array<juce::TextButton, 5> sliceButtons; // FIT 4 8 16 ALL
+        juce::TextButton evenButton { "EVEN" };
+        juce::Rectangle<int> slicesLabel;
         std::array<juce::TextButton, 4> groupButtons;
         std::array<juce::TextButton, 5> qualityButtons;
         juce::TextEditor nameEditor;

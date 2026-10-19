@@ -188,16 +188,57 @@ namespace halo
         setStatus ("Detecting slices...");
         runInBackground ([m = mono, rate = source->sampleRate, p = onsetParameters]
         {
-            return chop::detectOnsets (m, rate, p);
+            return chop::detectOnsetsWithStrength (m, rate, p);
         },
-        [this, gen] (std::vector<int> onsets)
+        [this, gen] (std::vector<chop::Onset> onsets)
         {
             if (gen != generation || source == nullptr)
                 return;
-            slices = chop::SliceSet (source->frameCount(), onsets);
-            selectedSlice.reset();
-            setStatus (juce::String (slices.sliceCount()) + " slices");
+            detected = std::move (onsets);
+            applySliceChoice();
         });
+    }
+
+    int EditSession::targetSliceCount() const
+    {
+        if (sliceChoice == sliceFit)
+            return std::max (1, ep40::padsPerGroup - startPad);
+        if (sliceChoice == sliceAll)
+            return evenSlices ? 16 : 0;
+        return sliceChoice;
+    }
+
+    void EditSession::setStartPad (int pad)
+    {
+        startPad = juce::jlimit (0, ep40::padsPerGroup - 1, pad);
+        if (sliceChoice == sliceFit)
+            applySliceChoice(); // FIT follows the pads that are left
+        else
+            sendChangeMessage();
+    }
+
+    void EditSession::applySliceChoice()
+    {
+        if (source == nullptr)
+            return;
+        const int n = source->frameCount();
+        const int target = targetSliceCount();
+
+        std::vector<int> cuts;
+        if (evenSlices)
+            cuts = chop::evenCuts (n, target);
+        else if (target == 0)
+            for (const auto& o : detected)
+                cuts.push_back (o.frame);
+        else
+            cuts = chop::strongestCuts (detected, target - 1, minGap());
+
+        slices = chop::SliceSet (n, cuts);
+        selectedSlice.reset();
+        juce::String line = juce::String (slices.sliceCount()) + " slices";
+        if (! evenSlices && target > 0 && (int) detected.size() + 1 > target)
+            line << " (the " << (target - 1) << " strongest of " << (int) detected.size() << " cuts found)";
+        setStatus (line);
     }
 
     chop::PadPlan EditSession::plan() const

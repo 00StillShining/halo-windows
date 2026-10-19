@@ -268,6 +268,45 @@ TEST_CASE ("onsets: higher sensitivity never finds fewer; silence and short inpu
     CHECK (chop::detectOnsets (std::vector<float> (500, 0.5f), sr, {}).empty());
 }
 
+TEST_CASE ("strongest cuts: keeps the loudest hits in time order, respecting the gap")
+{
+    const std::vector<chop::Onset> onsets { { 100, 0.2f }, { 200, 5.0f }, { 210, 4.0f }, { 400, 3.0f }, { 600, 0.1f } };
+    CHECK (chop::strongestCuts (onsets, 2, 50) == std::vector<int> { 200, 400 });  // 210 is too close to 200
+    CHECK (chop::strongestCuts (onsets, 3, 50) == std::vector<int> { 100, 200, 400 });
+    CHECK (chop::strongestCuts (onsets, 10, 50).size() == 4);                      // fewer when fewer exist
+    CHECK (chop::strongestCuts ({}, 5, 50).empty());
+}
+
+TEST_CASE ("strongest cuts pick the real hits out of a dense recording")
+{
+    // Four loud hits plus many quiet ones in between: asking for 3 cuts
+    // (4 slices) must land on the loud hits after the first.
+    const double sr = 44100.0;
+    std::vector<double> quiet;
+    for (int i = 0; i < 24; ++i)
+        quiet.push_back (0.07 + i * 0.125);
+    auto mono = clickTrack (sr, quiet, 3.2);
+    for (auto& v : mono) v *= 0.15f;
+    const auto loud = clickTrack (sr, { 0.0, 0.8, 1.6, 2.4 }, 3.2);
+    for (size_t i = 0; i < mono.size(); ++i) mono[i] += loud[i];
+
+    chop::OnsetParameters p;
+    p.sensitivity = 0.9;
+    const auto all = chop::detectOnsetsWithStrength (mono, sr, p);
+    REQUIRE (all.size() > 3);
+    const auto cuts = chop::strongestCuts (all, 3, (int) (0.04 * sr));
+    REQUIRE (cuts.size() == 3);
+    for (size_t i = 0; i < 3; ++i)
+        CHECK (std::abs (cuts[i] - (int) ((0.8 * (double) (i + 1)) * sr)) <= 1024);
+}
+
+TEST_CASE ("even cuts divide into equal parts")
+{
+    CHECK (chop::evenCuts (1000, 4) == std::vector<int> { 250, 500, 750 });
+    CHECK (chop::evenCuts (1000, 1).empty());
+    CHECK (chop::evenCuts (0, 4).empty());
+}
+
 TEST_CASE ("slices tile the whole signal; no onsets means one slice")
 {
     chop::SliceSet set (1000, { 300, 100, 300, 0, 1000, 700 });
