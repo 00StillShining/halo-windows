@@ -26,7 +26,22 @@ Repo: `00StillShining/halo` (25 commits, last activity 2026-07-14). Reviewed 202
 >   - Verified: the route opens on the real EP-40 at 44.1 kHz, 480 frames, ~33 ms, and a take is a valid WAV.
 >   - **Owner listening test (2026-10-19): passed.** EP-40 audio is heard clearly through a PC output, and the meters move.
 >   - Windows' default output on this PC *is* the EP-40, so halo asks you to pick another output rather than feed back.
->   - Still to do in B3: GRAB (rolling buffer) and drift correction. JUCE's single WASAPI device runs input and output on separate clocks with no varispeed.
+>   - Still to do in B3: drift correction. JUCE's single WASAPI device runs input and output on separate clocks with no varispeed.
+> - **GRAB: done.**
+>   - An always-on 60 s+ history; the last 4/8/16 bars (fresh clock, transport playing) or 5/10/30 s, zero-cross trimmed, written off the UI thread.
+>   - Downbeats are exact audio frames converted from MIDI timestamps. The Mac stamped them on UI arrival, one tick early (tick 96, not 97).
+>   - Stop keeps the bar phase, so Continue resumes in phase.
+>   - Verified: 4 bars at 120 BPM gives an 8.000 s WAV.
+>   - **Not yet felt on hardware:** bar-locked GRAB with the EP-40 playing.
+> - **B4 (dub RACK): done.**
+>   - TAPE ECHO (clock sync, divisions, tap), SPRING, SWEEP, LOW END; ENGAGE; PRINT FX.
+>   - Bit-transparent bypass, with 8 DSP tests.
+>   - Fixed a Mac bug: SWEEP and LOW END controls took ~10 s instead of 20 ms to glide.
+>   - **Not yet felt on hardware:** how the rack sounds on the EP-40.
+> - **More Mac bugs found while porting (all fixed here):**
+>   - Meter ballistics ran once per block with per-sample coefficients.
+>   - Rack control smoothing had the same problem.
+>   - GRAB downbeats came one tick early.
 > - **Owner hardware check (2026-10-19):** the owner pressed pads in all four groups on the real EP-40, and the correct keys moved and lit in the Windows app.
 > - **Clock tempo: resolved.**
 >   - The EP-40 was set to 180 BPM, and halo first read 179.2.
