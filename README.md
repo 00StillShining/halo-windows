@@ -14,11 +14,12 @@ A native Windows companion app for the Teenage Engineering **EP-40 Riddim**: a t
 | GRAB: the last 4/8/16 bars (clock + transport playing) or 5/10/30 s, zero-cross trimmed | Working; downbeats are exact audio frames from MIDI timestamps |
 | CAPTURE: library of takes, grabs and imported files (WAV/AIFF/FLAC/OGG/MP3/M4A; drag-and-drop) | Working |
 | EDIT: trim, equal-power fades, gain, normalise, mono/stereo, EP-40 quality presets, exact size, audition, export 16-bit WAV | Working |
-| LOAD: honest "device library not readable yet" plus the working path (export, then TE's EP Sample Tool) | Working |
-| BACKUPS mode | Not ported yet; shows a "not ported yet" plate |
+| LOAD: the EP-40's own library over TE's protocol (storage, projects, pads, categories, every sound); audition, save to library, assign to pad, delete | Working on a real EP-40 (OS 2.5.0) |
+| BACKUPS: full read-only backup (9 project TARs + every sound as a bit-exact WAV + metadata); unlocks writes | Working (477 sounds, ~20 min) |
+| EDIT "SEND TO EP-40" and CHOP "SEND TO PADS": upload to empty USER slots, verify, assign pads | Working; round trip verified byte-identical |
 | Dub RACK: TAPE ECHO (tempo-sync / tap), SPRING, SWEEP, LOW END; PRINT FX records post-rack | Working; bit-transparent when bypassed |
 | CHOP: onset slicing (editable cuts), slice audition (click or 1-9, 0), pad plan, export slices + pads.txt | Working |
-| Sending samples / reading the device library | Blocked on the EP-40 protocol; buttons shown disabled with the reason |
+| Restoring a backup to the EP-40 | Not built yet |
 
 ## Build
 

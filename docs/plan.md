@@ -48,6 +48,12 @@ Repo: `00StillShining/halo` (25 commits, last activity 2026-07-14). Reviewed 202
 > - **CHOP improvement over the Mac:**
 >   - Log-compressed spectral flux. On a 16-hit drum loop the Mac's linear flux found 20 cuts at every sensitivity, so the slider did nothing; this finds the 16 hits.
 >   - Cuts closer than the minimum slice length to either end are dropped.
+> - **Phase 0B (device protocol): done.** Halo replaces TE's Sample Tool for day-to-day use, verified on the owner's EP-40 (OS 2.5.0); see docs/protocol.md.
+>   - Identity, GREET, and a read-only library sync (477 sounds, storage, categories, projects, pads).
+>   - Download and audition.
+>   - Full backup (477 sounds and 9 project TARs, complete).
+>   - Guarded writes, unlocked only after a complete backup: upload to an empty slot (verified by STAT and a byte-identical read-back), pad assign and restore (read back), and delete (confirmed gone). No firmware error frames.
+>   - Not built yet: restoring a backup, and editing sound settings (pitch, envelope, play mode).
 > - **More Mac bugs found while porting (all fixed here):**
 >   - Meter ballistics ran once per block with per-sample coefficients.
 >   - Rack control smoothing had the same problem.

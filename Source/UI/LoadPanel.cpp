@@ -30,7 +30,32 @@ namespace halo
             status = assignMode ? "Click a pad to put \"" + selectedSound()->name + "\" on it (project " + juce::String (lib.activeProject()) + ")" : juce::String();
             refresh();
         };
-        for (auto* b : { &refreshButton, &auditionButton, &saveButton, &assignButton })
+        deleteButton.onClick = [this]
+        {
+            const auto* s = selectedSound();
+            if (s == nullptr || ! model.writesUnlocked())
+                return;
+            const int slot = s->slot;
+            const auto name = s->name;
+            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon, "Delete from EP-40",
+                "Delete sound " + juce::String (slot) + " \"" + name + "\" from the EP-40?" + juce::newLine + juce::newLine
+                    + "Your Halo backup still has a copy. Pads that use it will be silent.",
+                "Delete", "Cancel", this,
+                juce::ModalCallbackFunction::create ([this, slot, name] (int result)
+                {
+                    if (result == 0)
+                        return;
+                    status = "Deleting...";
+                    cache.erase (slot);
+                    model.deviceWriter().deleteSound (slot, [this, name] (Ep40Writer::Result r)
+                    {
+                        status = r.ok ? "Deleted \"" + name + "\"" : "Delete failed: " + r.message;
+                        refresh();
+                    });
+                    refresh();
+                }));
+        };
+        for (auto* b : { &refreshButton, &auditionButton, &saveButton, &assignButton, &deleteButton })
             addAndMakeVisible (b);
 
         for (size_t i = 0; i < projectButtons.size(); ++i)
@@ -99,9 +124,10 @@ namespace halo
             groupButtons[i].setToggleState (group == (int) i, juce::dontSendNotification);
 
         const bool available = deviceAvailable();
-        for (auto* comp : std::initializer_list<juce::Component*> { &list, &refreshButton, &auditionButton, &saveButton, &assignButton })
+        for (auto* comp : std::initializer_list<juce::Component*> { &list, &refreshButton, &auditionButton, &saveButton, &assignButton, &deleteButton })
             comp->setVisible (available || comp == &refreshButton);
         assignButton.setEnabled (model.writesUnlocked());
+        deleteButton.setEnabled (model.writesUnlocked());
         assignButton.setToggleState (assignMode, juce::dontSendNotification);
         assignButton.setTooltip (model.writesUnlocked() ? juce::String() : juce::String ("Back up the EP-40 in BACKUPS to unlock"));
         refreshButton.setEnabled (model.canTalkToDevice() && lib.state() != Ep40Library::State::syncing);
@@ -266,6 +292,7 @@ namespace halo
         auditionButton.setBounds (actions.removeFromLeft (120).reduced (2, 3));
         saveButton.setBounds (actions.removeFromLeft (170).reduced (2, 3));
         assignButton.setBounds (actions.removeFromLeft (150).reduced (2, 3));
+        deleteButton.setBounds (actions.removeFromRight (90).reduced (2, 3));
         area.removeFromBottom (4);
         list.setBounds (area);
     }
