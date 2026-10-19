@@ -17,6 +17,13 @@ namespace halo
             return text.isNotEmpty() ? text : "status " + juce::String (f->status);
         }
 
+        juce::String timeLeft (double seconds)
+        {
+            if (seconds < 60.0)
+                return "about " + juce::String (juce::jmax (1, juce::roundToInt (seconds / 5.0) * 5)) + " s left";
+            return "about " + juce::String (juce::roundToInt (seconds / 60.0)) + " min left";
+        }
+
         // Interleaved signed 16-bit little-endian: the EP-40's storage format.
         te::Bytes toPcm16 (const AudioData& a)
         {
@@ -37,7 +44,18 @@ namespace halo
 
     Ep40Writer::Ep40Writer (Ep40Library& l) : lib (l) {}
 
-    void Ep40Writer::upload (const AudioData& input, const juce::String& rawName, int requestedSlot, std::function<void (Result)> done)
+    struct Ep40Writer::Batch
+    {
+        std::vector<PadJob> jobs;
+        int project = 0;
+        std::function<void (const juce::String&)> onProgress;
+        std::function<void (Result)> done;
+        juce::int64 totalBytes = 0, doneBytes = 0;
+        double startMs = 0.0, lastReportMs = 0.0;
+    };
+
+    void Ep40Writer::upload (const AudioData& input, const juce::String& rawName, int requestedSlot, std::function<void (Result)> done,
+                             BytesProgress onBytes)
     {
         if (busy)
             return done ({ false, 0, "Another transfer is still running" });
@@ -71,7 +89,7 @@ namespace halo
 
         // 1. PUT INIT: announce the file.
         client.request (te::file, te::putInit ((std::uint16_t) slot, (std::uint32_t) pcm->size(), name.toStdString(), json.toStdString()),
-            [this, pcm, slot, name, json, finish] (const std::optional<te::Frame>& init) mutable
+            [this, pcm, slot, name, json, finish, onBytes] (const std::optional<te::Frame>& init) mutable
         {
             if (! okFrame (init))
                 return finish ({ false, slot, "The EP-40 refused the upload: " + why (init) });
@@ -79,7 +97,7 @@ namespace halo
             // 2. PUT DATA pages, then the empty final page.
             const int chunk = (int) lib.info().chunkSize;
             const int pageSize = chunk >= 64 ? juce::jmin (te::maxPutDataBytes, ((chunk - 6 - 10) * 7) / 8) : te::maxPutDataBytes;
-            sendPages (pcm, 0, pageSize, [this, pcm, slot, name, json, finish] (bool ok, juce::String error) mutable
+            sendPages (pcm, 0, pageSize, onBytes, [this, pcm, slot, name, json, finish] (bool ok, juce::String error) mutable
             {
                 if (! ok)
                     return finish ({ false, slot, "Upload stopped: " + error + ". Power-cycle the EP-40 before trying again." });
@@ -110,19 +128,22 @@ namespace halo
         }, 2000, "PUT INIT " + juce::String (slot));
     }
 
-    void Ep40Writer::sendPages (std::shared_ptr<te::Bytes> pcm, int page, int pageSize, std::function<void (bool, juce::String)> done)
+    void Ep40Writer::sendPages (std::shared_ptr<te::Bytes> pcm, int page, int pageSize, BytesProgress onBytes,
+                                std::function<void (bool, juce::String)> done)
     {
         const size_t offset = (size_t) page * (size_t) pageSize;
         const size_t count = offset < pcm->size() ? std::min<size_t> ((size_t) pageSize, pcm->size() - offset) : 0;
         // count == 0 is the required empty terminating page.
         lib.deviceClient().request (te::file, te::putData ((std::uint16_t) page, count > 0 ? pcm->data() + offset : nullptr, count),
-            [this, pcm, page, pageSize, count, done] (const std::optional<te::Frame>& f)
+            [this, pcm, page, pageSize, count, onBytes, done] (const std::optional<te::Frame>& f)
         {
             if (! okFrame (f))
                 return done (false, "page " + juce::String (page) + ": " + why (f));
             if (count == 0)
                 return done (true, {});
-            sendPages (pcm, page + 1, pageSize, done);
+            if (onBytes != nullptr && page % 16 == 15)
+                onBytes ((juce::int64) std::min (pcm->size(), (size_t) (page + 1) * (size_t) pageSize), (juce::int64) pcm->size());
+            sendPages (pcm, page + 1, pageSize, onBytes, done);
         }, 4000, count > 0 ? "PUT DATA p" + juce::String (page) : juce::String ("PUT DATA end"));
     }
 
@@ -212,28 +233,55 @@ namespace halo
         if ((int) jobs.size() > freeSlots)
             return done ({ false, 0, "Needs " + juce::String ((int) jobs.size()) + " empty USER slots, only " + juce::String (freeSlots) + " free" });
 
-        runPadJobs (std::make_shared<std::vector<PadJob>> (std::move (jobs)), 0, project, std::move (onProgress), std::move (done));
+        auto batch = std::make_shared<Batch>();
+        batch->jobs = std::move (jobs);
+        batch->project = project;
+        batch->onProgress = std::move (onProgress);
+        batch->done = std::move (done);
+        batch->totalBytes = total;
+        batch->startMs = juce::Time::getMillisecondCounterHiRes();
+        runPadJobs (batch, 0);
     }
 
-    void Ep40Writer::runPadJobs (std::shared_ptr<std::vector<PadJob>> jobs, size_t index, int project,
-                                 std::function<void (const juce::String&)> onProgress, std::function<void (Result)> done)
+    void Ep40Writer::runPadJobs (std::shared_ptr<Batch> batch, size_t index)
     {
-        if (index >= jobs->size())
-            return done ({ true, 0, "Sent " + juce::String ((int) jobs->size()) + " sounds and assigned their pads" });
+        const int count = (int) batch->jobs.size();
+        if (index >= batch->jobs.size())
+            return batch->done ({ true, 0, "Sent " + juce::String (count) + " sounds and assigned their pads" });
 
-        auto& job = (*jobs)[index];
-        onProgress ("Sending " + juce::String ((int) index + 1) + " of " + juce::String ((int) jobs->size()) + "...");
-        upload (job.audio, job.name, 0, [this, jobs, index, project, onProgress, done] (Result r)
+        const auto label = "Sending " + juce::String ((int) index + 1) + " of " + juce::String (count);
+        batch->onProgress (label + "...");
+
+        // Overall percent and time left, a few times a second.
+        auto onBytes = [batch, label] (juce::int64 sent, juce::int64)
+        {
+            const double now = juce::Time::getMillisecondCounterHiRes();
+            if (now - batch->lastReportMs < 250.0)
+                return;
+            batch->lastReportMs = now;
+            const auto overall = batch->doneBytes + sent;
+            const double total = (double) juce::jmax<juce::int64> (1, juce::jmax (batch->totalBytes, overall));
+            const double elapsed = (now - batch->startMs) / 1000.0;
+            auto line = label + ": " + juce::String (juce::jlimit (0, 99, (int) (100.0 * overall / total))) + "%";
+            if (elapsed > 2.0 && overall > 0)
+                line << ", " << timeLeft (elapsed * (total - overall) / (double) overall);
+            batch->onProgress (line);
+        };
+
+        auto& job = batch->jobs[index];
+        upload (job.audio, job.name, 0, [this, batch, index, count] (Result r)
         {
             if (! r.ok)
-                return done ({ false, r.slot, "Stopped at " + juce::String ((int) index + 1) + " of " + juce::String ((int) jobs->size()) + ": " + r.message });
-            const auto& j = (*jobs)[index];
-            assignPad (project, j.group, j.gridIndex, r.slot, [this, jobs, index, project, onProgress, done] (Result a)
+                return batch->done ({ false, r.slot, "Stopped at " + juce::String ((int) index + 1) + " of " + juce::String (count) + ": " + r.message });
+            if (const auto* s = lib.sound (r.slot))
+                batch->doneBytes += (juce::int64) s->bytes;
+            const auto& j = batch->jobs[index];
+            assignPad (batch->project, j.group, j.gridIndex, r.slot, [this, batch, index] (Result a)
             {
                 if (! a.ok)
-                    return done ({ false, a.slot, a.message });
-                runPadJobs (jobs, index + 1, project, onProgress, done);
+                    return batch->done ({ false, a.slot, a.message });
+                runPadJobs (batch, index + 1);
             });
-        });
+        }, onBytes);
     }
 }

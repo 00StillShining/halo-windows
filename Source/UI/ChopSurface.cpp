@@ -105,6 +105,7 @@ namespace halo
                     + (plan.trimmedCount > 0 ? juce::String (plan.trimmedCount) + " slice(s) are auto-trimmed to "
                                                    + juce::String (session.sliceCapSeconds(), 1) + " s." + juce::newLine
                                              : juce::String())
+                    + "Takes " + Ep40Writer::expectedTime (plan.totalBytes) + " (the EP-40 takes about 40 KB/s; MONO or a LO quality is quicker)." + juce::newLine
                     + "No sound is overwritten. The pads' old sounds stay in the library.",
                 "Send", "Cancel", this,
                 juce::ModalCallbackFunction::create ([this, plan, project] (int result)
@@ -366,7 +367,8 @@ namespace halo
 
         g.setFont (HaloType::mono (13.0f));
         g.setColour (c.ink);
-        g.drawText (juce::String (formatBytes (plan.totalBytes)) + " on " + juce::String ((int) plan.writes.size()) + " pads",
+        g.drawText (juce::String (formatBytes (plan.totalBytes)) + " on " + juce::String ((int) plan.writes.size()) + " pads, "
+                        + Ep40Writer::expectedTime (plan.totalBytes) + " to send",
                     totalsArea.withHeight (20), juce::Justification::centredLeft);
         g.setFont (HaloType::mono (11.0f));
         g.setColour (c.inkSoft);

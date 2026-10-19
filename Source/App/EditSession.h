@@ -44,6 +44,12 @@ namespace halo
         void exportEdit();
         // Renders what EXPORT would write (prep + treatment), off the UI thread.
         void renderEdit (std::function<void (std::shared_ptr<const AudioData>)>);
+        // SEND TO EP-40 auto-trims too: a selection over 20 s sends its first
+        // 20 s (with a fade-out). sendPrep() is what's sent; EXPORT is untouched.
+        SamplePrep sendPrep() const;
+        bool sendIsTrimmed() const;
+        SizeEstimate sendEstimate() const;
+        void renderSend (std::function<void (std::shared_ptr<const AudioData>)>);
         // Renders every slice placed on a pad by the plan, in pad order.
         void renderPlacedSlices (std::function<void (std::shared_ptr<std::vector<AudioData>>)>);
 

@@ -145,6 +145,44 @@ namespace halo
                          std::move (done));
     }
 
+    SamplePrep EditSession::sendPrep() const
+    {
+        if (source == nullptr)
+            return prep;
+        auto p = prep;
+        const auto r = prep.resolvedTrim (source->frameCount());
+        const int cap = (int) ((maxSoundSeconds - 0.01) * source->sampleRate);
+        if (r.end - r.start > cap)
+        {
+            p.trimEndFrame = r.start + cap;
+            p.fadeOutFrames = juce::jmax (p.fadeOutFrames, (int) (0.03 * source->sampleRate));
+        }
+        return p;
+    }
+
+    bool EditSession::sendIsTrimmed() const
+    {
+        if (source == nullptr)
+            return false;
+        const auto r = prep.resolvedTrim (source->frameCount());
+        return r.end - r.start > (int) ((maxSoundSeconds - 0.01) * source->sampleRate);
+    }
+
+    SizeEstimate EditSession::sendEstimate() const
+    {
+        if (source == nullptr)
+            return {};
+        return estimateSize (source->frameCount(), source->channelCount(), source->sampleRate, sendPrep(), treatment);
+    }
+
+    void EditSession::renderSend (std::function<void (std::shared_ptr<const AudioData>)> done)
+    {
+        if (source == nullptr)
+            return;
+        runInBackground ([src = source, p = sendPrep(), t = treatment] { return std::make_shared<const AudioData> (render (*src, p, t)); },
+                         std::move (done));
+    }
+
     void EditSession::renderPlacedSlices (std::function<void (std::shared_ptr<std::vector<AudioData>>)> done)
     {
         if (source == nullptr)

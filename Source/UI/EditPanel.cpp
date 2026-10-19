@@ -84,23 +84,35 @@ namespace halo
         {
             if (! model.writesUnlocked() || ! session.hasSource())
                 return;
-            const auto e = session.estimate();
+            const auto e = session.sendEstimate();
             const int slot = model.device().firstFreeSlot (Ep40Writer::userFirstSlot, Ep40Writer::userLastSlot);
             juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Send to EP-40",
                 "Upload \"" + session.item().title + "\" (" + juce::String (formatBytes (e.payloadBytes))
                     + ") to empty slot " + juce::String (slot) + " in USER?" + juce::newLine + juce::newLine
-                    + "Nothing on the EP-40 is overwritten.",
+                    + (session.sendIsTrimmed() ? "It's auto-trimmed to the first " + juce::String ((int) maxSoundSeconds) + " s of your selection." + juce::newLine
+                                               : juce::String())
+                    + "Takes " + Ep40Writer::expectedTime (e.payloadBytes) + ". Nothing on the EP-40 is overwritten.",
                 "Send", "Cancel", this,
                 juce::ModalCallbackFunction::create ([this] (int result)
                 {
                     if (result == 0)
                         return;
                     session.report ("Sending to the EP-40...");
-                    session.renderEdit ([this] (std::shared_ptr<const AudioData> audio)
+                    session.renderSend ([this] (std::shared_ptr<const AudioData> audio)
                     {
+                        auto lastMs = std::make_shared<double> (0.0);
                         model.deviceWriter().upload (*audio, session.item().title, 0, [this] (Ep40Writer::Result r)
                         {
                             session.report (r.ok ? r.message + ". Assign it to a pad in LOAD." : "Send failed: " + r.message);
+                        },
+                        [this, lastMs] (juce::int64 sent, juce::int64 total)
+                        {
+                            const double now = juce::Time::getMillisecondCounterHiRes();
+                            if (now - *lastMs < 250.0)
+                                return;
+                            *lastMs = now;
+                            session.report ("Sending to the EP-40: " + juce::String ((int) (100 * sent / juce::jmax<juce::int64> (1, total))) + "%, "
+                                            + Ep40Writer::expectedTime (total - sent) + " left");
                         });
                     });
                 }));
@@ -127,10 +139,8 @@ namespace halo
     {
         if (! session.hasSource())
             return {};
-        const auto e = session.estimate();
-        if (e.durationSeconds() > maxSoundSeconds)
-            return juce::String (e.durationSeconds(), 1) + " s is over the EP-40's " + juce::String ((int) maxSoundSeconds)
-                   + " s per sound. Drag the trim handles to " + juce::String ((int) maxSoundSeconds) + " s or less to send (or CHOP it).";
+        // Over 20 s isn't a blocker: SEND auto-trims (see sendPrep()).
+        const auto e = session.sendEstimate();
         const auto& info = model.device().info();
         if (model.device().state() == Ep40Library::State::ready && info.freeBytes >= 0 && e.payloadBytes > info.freeBytes)
             return "Needs " + juce::String (formatBytes (e.payloadBytes)) + " but the EP-40 has " + juce::String (formatBytes (info.freeBytes)) + " free.";
@@ -278,12 +288,19 @@ namespace halo
         g.setFont (HaloType::mono (11.0f));
         g.setColour (c.inkSoft);
         const auto blocker = sendBlocker();
+        const auto trimNote = session.sendIsTrimmed()
+            ? "AUTO-TRIM: over " + juce::String ((int) maxSoundSeconds) + " s, so SEND sends the first " + juce::String ((int) maxSoundSeconds)
+                  + " s of the selection, with a fade-out. Drag the trim handles to pick another part, or CHOP it."
+            : juce::String();
         const auto sendNote = blocker.isNotEmpty() ? blocker
+                            : trimNote.isNotEmpty() ? trimNote
                             : model.writesUnlocked() ? juce::String ("SEND TO EP-40 uploads into the first empty USER slot (900-999). It never overwrites a sound.")
                             : model.device().state() == Ep40Library::State::ready ? juce::String ("Back up the EP-40 in BACKUPS (Ctrl+6) to unlock SEND. Until then, EXPORT works.")
                             : juce::String ("Connect the EP-40 to send directly. Until then, EXPORT works.");
         if (blocker.isNotEmpty())
             g.setColour (c.warning);
+        else if (trimNote.isNotEmpty())
+            g.setColour (c.orange);
         g.drawFittedText (sendNote,
                           sendNoteArea, juce::Justification::centredLeft, 2, 1.0f);
 
