@@ -1,0 +1,58 @@
+# Redesign checkpoint: 19 October 2026 (end of day)
+
+Paused at the owner's request. Everything is committed locally; nothing is pushed.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Stable Halo (daily use) | branch `main` at `ec02dec`; built in `build\Debug` |
+| Legacy archive of Halo 1 | `Documents\Halo Legacy\Halo 1 (main ec02dec, 2026-10-19)\` and git tag `legacy-v1` |
+| App redesign (OP-1 x OP-XY screen language) | branch `redesign/te-hardware`, head `036c63b` |
+| 3D Riddim stage upgrade | branch `worktree-agent-af51e98e63b4074d8` (worktree `.claude\worktrees\agent-af51e98e63b4074d8`), head `25bdd2b`. **Not merged into the redesign branch yet.** |
+| Plans | `docs/redesign/plan.md` (app), `docs/redesign/riddim-3d-plan.md` (3D) |
+| Mockups | `docs/redesign/mockups/` (SVG) and `mockups/png/` (renders); `hybrid-*` is the chosen direction |
+| Redesign branch build | `set HALO_BUILD_DIR=...\build\Redesign` then `scripts\build.cmd build` |
+
+## App redesign: done R0 to R4b; R5 is a WIP commit
+
+- **R0:** `HALO_DATA_ROOT` sandbox, backup cache, HonestState, deterministic mock, and **ASSIGN now asks first**.
+- **R1:** colour tokens, 5 embedded OFL font families (licences included), theme plumbing, tooltips.
+- **R2a/R2b:** primitives and a Debug gallery (`HALO_UI_GALLERY=1..5`), the encoder system core, and WaveCache.
+- **R3:** WriteGate and ConfirmCard; every device write goes through one gate and names its backup.
+- **R4a/R4b:** the shell (black glass, status strip, graphite deck with pictogram keys, CHOP on its own key Ctrl+7, caution band in MOCK) and the four colour encoders (LEVEL, GRAB and ECHO MIX are live; ORBIT stays honestly dead until the 3D work adds camera setters).
+- **R5 (WIP `036c63b`):** the meter poll, clock position, take and grab records, rail layout and `PlayPage.h`.
+- **Next:**
+  1. Write `PlayPage.cpp` (last pad, monitor, grab tape lane, rack chain, events, spine, clock lane).
+  2. Wire it into MainComponent.
+  3. Delete `PlayRail.*` and `MonitorPanel.*`.
+  4. Gate U2 review against `mockups/png/hybrid-play.png`.
+  5. Then R6, CHOP.
+- **Tests:** HaloTests 126/126, HaloUiTests 15/15, write-site lint green.
+
+## 3D stage: done M0 to M3 plus the sheen fix; M4 is a WIP commit
+
+- **M1:** TE palette and legends (BPM / METRONOME), grounded device, fitted camera, ring as a floor light pool, `StageLook` paper/dark.
+- **M2:** HDR, 4x MSAA, Neutral tone map, exact sRGB, Low tier.
+- **M3:** studio IBL, GGX, perspective floor. The screen glare is now a soft sheen, so the LCD stays readable.
+- **M4 (WIP `25bdd2b`):** the `.hmesh` v3 format, parser, tests, converter and asset are done. The renderer still draws the v2 asset. Next:
+  1. Single vertex/index buffer upload.
+  2. Slot transforms in the shaders.
+  3. Material table texture.
+  4. Remove the v2 asset.
+  5. Shot comparison.
+- **Then:** M5a and M5b (stepped chassis, real keycap fillets and proportions: the biggest remaining gap), M6, M7.
+- **Tests:** HaloTests 128/128; Python 6/6.
+
+## Merge plan (first thing next session)
+
+1. Merge `worktree-agent-af51e98e63b4074d8` into `redesign/te-hardware`. Expect small conflicts in `CMakeLists.txt` and `Source/App/Main.cpp`.
+2. Wire `Theme::stageLook()` to `setLook(dark)` so the stage turns black inside the frame, and add the camera setters so ORBIT goes live.
+3. Build `build\Redesign`, run both test suites, and shoot PLAY.
+
+## Owner checks that need the real EP-40 (later)
+
+- ASSIGN, SEND, SEND TO PADS and DELETE each open the confirm card naming the backup; unplugging with a card open makes its confirm dead.
+- Returning to PLAY shows the first stage frame within 150 ms.
+- A bare Alt tap no longer swallows the next key.
+- AMD iGPU stage timing: set Halo to "Power saving" in Windows Graphics settings, then run `stage_shots.ps1 -Shots hero -Stats -HoldSeconds 12 -Exe <Release exe>`.
