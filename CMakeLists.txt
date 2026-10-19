@@ -37,6 +37,9 @@ add_library(HaloCore STATIC
 target_include_directories(HaloCore PUBLIC Source)
 # Pure logic behind the 3D stage (docs/redesign/riddim-3d-plan.md).
 target_sources(HaloCore PRIVATE
+    Source/Core/ChunkFile.cpp
+    Source/Core/HenvFormat.cpp
+    Source/Core/HtexFormat.cpp
     Source/Core/StageCamera.cpp)
 if(MSVC)
     target_compile_options(HaloCore PRIVATE /W4 /permissive-)
@@ -85,6 +88,7 @@ target_sources(Halo PRIVATE
 # The 3D stage's own sources (docs/redesign/riddim-3d-plan.md), kept apart from
 # the list above so stage and UI work merge without touching the same lines.
 target_sources(Halo PRIVATE
+    Source/Stage/Environment.cpp
     Source/Stage/GlProgram.cpp
     Source/Stage/RenderTargets.cpp
     Source/Stage/ShaderLibrary.cpp
@@ -113,6 +117,15 @@ juce_add_binary_data(HaloShaders
         Source/Stage/Shaders/resolve.frag
         Source/Stage/Shaders/selftest.frag)
 target_link_libraries(Halo PRIVATE HaloShaders)
+
+# The stage's own assets (assets/stage), apart from HaloAssets so stage and UI
+# changes do not touch the same lines.
+juce_add_binary_data(HaloStageAssets
+    HEADER_NAME HaloStageAssets.h
+    NAMESPACE HaloStageAssets
+    SOURCES
+        assets/stage/studio.henv)
+target_link_libraries(Halo PRIVATE HaloStageAssets)
 
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0
@@ -164,7 +177,10 @@ target_sources(HaloTests PRIVATE
     Tests/Ep40EntityNamesTests.cpp
     Tests/StagePoseTests.cpp
     Tests/StageCameraTests.cpp
-    Tests/ToneCurvesTests.cpp)
+    Tests/ToneCurvesTests.cpp
+    Tests/HenvFormatTests.cpp
+    Tests/HtexFormatTests.cpp)
+target_compile_definitions(HaloTests PRIVATE HALO_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 # The Mac app (its own repo) sits beside this one as the reference spec; when it
 # is there, the entity-name test cross-checks the frozen contract against it.
 set(HALO_MAC_REFERENCE_DIR "${CMAKE_SOURCE_DIR}/reference/halo-mac" CACHE PATH "Mac app checkout (optional)")

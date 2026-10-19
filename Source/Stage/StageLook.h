@@ -26,11 +26,12 @@ namespace halo
     {
         // The backdrop the stage clears to; the stage border equals it exactly.
         juce::Colour backdrop;
-        // The floor around the device. Until the perspective floor (M3) the floor
-        // is the backdrop plus an optional screen-space grid.
+        // The floor around the device: a real plane, with graph paper (the grid
+        // colours) round the device fading to this colour toward the stage edge.
         juce::Colour floor;
         juce::Colour gridMinor, gridMajor; // alpha = line strength; transparent = plain floor
-        float gridCellPt = 16.0f;          // logical points per minor cell; a major line every 4
+        float gridCellPt = 16.0f;          // Low tier screen grid: points per minor cell, a major line every 4
+        float floorGridMm = 5.0f;          // the perspective floor's graph paper: minor cell (mm), a major line every 5
         juce::Colour shadowTint;           // what the contact shadow darkens toward
 
         // The ring pool: one colour per RingState::Kind (disconnected is never drawn).

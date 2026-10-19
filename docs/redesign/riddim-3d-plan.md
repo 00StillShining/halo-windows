@@ -1344,3 +1344,48 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   the size settled.
 - **GPU, RTX 5080, Release, `hero`:** p50 0.468 ms, p95 0.472 ms (M0 0.366 ms), `GL_SAMPLES=4`.
 - **Determinism:** two `hero` runs: max delta 0.
+
+### M3 (studio IBL, GGX, perspective floor) and gate G1
+
+- **Environment:** `tools/model/ep40/env_bake.py` -> `assets/stage/studio.henv` (2.1 MB):
+  256^2 x 7-mip GGX-prefiltered RGB9E5 cube map, SH9 ambient irradiance, key and rim light
+  records. Two runs give the same SHA-256 (586a2fb0...). `Source/Core/{ChunkFile,HenvFormat,
+  HtexFormat}` parse the shared chunked container with full rejection checks
+  (`HenvFormatTests`, `HtexFormatTests`, including a known unpremultiplied RGBA texel, RGB9E5
+  known vectors, CRC and every truncation). Python side: `tools/model/htex_io.py` plus
+  `tools/model/tests` (6 tests).
+- **Deviations (studio values):** key 12 (plan 6), fill 1.4 (0.8), room 0.05 (0.03); at the plan's
+  values the cream deck lit at L* 63 (target 78-88). The rim strip is 1.0 x 0.02 m at radiance
+  100 (plan 0.12 m at 10), behind-left at 37 degrees elevation (plan: behind-right, 20 degrees):
+  the hero camera's reflections from the flat screen look there, and a 0.12 m strip was taller
+  than the screen's reflection window, so it washed the whole glass instead of crossing it.
+  Mip m holds roughness (m/6)^2 and the shader samples lod = sqrt(roughness) x maxMip (plan:
+  linear), so glossy acrylic is not blended with a rough mip's haze.
+- **Deviation (direct light):** the key and rim are in the prefiltered map for reflections (that
+  is what draws the softbox and the streak), with the key's share of each reflection shadowed;
+  their diffuse is analytic (shadowed key, wrapped for satin) on top of SH9 ambient. There is no
+  separate analytic GGX lobe, which would count the lights twice.
+- **Shading:** split-sum DFG table (64^2 RG16F, height-correlated Smith, computed at startup),
+  multi-scatter compensation, Lagarde specular occlusion, Kaplanyan-Hoffman specular AA, SH9 with
+  a runtime floor-bounce lobe (paper vs dark changes the cream walls by 4.7 L*, no rebake).
+- **Floor:** a real plane at the device's lowest point, found per pixel from the inverse
+  view-projection; graph paper (5 mm cells, 25 mm major) recedes in perspective with
+  derivative-filtered lines and fades to the token before the stage edge.
+- **Checks:** `hero` deck (up-facing) mean L* 78.7 (78-88, ok); aperture gaps median L* 3.1 (ok);
+  PLAY broad highlight peak/median 1.40 (ok); **RECORD 1.14 (fails 1.25)**: the carried-over caps
+  are flat-topped, so at hero distance the rim's reflection is uniform across the top and only
+  the small back fillet peaks; M5b's caps with real 0.7 mm top fillets are the fix. Card
+  unchanged (worst ΔE 2.27). `dark()` border exact in six framings; banding: no empty bins.
+  The screen shows one continuous diagonal streak in `hero`. Release, RTX 5080, `hero`: GPU p50
+  0.492 ms, p95 0.496 ms. AMD iGPU still unmeasured (owner's GPU switch).
+- **Found and fixed:** on this machine the desktop compositor drops one exact colour,
+  RGB (13, 11, 12): the dark floor's dithered pixels landing on it showed as black dots on screen
+  and in captures although the framebuffer held them (proved with the new Debug
+  `HALO_STAGE_READBACK` framebuffer dump). Final outputs nudge that value to (13, 11, 13).
+  Also fixed: an undefined GLSL `clamp` (lo > hi) in the floor grid.
+- **G1 (delegated, self-review against `c_keys.png` and TE's renders):** passed with notes. The
+  cream body, white keys, riddim orange and green, near-black apertures and the satin response
+  read as the TE photographs; the device sits on a receding paper floor (or a lit dark sweep)
+  with a grounded contact shadow. Open: RECORD's highlight (above), white keys a touch brighter
+  than TE's photo, the glass streak is strong at `rack` framing, and proportions and artwork are
+  still the carried-over Blender asset (M5a/M5b).

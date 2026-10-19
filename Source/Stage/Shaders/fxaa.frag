@@ -43,5 +43,5 @@ void main()
 
     if (uDither != 0)
         colour += (interleavedNoise (gl_FragCoord.xy) - 0.5) * (0.9 / 255.0); // +-0.45 LSB
-    fragColour = vec4 (colour, 1.0);
+    fragColour = vec4 (avoidKeyedColour (colour), 1.0);
 }

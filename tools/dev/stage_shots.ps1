@@ -52,6 +52,8 @@ public static class HaloShots {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int w, int h, uint flags);
     [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
 }
 "@
 [void][HaloShots]::SetProcessDPIAware()
@@ -71,6 +73,8 @@ $defs = @{
     maskrack = @{ size = @(1294, 1447); preset = "hero"; debug = "6"; env = @{ HALO_MODE = "5" } }
     masksmall = @{ size = @(1180, 720); preset = "hero"; debug = "6"; env = @{ HALO_RAIL = "open" } }
     albedo   = @{ size = @(1456, 939);  preset = "top";  debug = "7" }
+    albedohero = @{ size = @(1456, 939); preset = "hero"; debug = "7" }
+    normalshero = @{ size = @(1456, 939); preset = "hero"; debug = "9" }
     emissive = @{ size = @(1456, 939);  preset = "hero"; debug = "8" }
 }
 
@@ -108,6 +112,7 @@ foreach ($look in $Looks) {
             $deadline = (Get-Date).AddSeconds($TimeoutSec)
             while ($p.MainWindowHandle -eq 0 -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 100; $p.Refresh() }
             if ($p.MainWindowHandle -eq 0) { throw "no window for $name" }
+            if ([HaloShots]::IsIconic($p.MainWindowHandle)) { [void][HaloShots]::ShowWindow($p.MainWindowHandle, 4) } # SW_SHOWNOACTIVATE
             [void][HaloShots]::SetWindowPos($p.MainWindowHandle, [IntPtr]::Zero, 16, 0, $def.size[0], $def.size[1], 0x0014) # NOZORDER|NOACTIVATE
 
             # Settled once a READY line exists and no newer one arrives for 0.8 s.
@@ -127,6 +132,7 @@ foreach ($look in $Looks) {
 
             $r = New-Object HaloShots+RECT
             [void][HaloShots]::GetWindowRect($p.MainWindowHandle, [ref]$r)
+            if ($r.Left -le -30000) { throw "the window for $name was minimised during the capture; run it again" }
             $last = $ready[$ready.Count - 1]
             if ($last -match "stage=(-?\d+),(-?\d+),(\d+),(\d+)") {
                 $stage = @{ x = [int]$Matches[1] - $r.Left; y = [int]$Matches[2] - $r.Top; w = [int]$Matches[3]; h = [int]$Matches[4] }

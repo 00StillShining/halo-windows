@@ -26,9 +26,8 @@ namespace halo
         constexpr int shadowMapSize = 2048;
         constexpr float shadowExtent = 0.20f; // half-size of the key light's ortho box
         constexpr float heightHalfX = 0.115f, heightHalfY = 0.145f, heightTop = 0.030f;
-        const juce::Vector3D<float> keyDir  = juce::Vector3D<float> (-0.45f, 1.0f, 0.55f).normalised();
-        const juce::Vector3D<float> topDir  = juce::Vector3D<float> (-0.10f, 1.0f, -0.55f).normalised();
-        const juce::Vector3D<float> fillDir = juce::Vector3D<float> (0.85f, 0.35f, 0.40f).normalised();
+        // The key light's direction until the studio environment supplies it.
+        const juce::Vector3D<float> defaultKeyDir = juce::Vector3D<float> (-0.45f, 1.0f, 0.55f).normalised();
 
         // Attribute and output names, bound by index (HaloMesh's vertex layout).
         const std::initializer_list<const char*> partAttributes { "aPos", "aNormal", "aColour", "aEmissive", "aUV", "aMaterial" };
@@ -98,7 +97,7 @@ namespace halo
             return Mat (m);
         }
 
-        Mat keyLightViewProj()
+        Mat keyLightViewProj (juce::Vector3D<float> keyDir)
         {
             const auto view = lookAt (keyDir * 0.6f, { 0, 0, 0 }, { 0, 1, 0 });
             return then (view, orthographic (shadowExtent, shadowExtent, 0.05f, 1.2f));
@@ -129,6 +128,7 @@ namespace halo
     StageComponent::StageComponent (AppModel& m) : model (m)
     {
         setOpaque (true);
+        keyDirection = defaultKeyDir;
 
         // The stage owns its anti-aliasing (MSAA in its own HDR targets, or FXAA),
         // so JUCE's window framebuffer asks for none.
@@ -535,6 +535,14 @@ namespace halo
         glGenVertexArrays (1, &emptyVao);
         buildPrograms();
 
+        // The studio: reflections, ambient SH, and the key the shadow map follows.
+        if (environment.create (log))
+        {
+            const auto& d = environment.key().direction;
+            keyDirection = juce::Vector3D<float> (d[0], d[1], d[2]).normalised();
+        }
+        environment.setFloor (look.floor);
+
         // The swatch card: each listed part's dominant albedo by surface area.
         swatches.clear();
         {
@@ -683,6 +691,7 @@ namespace halo
         printTexture.release();
         releasePrograms();
         targets.release();
+        environment.release();
         stats.release();
         for (auto* target : { &shadowTarget, &heightTarget })
         {
@@ -946,10 +955,16 @@ namespace halo
             {
                 look = shared.look;
                 shared.lookDirty = false;
+                lookChanged = true;
             }
         }
         if (state.displayDirty && state.displayImage.isValid())
             displayTexture.loadImage (state.displayImage);
+        if (lookChanged)
+        {
+            environment.setFloor (look.floor); // the floor bounce follows the floor token, no rebake
+            lookChanged = false;
+        }
 
         const auto scale = (float) context.getRenderingScale();
         const int w = juce::roundToInt (scale * (float) getWidth());
@@ -959,6 +974,36 @@ namespace halo
         stats.beginFrame();
         renderFrame (state, nowSeconds, dt, w, h, ready);
         stats.endFrame ("continuous");
+
+       #if JUCE_DEBUG
+        // HALO_STAGE_READBACK=<file.png>: the stage's own pixels, read straight
+        // from its framebuffer once it is ready (no window capture in between).
+        if (ready && readyLogged && ! readbackDone)
+        {
+            readbackDone = true;
+            if (const auto path = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_READBACK", {}); path.isNotEmpty())
+            {
+                std::vector<juce::uint8> pixels ((size_t) (w * h * 4));
+                glPixelStorei (GL_PACK_ALIGNMENT, 1);
+                glReadPixels (0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+                juce::Image image (juce::Image::RGB, w, h, false);
+                for (int y = 0; y < h; ++y)
+                    for (int x = 0; x < w; ++x)
+                    {
+                        const auto* p = &pixels[(size_t) (((h - 1 - y) * w + x) * 4)];
+                        image.setPixelAt (x, y, juce::Colour (p[0], p[1], p[2]));
+                    }
+                juce::File file (path);
+                file.deleteFile();
+                if (juce::FileOutputStream out (file); out.openedOk())
+                    juce::PNGImageFormat().writeImageToStream (image, out);
+                int translucent = 0;
+                for (size_t i = 3; i < pixels.size(); i += 4)
+                    translucent += pixels[i] != 255 ? 1 : 0;
+                log.line ("readback: " + path + " (" + juce::String (translucent) + " pixels with alpha < 255)");
+            }
+        }
+       #endif
         if (statsEnabled)
             if (const auto line = stats.poll (nowSeconds, tierName); line.isNotEmpty())
                 log.line (line + " targets=" + juce::String (targets.allocatedWidth()) + "x" + juce::String (targets.allocatedHeight())
@@ -1020,9 +1065,26 @@ namespace halo
         partProgram.set ("uHeightRect", 0.0f, 0.0f, heightHalfX, heightHalfY);
         partProgram.set ("uHeightTexel", 2.0f * heightHalfX / (float) heightTarget.width);
         partProgram.set ("uDeviceSize", deviceWidth, deviceDepth);
-        partProgram.set ("uKeyDir", keyDir.x, keyDir.y, keyDir.z);
-        partProgram.set ("uTopDir", topDir.x, topDir.y, topDir.z);
-        partProgram.set ("uFillDir", fillDir.x, fillDir.y, fillDir.z);
+        glActiveTexture (GL_TEXTURE4);
+        glBindTexture (GL_TEXTURE_CUBE_MAP, environment.cubeMap());
+        glActiveTexture (GL_TEXTURE5);
+        glBindTexture (GL_TEXTURE_2D, environment.brdfLut());
+        glActiveTexture (GL_TEXTURE0);
+        partProgram.set ("uEnv", 4);
+        partProgram.set ("uBrdfLut", 5);
+        partProgram.set ("uEnvMaxMip", environment.maxMip());
+        static const char* shNames[9] { "uSH[0]", "uSH[1]", "uSH[2]", "uSH[3]", "uSH[4]", "uSH[5]", "uSH[6]", "uSH[7]", "uSH[8]" };
+        const auto& sh = environment.irradianceSH();
+        for (size_t i = 0; i < 9; ++i)
+            partProgram.set (shNames[i], sh[i][0] * look.fillIntensity, sh[i][1] * look.fillIntensity, sh[i][2] * look.fillIntensity);
+        const auto& key = environment.key();
+        const auto& rim = environment.rim();
+        partProgram.set ("uKeyDir", keyDirection.x, keyDirection.y, keyDirection.z);
+        partProgram.set ("uRimDir", rim.direction[0], rim.direction[1], rim.direction[2]);
+        partProgram.set ("uKeyE", key.irradiance[0] * look.keyIntensity, key.irradiance[1] * look.keyIntensity, key.irradiance[2] * look.keyIntensity);
+        partProgram.set ("uRimE", rim.irradiance[0] * look.rimIntensity, rim.irradiance[1] * look.rimIntensity, rim.irradiance[2] * look.rimIntensity);
+        partProgram.set ("uKeyRadius", key.angularRadius);
+        partProgram.set ("uSpecular", 1.0f);
         partProgram.set ("uExposure", look.exposure);
         partProgram.set ("uToneMapper", (int) look.toneMapper);
         partProgram.set ("uDebug", debugView);
@@ -1044,7 +1106,7 @@ namespace halo
         }
 
         // Shadow and height maps first: both follow the pads as they travel.
-        const auto lightViewProj = keyLightViewProj();
+        const auto lightViewProj = keyLightViewProj (keyDirection);
         animatePads (state, dt);
         glDisable (GL_BLEND);
         drawDepth (shadowTarget, lightViewProj, true);
@@ -1108,7 +1170,7 @@ namespace halo
         {
             glEnable (GL_DEPTH_TEST);
             glDepthFunc (GL_LEQUAL);
-            setPartUniforms (camera, keyLightViewProj());
+            setPartUniforms (camera, keyLightViewProj (keyDirection));
             const GLenum deviceOnly[] { GL_COLOR_ATTACHMENT0, GL_NONE };
             glDrawBuffers (2, deviceOnly);
             drawModel (viewProj, state);
@@ -1151,8 +1213,7 @@ namespace halo
         compositeProgram.set ("uUvScale", viaFxaa ? frame.uvScaleX * (float) frame.width / (float) outW : frame.uvScaleX,
                                           viaFxaa ? frame.uvScaleY * (float) frame.height / (float) outH : frame.uvScaleY);
         compositeProgram.set ("uViewport", (float) outW, (float) outH);
-        compositeProgram.set ("uScale", (float) context.getRenderingScale() * (float) outW / (float) w);
-        compositeProgram.set ("uCell", look.gridCellPt);
+        compositeProgram.set ("uGridMm", look.floorGridMm, look.floorGridMm * 5.0f);
         const auto canvas = toVec (look.floor), minor = toVec (look.gridMinor), major = toVec (look.gridMajor);
         compositeProgram.set ("uCanvas", canvas.x, canvas.y, canvas.z);
         compositeProgram.set ("uMinor", minor.x, minor.y, minor.z, look.gridMinor.getFloatAlpha());
@@ -1220,7 +1281,7 @@ namespace halo
             const Mat viewProj (camera.viewProjection.data());
             glEnable (GL_DEPTH_TEST);
             glDepthFunc (GL_LEQUAL);
-            setPartUniforms (camera, keyLightViewProj());
+            setPartUniforms (camera, keyLightViewProj (keyDirection));
             drawModel (viewProj, state);
             drawGround (viewProj, state, time, frame.width, frame.height);
             glDisable (GL_DEPTH_TEST);

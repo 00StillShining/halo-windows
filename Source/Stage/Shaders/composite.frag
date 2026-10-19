@@ -2,7 +2,9 @@
 // the floor, tone mapped once, through the exact sRGB output curve, dithered.
 //
 //   device: unpremultiply -> x exposure -> tone map -> re-premultiply
-//   floor:  base = backdrop, lit by the key spot (dark look), blended toward
+//   floor:  base = the floor token with graph paper receding in perspective
+//           (a real plane under the device, found per pixel from the inverse
+//           view-projection), lit by the key spot (dark look), blended toward
 //           the shadow tint by the contact shadow, then the ring pool
 //           screen-blended on top: floor = base + (1 - base) * light. All in
 //           display values, exactly as the Low tier blends them, so both tiers
@@ -12,17 +14,15 @@
 //   out = device over floor -> sRGB -> +-0.5 LSB dither (unless FXAA follows,
 //         which dithers after itself).
 #include "common.glsl"
-#include "backdrop.glsl"
 #include "floor.glsl"
 
 uniform sampler2D uDevice;    // resolved: premultiplied radiance, a = coverage
 uniform sampler2D uFloor;     // resolved: rgb reserved, a = contact shadow
 uniform vec2 uUvScale;        // the part of the targets this frame used
 uniform vec2 uViewport;       // output size in pixels
-uniform float uScale;         // pixels per point (backdrop grid)
-uniform float uCell;
-uniform vec3 uCanvas;         // backdrop, display values
-uniform vec4 uMinor, uMajor;
+uniform vec3 uCanvas;         // floor token, display values
+uniform vec4 uMinor, uMajor;  // floor grid lines (display colour, strength)
+uniform vec2 uGridMm;         // minor, major spacing on the floor (mm)
 uniform vec3 uShadowTint;     // display value
 uniform float uFloorSpot;     // display-encoded key spot strength (dark look)
 uniform vec3 uRingColour;     // display value
@@ -37,22 +37,41 @@ uniform int uBypass;          // debug views: device values straight to the outp
 uniform int uDither;          // 0 when FXAA follows (it dithers)
 out vec4 fragColour;
 
-// The model-space floor point under this pixel, or false if the ray misses.
-bool floorPoint (vec2 fragCoord, out vec2 modelXY)
+// The floor is a real plane at the device's lowest point: each pixel's ray
+// meets it at a model-space point (world (x, y, z) = model (x, z, -y)).
+// Computed for every pixel (so screen derivatives exist everywhere); `hit`
+// says whether the ray actually reaches the floor.
+vec2 floorPoint (vec2 fragCoord, out bool hit)
 {
     vec2 ndc = fragCoord / uViewport * 2.0 - 1.0;
     vec4 a = uInvViewProj * vec4 (ndc, -1.0, 1.0);
     vec4 b = uInvViewProj * vec4 (ndc, 1.0, 1.0);
     vec3 p0 = a.xyz / a.w, p1 = b.xyz / b.w;
     float dy = p1.y - p0.y;
-    if (abs (dy) < 1e-9)
-        return false;
-    float t = (uFloorY - p0.y) / dy;
-    if (t < 0.0)
-        return false;
-    vec3 hit = mix (p0, p1, t);
-    modelXY = vec2 (hit.x, -hit.z); // world (x, y, z) = model (x, z, -y)
-    return true;
+    float t = abs (dy) > 1e-9 ? (uFloorY - p0.y) / dy : -1.0;
+    hit = t > 0.0;
+    vec3 p = mix (p0, p1, max (t, 0.0));
+    return vec2 (p.x, -p.z);
+}
+
+// Ben Golus' "pristine grid": lines of a constant width in floor units,
+// anti-aliased by their screen derivatives, thinned to coverage once they are
+// narrower than a pixel and faded into their average as cells shrink toward
+// a pixel, so the receding floor never moires. uv in cells; width in cells.
+float pristineGrid (vec2 uv, float lineWidth)
+{
+    vec4 ddxy = vec4 (dFdx (uv), dFdy (uv));
+    vec2 deriv = vec2 (length (ddxy.xz), length (ddxy.yw));
+    vec2 target = vec2 (lineWidth);
+    // min (max ()), not clamp (): GLSL leaves clamp undefined when the
+    // derivative exceeds 0.5 (and NVIDIA returns NaN, a black dot).
+    vec2 drawWidth = min (max (target, deriv), vec2 (0.5));
+    vec2 aa = max (deriv, vec2 (1e-6)) * 1.5;
+    vec2 g = 1.0 - abs (fract (uv) * 2.0 - 1.0);
+    vec2 grid = smoothstep (drawWidth + aa, drawWidth - aa, g);
+    grid *= clamp (target / drawWidth, 0.0, 1.0);
+    grid = mix (grid, target, clamp (deriv * 2.0 - 1.0, 0.0, 1.0));
+    return mix (grid.x, 1.0, grid.y);
 }
 
 void main()
@@ -69,13 +88,22 @@ void main()
     }
     else
     {
-        // Floor.
-        vec3 baseEnc = backdropSrgb (fc, uViewport.y, uScale, uCell, uCanvas, uMinor, uMajor);
+        // Floor: the token, graph paper receding in perspective round the
+        // device (fading out before the stage edge, so the border is the token),
+        // the key spot, the contact shadow and the ring pool.
         float border = stageBorder (fc, uViewport);
-        vec2 modelXY;
+        bool onFloor;
+        vec2 modelXY = floorPoint (fc, onFloor);
+        vec2 mm = modelXY * 1000.0;
+        float minorLine = pristineGrid (mm / uGridMm.x, 0.25 / uGridMm.x);
+        float majorLine = pristineGrid (mm / uGridMm.y, 0.45 / uGridMm.y);
+        vec3 baseEnc = uCanvas;
         float spot = 0.0, pool = 0.0;
-        if (floorPoint (fc, modelXY))
+        if (onFloor)
         {
+            float paper = (1.0 - smoothstep (0.24, 0.50, length (modelXY))) * border;
+            baseEnc = mix (baseEnc, uMinor.rgb, minorLine * uMinor.a * paper);
+            baseEnc = mix (baseEnc, uMajor.rgb, majorLine * uMajor.a * paper);
             float gap = footprintGap (modelXY, uDeviceSize);
             spot = floorSpot (gap, uFloorSpot) * border;
             pool = ringPool (modelXY, uDeviceSize, gap, uRingMode, uRingLevel, uTime, uRingPeriod) * border;
@@ -97,5 +125,7 @@ void main()
     vec3 encoded = srgbEncode (outLinear);
     if (uDither != 0)
         encoded += (interleavedNoise (fc) - 0.5) * (0.9 / 255.0); // +-0.45 LSB: never moves an exact 8-bit value
-    fragColour = vec4 (encoded, luma (encoded)); // alpha: luma for FXAA
+    // Alpha must be 1: the window's framebuffer alpha reaches the desktop
+    // compositor, and a dark pixel with a low alpha came out black in captures.
+    fragColour = vec4 (avoidKeyedColour (encoded), 1.0);
 }

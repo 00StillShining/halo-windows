@@ -291,6 +291,86 @@ def cmd_fringe(args):
     return 0 if bad <= args.allow * max(total, 1) else 1
 
 
+# Albedo classes for `regions`: display colours from the unlit albedo view.
+REGION_ALBEDO = {
+    "deck": "#DCD2BF",
+    "gap": "#1C1B19",
+    "orange": "#FA5A16",
+    "green": "#0A4A36",
+    "white key": "#E9E9E5",
+}
+
+
+def lightness(rgb):
+    return rgb_to_lab(np.asarray(rgb, dtype=float))[..., 0]
+
+
+def cmd_regions(args):
+    """Lit statistics per material, segmented with an unlit albedo shot taken
+    from the same camera (plan M3: deck L*, aperture gaps, cap highlights)."""
+    from scipy import ndimage
+    lit, ml = load(args.shot)
+    alb, ma = load(args.albedo)
+    lit = stage_crop(lit, ml).astype(float)
+    alb = stage_crop(alb, ma).astype(float)
+    L = lightness(lit)
+    failed = False
+    masks = {}
+    up = None
+    if args.normals:
+        nrm, mn = load(args.normals)
+        up = stage_crop(nrm, mn)[..., 1] >= 242  # world normal y > 0.9: the deck top, not the walls
+    for name, hexc in REGION_ALBEDO.items():
+        target = hex_rgb(hexc)
+        m = np.abs(alb - target).max(axis=2) <= args.tol
+        m = ndimage.binary_erosion(m, iterations=1)  # skip blended edges
+        if name == "deck" and up is not None:
+            m &= up
+        masks[name] = m
+        if m.sum() == 0:
+            print(f"{name:10s} no pixels")
+            continue
+        v = L[m]
+        print(f"{name:10s} {m.sum():7d} px  L* mean {v.mean():5.1f}  median {np.median(v):5.1f}  p5 {np.percentile(v, 5):5.1f}  p95 {np.percentile(v, 95):5.1f}")
+
+    deck = L[masks["deck"]]
+    gap = L[masks["gap"]]
+    if deck.size:
+        ok = 78.0 <= deck.mean() <= 88.0
+        failed |= not ok
+        print(f"deck mean L* {deck.mean():.1f} -> {'ok' if ok else 'FAIL'} (78-88)")
+    if gap.size:
+        ok = np.median(gap) <= 20.0
+        failed |= not ok
+        print(f"gap median L* {np.median(gap):.1f} -> {'ok' if ok else 'FAIL'} (<= 20)")
+
+    # RECORD and PLAY: the orange and green caps nearest the player (lowest on screen).
+    lum = 0.2126 * lit[..., 0] + 0.7152 * lit[..., 1] + 0.0722 * lit[..., 2]
+    for name, key in (("RECORD", "orange"), ("PLAY", "green")):
+        labels, n = ndimage.label(masks[key])
+        if n == 0:
+            continue
+        sizes = ndimage.sum(np.ones_like(lum), labels, range(1, n + 1))
+        centres = ndimage.center_of_mass(np.ones_like(lum), labels, range(1, n + 1))
+        boxes = ndimage.find_objects(labels)
+        # A cap fills most of its bounding box; the bottom shell stripe, a
+        # thin diagonal band on screen, does not.
+        def compact(i):
+            h = boxes[i][0].stop - boxes[i][0].start
+            w = boxes[i][1].stop - boxes[i][1].start
+            return sizes[i] >= 0.5 * h * w
+        candidates = [i for i in range(n) if sizes[i] > 300 and compact(i)]
+        if not candidates:
+            continue
+        pick = max(candidates, key=lambda i: centres[i][0]) + 1
+        v = lum[labels == pick]
+        ratio = v.max() / max(np.median(v), 1e-6)
+        ok = ratio >= 1.25
+        failed |= not ok
+        print(f"{name} cap: {int((labels == pick).sum())} px, peak/median luminance {ratio:.2f} -> {'ok' if ok else 'FAIL'} (>= 1.25)")
+    return 1 if failed else 0
+
+
 def cmd_sheet(args):
     tiles = []
     for p in args.shots:
@@ -370,6 +450,13 @@ def main(argv=None):
     s.add_argument("--step", type=int, default=3)
     s.add_argument("--allow", type=float, default=0.01)
     s.set_defaults(func=cmd_fringe)
+
+    s = sub.add_parser("regions")
+    s.add_argument("shot")
+    s.add_argument("--albedo", required=True)
+    s.add_argument("--tol", type=int, default=1)
+    s.add_argument("--normals", help="HALO_STAGE_DEBUG=9 shot from the same camera: limits 'deck' to up-facing pixels")
+    s.set_defaults(func=cmd_regions)
 
     s = sub.add_parser("sheet")
     s.add_argument("out")

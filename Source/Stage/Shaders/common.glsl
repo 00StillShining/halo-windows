@@ -78,3 +78,15 @@ float interleavedNoise (vec2 p)
 {
     return fract (52.9829189 * fract (dot (p, vec2 (0.06711056, 0.00583715))));
 }
+
+// On the development machine the desktop compositor treats one exact colour,
+// RGB (13, 11, 12), as transparent: pixels of it came out black on screen and
+// in captures, though the framebuffer held them (a dark floor plus dither
+// lands on it often). Every final output nudges that one value to (13, 11, 13).
+vec3 avoidKeyedColour (vec3 encoded)
+{
+    // A wide test: the GPU's float-to-8-bit rounding is not exactly x + 0.5.
+    if (all (lessThan (abs (encoded * 255.0 - vec3 (13.0, 11.0, 12.0)), vec3 (0.75))))
+        encoded.b = 13.0 / 255.0;
+    return encoded;
+}

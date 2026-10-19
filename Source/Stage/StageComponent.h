@@ -4,6 +4,7 @@
 #include "Core/StageCamera.h"
 #include "Core/StagePose.h"
 #include "Stage/DisplayRenderer.h"
+#include "Stage/Environment.h"
 #include "Stage/GlProgram.h"
 #include "Stage/HaloMesh.h"
 #include "Stage/RenderTargets.h"
@@ -132,6 +133,9 @@ namespace halo
         GlProgram partProgram, depthProgram, backgroundProgram, cardProgram;
         GlProgram resolveProgram, compositeProgram, fxaaProgram, selfTestProgram;
         RenderTargets targets;
+        Environment environment;
+        juce::Vector3D<float> keyDirection { -0.45f, 1.0f, 0.55f }; // from the studio; the shadow map follows it
+        bool lookChanged = false;
         bool fxaaEngaged = false;
         int framesSinceShaderCheck = 0;
         juce::OpenGLTexture displayTexture, printTexture;
@@ -159,7 +163,7 @@ namespace halo
         std::optional<StagePose> pose;      // HALO_STAGE_POSE: frozen input and clock
         int readyWidth = 0, readyHeight = 0, framesAtSize = 0;
         double sizeSince = 0.0;
-        bool readyLogged = false;
+        bool readyLogged = false, readbackDone = false;
 
         // Shared between threads
         juce::SpinLock lock;
