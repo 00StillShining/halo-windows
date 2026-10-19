@@ -35,6 +35,9 @@ add_library(HaloCore STATIC
     Source/Core/SysEx.cpp
     Source/Core/TeProtocol.cpp)
 target_include_directories(HaloCore PUBLIC Source)
+# Pure logic behind the 3D stage (docs/redesign/riddim-3d-plan.md).
+target_sources(HaloCore PRIVATE
+    Source/Core/StageCamera.cpp)
 if(MSVC)
     target_compile_options(HaloCore PRIVATE /W4 /permissive-)
 endif()
@@ -133,7 +136,8 @@ add_executable(HaloTests
 # 3D stage tests (pure HaloCore logic: contract, poses, camera, tone curves...).
 target_sources(HaloTests PRIVATE
     Tests/Ep40EntityNamesTests.cpp
-    Tests/StagePoseTests.cpp)
+    Tests/StagePoseTests.cpp
+    Tests/StageCameraTests.cpp)
 # The Mac app (its own repo) sits beside this one as the reference spec; when it
 # is there, the entity-name test cross-checks the frozen contract against it.
 set(HALO_MAC_REFERENCE_DIR "${CMAKE_SOURCE_DIR}/reference/halo-mac" CACHE PATH "Mac app checkout (optional)")

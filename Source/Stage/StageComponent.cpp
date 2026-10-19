@@ -2,7 +2,6 @@
 #include "Core/Ep40MidiMapping.h"
 #include "Stage/FacePrint.h"
 #include "Stage/StageShaders.h"
-#include "UI/HaloColours.h"
 
 #include <HaloAssets.h>
 
@@ -18,9 +17,12 @@ namespace halo
         constexpr float ledFloor = 0.16f, ledScale = 0.74f, ledDecayTau = 0.09f;
         constexpr float ringDiscoverPeriod = 4.0f;
 
+        // Halo cue colours on the device itself (pad strike, active group). Device
+        // facts, not look tokens: the riddim orange and green (plan section 2.5).
+        const juce::Colour cueOrange (0xffFA5A16), cueGreen (0xff0A4A36);
+
         // Device and lighting rig (model space is Z-up metres; world is Y-up).
         constexpr float deviceWidth = 0.176f, deviceDepth = 0.240f;
-        constexpr float groundZ = -0.0096f; // just under the halo ring
         constexpr int shadowMapSize = 2048;
         constexpr float shadowExtent = 0.20f; // half-size of the key light's ortho box
         constexpr float heightHalfX = 0.115f, heightHalfY = 0.145f, heightTop = 0.030f;
@@ -29,18 +31,6 @@ namespace halo
         const juce::Vector3D<float> fillDir = juce::Vector3D<float> (0.85f, 0.35f, 0.40f).normalised();
 
         using Mat = juce::Matrix3D<float>;
-
-        Mat perspective (float fovYDegrees, float aspect, float zNear, float zFar)
-        {
-            const float f = 1.0f / std::tan (juce::degreesToRadians (fovYDegrees) * 0.5f);
-            float m[16] {};
-            m[0] = f / aspect;
-            m[5] = f;
-            m[10] = (zFar + zNear) / (zNear - zFar);
-            m[11] = -1.0f;
-            m[14] = 2.0f * zFar * zNear / (zNear - zFar);
-            return Mat (m);
-        }
 
         Mat orthographic (float halfWidth, float halfHeight, float zNear, float zFar)
         {
@@ -55,7 +45,7 @@ namespace halo
 
         // Looks straight down the model's -Z onto the face; depth 0 is
         // heightTop and depth 1 is the ground.
-        Mat heightProjection()
+        Mat heightProjection (float groundZ)
         {
             float m[16] {};
             m[0] = 1.0f / heightHalfX;
@@ -119,6 +109,19 @@ namespace halo
             return { f (c.getFloatRed()), f (c.getFloatGreen()), f (c.getFloatBlue()) };
         }
 
+        // Anisotropic filtering where the driver has it (8x), for decals seen
+        // at grazing angles.
+        void enableAnisotropy()
+        {
+            constexpr GLenum maxAnisotropy = 0x84FF, textureMaxAnisotropy = 0x84FE; // EXT/ARB_texture_filter_anisotropic
+            if (! juce::OpenGLHelpers::isExtensionSupported ("GL_EXT_texture_filter_anisotropic")
+                && ! juce::OpenGLHelpers::isExtensionSupported ("GL_ARB_texture_filter_anisotropic"))
+                return;
+            GLfloat limit = 1.0f;
+            glGetFloatv (maxAnisotropy, &limit);
+            glTexParameterf (GL_TEXTURE_2D, textureMaxAnisotropy, std::min (8.0f, limit));
+        }
+
         std::unique_ptr<juce::OpenGLShaderProgram> buildProgram (juce::OpenGLContext& context, StageLog& log,
                                                                  const char* label, const char* vertex, const char* fragment,
                                                                  std::initializer_list<const char*> attributes)
@@ -156,7 +159,6 @@ namespace halo
         context.setRenderer (this);
         context.setComponentPaintingEnabled (false);
         context.setContinuousRepainting (true);
-        context.attachTo (*this);
 
         // Dev hooks for repeatable screenshots (riddim-3d-plan.md, section 8).
         // HALO_STAGE_CAMERA=yaw,pitch,radius; HALO_STAGE_PRESET=hero|top|low|keys|edge;
@@ -183,13 +185,15 @@ namespace halo
 
         if (const auto preset = env ("HALO_STAGE_PRESET").toLowerCase(); preset.isNotEmpty())
         {
-            struct Preset { const char* name; float yaw, pitch, radius; };
-            static constexpr Preset presets[] {
-                { "hero", 28.0f, 42.0f, 0.70f },
-                { "top",   0.0f, 85.0f, 0.78f },
-                { "low",  28.0f, 12.0f, 0.62f },
-                { "keys", 18.0f, 52.0f, 0.42f },
-                { "edge", 90.0f, 10.0f, 0.62f },
+            // Zoom multiplies the fitted radius; the offset (world metres) moves
+            // the target after fitting, e.g. onto the keys.
+            struct Preset { const char* name; float yaw, pitch, zoom; bool ortho; Vec3f offset; };
+            static const Preset presets[] {
+                { "hero", heroYaw, heroPitch, 1.0f, false, {} },
+                { "top",   0.0f, 90.0f, 1.0f, true, {} },
+                { "low",  28.0f, 12.0f, 1.0f, false, {} },
+                { "keys", 20.0f, 50.0f, 0.58f, false, { 0.0f, 0.0f, 0.045f } },
+                { "edge", 90.0f, 8.0f, 1.0f, false, {} },
             };
             bool found = false;
             for (const auto& p : presets)
@@ -197,10 +201,18 @@ namespace halo
                 {
                     yawDegrees = p.yaw;
                     pitchDegrees = p.pitch;
-                    radius = p.radius;
+                    zoom = p.zoom;
+                    orthoView = p.ortho;
+                    presetOffset = p.offset;
                     found = true;
                 }
             log.line ("preset: " + preset + (found ? "" : " (unknown, ignored)"));
+        }
+
+        if (const auto name = env ("HALO_STAGE_LOOK"); name.isNotEmpty())
+        {
+            shared.look = StageLook::named (name);
+            log.line ("look: " + name);
         }
 
         if (const auto text = env ("HALO_STAGE_POSE"); text.isNotEmpty())
@@ -216,11 +228,11 @@ namespace halo
        #endif
 
         const auto camera = juce::StringArray::fromTokens (env ("HALO_STAGE_CAMERA"), ",", {});
-        if (camera.size() == 3)
+        if (camera.size() == 3) // yaw, pitch, zoom (1 = fitted)
         {
             yawDegrees = camera[0].getFloatValue();
             pitchDegrees = camera[1].getFloatValue();
-            radius = camera[2].getFloatValue();
+            zoom = camera[2].getFloatValue();
         }
         if (debugView != 0)
             log.line ("debug view: " + juce::String (debugView));
@@ -233,6 +245,16 @@ namespace halo
             statusChanged();
             displayChanged (model.display());
         }
+
+        // Last, so the GL thread never sees a half-configured stage.
+        context.attachTo (*this);
+    }
+
+    void StageComponent::setLook (const StageLook& newLook)
+    {
+        const juce::SpinLock::ScopedLockType sl (lock);
+        shared.look = newLook;
+        shared.lookDirty = true;
     }
 
     // A pose replaces every live or mock input with a fixed state. The
@@ -323,19 +345,23 @@ namespace halo
     void StageComponent::mouseDrag (const juce::MouseEvent& e)
     {
         yawDegrees = juce::jlimit (-60.0f, 110.0f, dragStartYaw - (float) e.getDistanceFromDragStartX() * 0.3f);
-        pitchDegrees = juce::jlimit (12.0f, 85.0f, dragStartPitch + (float) e.getDistanceFromDragStartY() * 0.3f);
+        pitchDegrees = juce::jlimit (StageCamera::minPitch, StageCamera::maxPitch,
+                                     dragStartPitch + (float) e.getDistanceFromDragStartY() * 0.3f);
+        orthoView = false;
     }
 
     void StageComponent::mouseDoubleClick (const juce::MouseEvent&)
     {
-        yawDegrees = 28.0f;
-        pitchDegrees = 42.0f;
-        radius = 0.70f;
+        yawDegrees = heroYaw;
+        pitchDegrees = heroPitch;
+        zoom = 1.0f;
+        orthoView = false;
+        presetOffsetActive = false;
     }
 
     void StageComponent::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
     {
-        radius = juce::jlimit (0.40f, 1.20f, radius.load() * (1.0f - wheel.deltaY * 0.25f));
+        zoom = juce::jlimit (StageCamera::minZoom, StageCamera::maxZoom, zoom.load() * (1.0f - wheel.deltaY * 0.25f));
     }
 
     //==============================================================================
@@ -358,6 +384,40 @@ namespace halo
         displayPart = indexOf ("display_surface");
         ringPart = indexOf ("halo_ring");
         platePart = indexOf ("chassis_topPlate");
+
+        // Bounds of the parts that cast shadows: everything with triangles except
+        // the halo ring (an anchor; it used to reach 1.4 mm below the case and
+        // made the device float). The floor sits at their lowest point, and the
+        // camera fits their box, knobs included.
+        {
+            juce::Vector3D<float> lo (1e9f, 1e9f, 1e9f), hi (-1e9f, -1e9f, -1e9f);
+            for (size_t p = 0; p < mesh.parts.size(); ++p)
+            {
+                const auto& part = mesh.parts[p];
+                if ((int) p == ringPart || part.indices.empty())
+                    continue;
+                for (size_t v = 0; v < part.vertices.size(); v += MeshPart::floatsPerVertex)
+                {
+                    const float* m = part.partToModel.mat; // column-major
+                    const float x = part.vertices[v], y = part.vertices[v + 1], z = part.vertices[v + 2];
+                    const juce::Vector3D<float> q (m[0] * x + m[4] * y + m[8] * z + m[12],
+                                                   m[1] * x + m[5] * y + m[9] * z + m[13],
+                                                   m[2] * x + m[6] * y + m[10] * z + m[14]);
+                    lo = { std::min (lo.x, q.x), std::min (lo.y, q.y), std::min (lo.z, q.z) };
+                    hi = { std::max (hi.x, q.x), std::max (hi.y, q.y), std::max (hi.z, q.z) };
+                }
+            }
+            if (lo.x < hi.x)
+            {
+                groundZ = lo.z;
+                // Model (x, y, z) -> world (x, z, -y).
+                deviceBox = { { lo.x, lo.z, -hi.y }, { hi.x, hi.z, -lo.y } };
+            }
+            log.line ("bounds (mm): x " + juce::String (lo.x * 1000.0f, 2) + ".." + juce::String (hi.x * 1000.0f, 2)
+                      + " y " + juce::String (lo.y * 1000.0f, 2) + ".." + juce::String (hi.y * 1000.0f, 2)
+                      + " z " + juce::String (lo.z * 1000.0f, 2) + ".." + juce::String (hi.z * 1000.0f, 2)
+                      + "; floor at z " + juce::String (groundZ * 1000.0f, 2));
+        }
 
         // Which GPU and driver the stage landed on: "Let Windows decide" can put
         // Halo on the iGPU, and every timing or driver report needs this.
@@ -424,8 +484,9 @@ namespace halo
 
         glGenVertexArrays (1, &emptyVao);
 
-        // Ground quad in model space under the chassis; it only ever darkens.
-        // Only as large as the shadow fade (see the shader), so no pixel is wasted.
+        // Ground quad in model space under the chassis, at the lowest shadow-casting
+        // point: it darkens (contact shadow) and lights (ring pool, dark-look key
+        // spot). Only as large as those fade out (see the shader).
         const float gx = 0.26f, gy = 0.34f;
         const float quad[] { -gx, -gy, groundZ, 0, 0,   gx, -gy, groundZ, 1, 0,
                              -gx,  gy, groundZ, 0, 1,   gx,  gy, groundZ, 1, 1 };
@@ -497,11 +558,22 @@ namespace halo
         makeTarget (heightTarget, 1024, juce::roundToInt (1024.0f * heightHalfY / heightHalfX), false);
 
         // The face silkscreen, mipmapped so small print stays clean at a distance.
-        printTexture.loadImage (FacePrint::render());
+        const auto print = FacePrint::render();
+       #if JUCE_DEBUG
+        if (const auto dump = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_DUMP_PRINT", {}); dump.isNotEmpty())
+        {
+            juce::File file (dump);
+            file.deleteFile();
+            if (juce::FileOutputStream out (file); out.openedOk())
+                juce::PNGImageFormat().writeImageToStream (print, out);
+        }
+       #endif
+        printTexture.loadImage (print);
         printTexture.bind();
         glGenerateMipmap (GL_TEXTURE_2D);
         glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        enableAnisotropy();
         printTexture.unbind();
 
         startTime = lastFrameTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
@@ -582,7 +654,7 @@ namespace halo
         const auto toWorld = modelToWorld();
         for (size_t p = 0; p < mesh.parts.size(); ++p)
         {
-            if ((int) p == ringPart) // lies on the floor; never casts
+            if ((int) p == ringPart || mesh.parts[p].indices.empty()) // anchors never cast
                 continue;
             const auto m = partsInWorld ? then (partToModel[p], toWorld) : partToModel[p];
             depthShader->setUniformMat4 ("uModel", m.mat, 1, false);
@@ -601,15 +673,15 @@ namespace halo
         if (debugView == 5)
             return drawCard();
 
-        const auto& c = HaloColours::graphPaper;
         const auto scale = (float) context.getRenderingScale();
         backgroundShader->use();
         backgroundShader->setUniform ("uScale", scale);
         backgroundShader->setUniform ("uHeight", (float) getHeight() * scale);
-        const auto canvas = toVec (c.canvas), minor = toVec (c.gridMinor), major = toVec (c.gridMajor);
+        backgroundShader->setUniform ("uCell", look.gridCellPt);
+        const auto canvas = toVec (look.floor), minor = toVec (look.gridMinor), major = toVec (look.gridMajor);
         backgroundShader->setUniform ("uCanvas", canvas.x, canvas.y, canvas.z);
-        backgroundShader->setUniform ("uMinor", minor.x, minor.y, minor.z, c.gridMinor.getFloatAlpha());
-        backgroundShader->setUniform ("uMajor", major.x, major.y, major.z, c.gridMajor.getFloatAlpha());
+        backgroundShader->setUniform ("uMinor", minor.x, minor.y, minor.z, look.gridMinor.getFloatAlpha());
+        backgroundShader->setUniform ("uMajor", major.x, major.y, major.z, look.gridMajor.getFloatAlpha());
 
         glDisable (GL_DEPTH_TEST);
         glBindVertexArray (emptyVao);
@@ -637,54 +709,80 @@ namespace halo
         glDrawArrays (GL_TRIANGLES, 0, 3);
     }
 
-    void StageComponent::drawGround (const Mat& viewProj)
+    // The floor around the device, drawn after it (the floor hidden under the
+    // device fails the depth test) in up to three passes over the backdrop:
+    //   1. key-light spot (dark look only): the floor near the device is lit,
+    //   2. contact shadow: blends toward the shadow tint,
+    //   3. ring pool: Halo's ring state as light on the floor, screen-blended,
+    //      so where no light falls the backdrop is untouched.
+    void StageComponent::drawGround (const Mat& viewProj, const SharedState& state, float time)
     {
         if (debugView >= 5)
             return;
+
+        // Ring pool from the honest ring state (HaloRingRig.swift levels).
+        int ringMode = 0; // 0 none, 1 discover sweep, 2 steady
+        float ringLevel = 0.0f;
+        switch (state.ring.kind)
+        {
+            case RingState::Kind::discovering: ringMode = 1; ringLevel = 0.60f; break;
+            case RingState::Kind::connected:   ringMode = 2; ringLevel = 0.20f; break;
+            case RingState::Kind::monitoring:  ringMode = 2; ringLevel = 0.40f; break;
+            case RingState::Kind::recording:   ringMode = 2; ringLevel = 0.22f + 0.18f * (1.0f + std::sin (time * juce::MathConstants<float>::twoPi / 3.2f)); break;
+            case RingState::Kind::transfer:    ringMode = 2; ringLevel = 0.15f + 0.75f * (float) state.ring.transferProgress; break;
+            case RingState::Kind::error:       ringMode = 2; ringLevel = 0.40f; break;
+            case RingState::Kind::disconnected: break;
+        }
+        const auto ringColour = toVec (StageLook::ringColour (look, state.ring.kind));
+        const auto tint = toVec (look.shadowTint);
+
         Mat identity;
         partShader->setUniformMat4 ("uModel", modelToWorld().mat, 1, false);
         partShader->setUniformMat4 ("uPartToModel", identity.mat, 1, false);
         partShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
         partShader->setUniform ("uKind", 3);
+        partShader->setUniform ("uShadowTint", tint.x, tint.y, tint.z);
+        partShader->setUniform ("uRingMode", ringMode);
+        partShader->setUniform ("uRingLevel", ringLevel);
+        partShader->setUniform ("uRingColour", ringColour.x, ringColour.y, ringColour.z);
+        partShader->setUniform ("uRingPeriod", ringDiscoverPeriod);
+        partShader->setUniform ("uFloorSpot", look.floorSpot);
+        GLint viewport[4] {};
+        glGetIntegerv (GL_VIEWPORT, viewport);
+        partShader->setUniform ("uViewport", (float) viewport[2], (float) viewport[3]);
+        partShader->setUniform ("uTime", time);
 
         glEnable (GL_BLEND);
-        glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask (GL_FALSE);
         glBindVertexArray (groundVao);
-        glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
+        auto pass = [this] (int which, GLenum src, GLenum dst)
+        {
+            partShader->setUniform ("uGroundPass", which);
+            glBlendFunc (src, dst);
+            glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
+        };
+        if (look.floorSpot > 0.0f)
+            pass (1, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
+        pass (0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // shadow
+        if (ringMode != 0 && ringLevel > 0.0f)
+            pass (2, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
         glDepthMask (GL_TRUE);
         glDisable (GL_BLEND);
     }
 
     void StageComponent::drawModel (const Mat& viewProj, const SharedState& state, float time)
     {
+        juce::ignoreUnused (time);
         const auto toWorld = modelToWorld();
-        const auto orange = linear (HaloColours::graphPaper.orange);
-        const auto green = linear (HaloColours::graphPaper.riddimGreen.brighter (0.6f));
-
-        // Ring appearance from the honest ring state (HaloRingRig.swift).
-        int ringMode = 0;
-        float ringLevel = 0.0f;
-        auto ringColour = orange;
-        switch (state.ring.kind)
-        {
-            case RingState::Kind::discovering: ringMode = 1; break;
-            case RingState::Kind::connected:   ringMode = 2; ringLevel = 0.20f; break;
-            case RingState::Kind::monitoring:  ringMode = 2; ringLevel = 0.40f; break;
-            case RingState::Kind::recording:   ringMode = 2; ringLevel = 0.22f + 0.165f * (1.0f + std::sin (time * juce::MathConstants<float>::twoPi / 3.2f)); break;
-            case RingState::Kind::transfer:    ringMode = 2; ringLevel = 0.85f * (float) state.ring.transferProgress; break;
-            case RingState::Kind::error:       ringMode = 3; ringLevel = 0.30f; ringColour = linear (HaloColours::graphPaper.warning); break;
-            case RingState::Kind::disconnected: break;
-        }
-        partShader->setUniform ("uRingMode", ringMode);
-        partShader->setUniform ("uRingLevel", ringLevel);
-        partShader->setUniform ("uRingColour", ringColour.x, ringColour.y, ringColour.z);
-        partShader->setUniform ("uTime", time);
+        const auto orange = linear (cueOrange);
+        const auto green = linear (cueGreen.brighter (0.6f));
         partShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
 
         for (int p = 0; p < (int) mesh.parts.size(); ++p)
         {
             const auto& part = mesh.parts[(size_t) p];
+            if (p == ringPart || part.indices.empty()) // the ring is a floor pool now; anchors draw nothing
+                continue;
             const auto& local = partToModel[(size_t) p];
             juce::Vector3D<float> glow;
             int kind = 0;
@@ -703,8 +801,6 @@ namespace halo
                 glActiveTexture (GL_TEXTURE0);
                 displayTexture.bind();
             }
-            if (p == ringPart)
-                kind = 2;
             if (p == platePart)
                 kind = 4;
 
@@ -731,6 +827,11 @@ namespace halo
             const juce::SpinLock::ScopedLockType sl (lock);
             state = shared;
             shared.displayDirty = false;
+            if (shared.lookDirty)
+            {
+                look = shared.look;
+                shared.lookDirty = false;
+            }
         }
         if (state.displayDirty && state.displayImage.isValid())
             displayTexture.loadImage (state.displayImage);
@@ -794,7 +895,7 @@ namespace halo
             animatePads (state, dt);
             glDisable (GL_BLEND);
             drawDepth (shadowTarget, lightViewProj, true);
-            drawDepth (heightTarget, heightProjection(), false);
+            drawDepth (heightTarget, heightProjection (groundZ), false);
             glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
             glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
             glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer);
@@ -808,14 +909,13 @@ namespace halo
         if (! ready || debugView == 5)
             return;
 
-        const float yaw = juce::degreesToRadians (yawDegrees.load());
-        const float pitch = juce::degreesToRadians (pitchDegrees.load());
-        const float r = radius.load();
-        const juce::Vector3D<float> eye (r * std::cos (pitch) * std::sin (yaw), r * std::sin (pitch),
-                                         r * std::cos (pitch) * std::cos (yaw));
-        const auto view = lookAt (eye, { 0, 0, 0 }, { 0, 1, 0 });
-        const auto proj = perspective (24.0f, (float) w / (float) h, 0.05f, 5.0f);
-        const auto viewProj = then (view, proj);
+        // Fit the shadow-casting bounds into the stage at this angle and aspect
+        // (6% margin, centred), then apply the user's zoom.
+        const auto camera = StageCamera::view (deviceBox, yawDegrees.load(), pitchDegrees.load(), zoom.load(),
+                                               (float) w / (float) h, orthoView.load(),
+                                               presetOffsetActive.load() ? presetOffset : Vec3f {});
+        const Mat viewProj (camera.viewProjection.data());
+        const juce::Vector3D<float> eye (camera.eye.x, camera.eye.y, camera.eye.z);
 
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LEQUAL);
@@ -829,7 +929,7 @@ namespace halo
         glBindTexture (GL_TEXTURE_2D, printTexture.getTextureID());
         glActiveTexture (GL_TEXTURE0);
 
-        const auto shadowTint = toVec (HaloColours::graphPaper.ink);
+        const auto shadowTint = toVec (look.shadowTint);
         partShader->use();
         partShader->setUniform ("uTexture", 0);
         partShader->setUniform ("uShadowMap", 1);
@@ -845,11 +945,12 @@ namespace halo
         partShader->setUniform ("uTopDir", topDir.x, topDir.y, topDir.z);
         partShader->setUniform ("uFillDir", fillDir.x, fillDir.y, fillDir.z);
         partShader->setUniform ("uShadowTint", shadowTint.x, shadowTint.y, shadowTint.z);
-        partShader->setUniform ("uExposure", 1.0f);
+        partShader->setUniform ("uExposure", look.exposure);
         partShader->setUniform ("uDebug", debugView);
 
         // A pose freezes the clock too, so two captures of one pose match.
-        drawModel (viewProj, state, pose ? 1.0f : (float) (nowSeconds - startTime));
-        drawGround (viewProj); // after the device: the floor beneath it fails the depth test
+        const float time = pose ? 1.0f : (float) (nowSeconds - startTime);
+        drawModel (viewProj, state, time);
+        drawGround (viewProj, state, time); // after the device: the floor beneath it fails the depth test
     }
 }

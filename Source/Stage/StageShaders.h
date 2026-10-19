@@ -63,16 +63,20 @@ namespace halo::stage_shaders
         in vec3 vNormal; in vec3 vColour; in float vEmissive; in vec2 vUV; in vec2 vMaterial;
         in vec3 vLocal; in vec3 vWorld; in vec3 vModel; in vec3 vModelNormal;
 
-        uniform int uKind;            // 0 part, 1 display, 2 halo ring, 3 ground, 4 face plate
+        uniform int uKind;            // 0 part, 1 display, 3 ground, 4 face plate
         uniform vec3 uEye;
         uniform vec3 uGlow;           // linear emissive added to the part
         uniform sampler2D uTexture;   // LCD
         uniform sampler2D uPrint;     // face silkscreen, premultiplied, model XY
         uniform vec2 uDeviceSize;     // model width, depth (m)
-        uniform int uRingMode;        // 0 dark, 1 discover sweep, 2 steady, 3 error
+        uniform int uRingMode;        // 0 none, 1 discover sweep, 2 steady
         uniform float uTime;
-        uniform vec3 uRingColour;
+        uniform vec3 uRingColour;     // display-encoded (sRGB) look token
         uniform float uRingLevel;
+        uniform float uRingPeriod;    // seconds per discover sweep
+        uniform int uGroundPass;      // 0 contact shadow, 1 key-light spot, 2 ring pool
+        uniform float uFloorSpot;     // display-encoded brightness of the key spot (dark look)
+        uniform vec2 uViewport;       // stage size in pixels: floor terms fade out before its edge
 
         uniform sampler2DShadow uShadowMap;
         uniform mat4 uLightViewProj;
@@ -243,31 +247,74 @@ namespace halo::stage_shaders
 
             if (uKind == 3)
             {
-                // Ground: only the darkening is drawn, over the graph paper (after
-                // the device, so the floor hidden under it is never shaded). A wide
-                // soft occlusion (the room can't see under the case), a tighter
-                // contact line, and the key light's own shadow.
-                float fade = 1.0 - smoothstep (0.11, 0.30, length (vModel.xy * vec2 (1.2, 0.92)));
-                if (fade <= 0.0)
-                    discard;
-                // Distance to the case's rounded footprint drives the broad falloff.
+                // Ground, drawn over the backdrop after the device (so the floor
+                // hidden under it is never shaded). Distance to the case's rounded
+                // footprint drives every term.
                 const float corner = 0.0052;
                 vec2 q = abs (vModel.xy) - (uDeviceSize * 0.5 - corner);
                 float gap = max (length (max (q, 0.0)) + min (max (q.x, q.y), 0.0) - corner, 0.0);
+
+                // Every floor term fades to nothing within 4% of the stage edge, so
+                // the stage border is always exactly the backdrop token (plan 3.2).
+                vec2 fc = gl_FragCoord.xy;
+                float edge = min (min (fc.x, fc.y), min (uViewport.x - fc.x, uViewport.y - fc.y));
+                float border = smoothstep (0.0, 0.04 * min (uViewport.x, uViewport.y), edge);
+
+                if (uGroundPass == 2)
+                {
+                    // Ring pool: Halo's ring state as light on the floor, hugging
+                    // the footprint (screen-blended: no light leaves the backdrop
+                    // exactly as it was).
+                    // It rises over the first 3 mm so the contact line stays dark.
+                    float pool = uRingLevel * exp (-max (gap - 0.002, 0.0) / 0.018) * smoothstep (0.0, 0.003, gap);
+                    if (uRingMode == 1)
+                    {
+                        // Discovering: a dashed comet running round the footprint,
+                        // 48 dashes along its perimeter like the Mac's ring segments.
+                        vec2 h = uDeviceSize * 0.5;
+                        vec2 p = vModel.xy;
+                        vec2 c = clamp (p, -h, h);
+                        float t;
+                        if (abs (p.x) - h.x > abs (p.y) - h.y)
+                            t = p.x > 0.0 ? h.y + c.y : 2.0 * h.y + 2.0 * h.x + (h.y - c.y);
+                        else
+                            t = p.y > 0.0 ? 2.0 * h.y + (h.x - c.x) : 4.0 * h.y + 2.0 * h.x + (c.x + h.x);
+                        float pos = t / (4.0 * (h.x + h.y)) * 48.0;
+                        float head = fract (uTime / uRingPeriod) * 48.0;
+                        float d = mod (head - pos + 48.0, 48.0);
+                        float dash = 1.0 - smoothstep (0.62, 0.78, fract (pos));
+                        pool *= dash * exp (-d / 4.5);
+                    }
+                    fragColour = vec4 (uRingColour * clamp (pool, 0.0, 1.0) * border, 1.0);
+                    return;
+                }
+                if (uGroundPass == 1)
+                {
+                    // The key light falling on a dark floor: brightest by the case,
+                    // gone long before the stage edge, so the border stays the token.
+                    float spot = uFloorSpot * exp (-pow (gap / 0.085, 2.0)) * (1.0 - smoothstep (0.12, 0.25, gap));
+                    fragColour = vec4 (vec3 (1.0, 0.97, 0.92) * spot * border, 1.0);
+                    return;
+                }
+
+                // Contact shadow: a wide soft occlusion (the room can't see under
+                // the case), a tighter contact line, and the key light's shadow.
+                float fade = 1.0 - smoothstep (0.11, 0.30, length (vModel.xy * vec2 (1.2, 0.92)));
+                if (fade <= 0.0)
+                    discard;
                 float shadow = gap < 0.03 ? keyShadow (vWorld, vec3 (0.0, 1.0, 0.0), 2.5, noise) : 1.0;
                 float near = gap < 0.016 ? heightAO (vModel, vec3 (0.0, 0.0, 1.0), 0.0009, 8) : 1.0;
                 float wide = 1.0 - exp (-gap / 0.016);
                 float a = (1.0 - near) * 0.55 + (1.0 - wide) * 0.42 + (1.0 - shadow) * 0.30;
-                a = clamp (a, 0.0, 0.82) * fade;
+                a = clamp (a, 0.0, 0.82) * fade * border;
                 fragColour = vec4 (uShadowTint, a);
                 if (uDebug == 4) fragColour = vec4 (wide, shadow, near, 1.0);
                 return;
             }
 
-            // 6: silhouette mask of the device (the floor ring is not the device).
+            // 6: silhouette mask of the device.
             if (uDebug == 6)
             {
-                if (uKind == 2) discard;
                 fragColour = vec4 (1.0);
                 return;
             }
@@ -317,25 +364,7 @@ namespace halo::stage_shaders
             if (uDebug == 3) { fragColour = vec4 (vec3 (fract (heightAt (vModel.xy, 0.0) * 100.0)), 1.0); return; }
             vec3 lit = shade (albedo, roughness, metallic, n, v, shadow, ao);
             lit += albedo * vEmissive * 0.6 + uGlow;
-            vec3 c = toSrgb (neutralTonemap (lit * uExposure));
-
-            if (uKind == 2 && uRingMode != 0)
-            {
-                float angle = atan (vLocal.y, vLocal.x);
-                float segment = floor ((angle + 3.14159265) / 6.2831853 * 48.0);
-                float level = uRingLevel;
-                if (uRingMode == 1)
-                {
-                    float head = floor (fract (uTime / 4.0) * 48.0);
-                    float d = mod (head - segment + 48.0, 48.0);
-                    float falloff[6] = float[6] (1.0, 0.72, 0.48, 0.28, 0.14, 0.06);
-                    level = d < 6.0 ? falloff[int (d)] * 0.9 : 0.0;
-                }
-                // Segment opacity over the dark ring, like the Mac's 48 unlit segments.
-                c = mix (c, toSrgb (uRingColour), level);
-            }
-
-            fragColour = vec4 (c, 1.0);
+            fragColour = vec4 (toSrgb (neutralTonemap (lit * uExposure)), 1.0);
         })";
 
     inline const char* backgroundVertex = R"(
@@ -384,6 +413,7 @@ namespace halo::stage_shaders
         #version 150
         uniform float uScale;
         uniform float uHeight;
+        uniform float uCell;          // logical points per minor cell
         uniform vec3 uCanvas;
         uniform vec4 uMinor;
         uniform vec4 uMajor;
@@ -396,7 +426,7 @@ namespace halo::stage_shaders
         void main()
         {
             vec2 p = vec2 (gl_FragCoord.x, uHeight - gl_FragCoord.y);
-            float cell = 16.0 * uScale;
+            float cell = uCell * uScale;
             float w = max (1.0, uScale);
             float minor = max (line (p.x, cell, w), line (p.y, cell, w));
             float major = max (line (p.x, cell * 4.0, w), line (p.y, cell * 4.0, w));

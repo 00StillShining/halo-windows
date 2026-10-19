@@ -10,7 +10,7 @@
 # Usage:
 #   powershell -File tools\dev\stage_shots.ps1 -Milestone m0
 #   powershell -File tools\dev\stage_shots.ps1 -Milestone m1 -Shots hero,low -Looks paper,dark
-#   powershell -File tools\dev\stage_shots.ps1 -Milestone m2 -Shots hero -Env @{HALO_STAGE_TONEMAP='agx'} -Suffix agx
+#   powershell -File tools\dev\stage_shots.ps1 -Milestone m2 -Shots hero -Env "HALO_STAGE_TONEMAP=agx" -Suffix agx
 #   powershell -File tools\dev\stage_shots.ps1 -Milestone m0 -Shots hero -Stats -HoldSeconds 12   (timing; use a Release exe)
 #
 # Shots: hero rack small top low keys edge hit card mask albedo emissive, or any
@@ -22,7 +22,7 @@ param(
     [string[]]$Looks = @("paper"),
     [string]$Exe = "",
     [string]$Pose = "rest",
-    [hashtable]$Env = @{},
+    [string]$Env = "",   # extra variables, "NAME=value;NAME2=value2"
     [string]$Suffix = "",
     [int]$TimeoutSec = 40,
     [switch]$Stats,
@@ -33,6 +33,8 @@ $ErrorActionPreference = "Stop"
 # "powershell -File" passes "hero,low" as one string; accept both forms.
 $Shots = @($Shots | ForEach-Object { $_ -split "," } | Where-Object { $_ -ne "" })
 $Looks = @($Looks | ForEach-Object { $_ -split "," } | Where-Object { $_ -ne "" })
+$extra = @{}
+foreach ($pair in ($Env -split ";")) { if ($pair -match "^\s*([^=]+)=(.*)$") { $extra[$Matches[1].Trim()] = $Matches[2] } }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 if ($Exe -eq "") {
     $Exe = Join-Path $repo "build\Stage\Halo_artefacts\Debug\Halo.exe"
@@ -66,6 +68,8 @@ $defs = @{
     hit      = @{ size = @(1456, 939);  preset = "hero"; pose = "pad7=1.0,group=1" }
     card     = @{ size = @(1456, 939);  preset = "hero"; debug = "5" }
     mask     = @{ size = @(1456, 939);  preset = "hero"; debug = "6" }
+    maskrack = @{ size = @(1294, 1447); preset = "hero"; debug = "6"; env = @{ HALO_MODE = "5" } }
+    masksmall = @{ size = @(1180, 720); preset = "hero"; debug = "6"; env = @{ HALO_RAIL = "open" } }
     albedo   = @{ size = @(1456, 939);  preset = "top";  debug = "7" }
     emissive = @{ size = @(1456, 939);  preset = "hero"; debug = "8" }
 }
@@ -88,7 +92,7 @@ foreach ($look in $Looks) {
         Remove-Item -LiteralPath $logPath -ErrorAction SilentlyContinue
 
         foreach ($k in $managed) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
-        foreach ($k in $Env.Keys) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
+        foreach ($k in $extra.Keys) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
         $env:HALO_MOCK_MIDI = "1"
         $env:HALO_STAGE_LOG = $logPath
         $env:HALO_STAGE_PRESET = $def.preset
@@ -97,7 +101,7 @@ foreach ($look in $Looks) {
         if ($def.debug) { $env:HALO_STAGE_DEBUG = $def.debug }
         if ($Stats) { $env:HALO_STAGE_STATS = "1" }
         if ($def.env) { foreach ($k in $def.env.Keys) { Set-Item "Env:$k" $def.env[$k] } }
-        foreach ($k in $Env.Keys) { Set-Item "Env:$k" $Env[$k] }
+        foreach ($k in $extra.Keys) { Set-Item "Env:$k" $extra[$k] }
 
         $p = Start-Process -FilePath $Exe -WorkingDirectory $repo -PassThru
         try {
@@ -135,7 +139,7 @@ foreach ($look in $Looks) {
         finally {
             if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
             foreach ($k in $managed) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
-            foreach ($k in $Env.Keys) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
+            foreach ($k in $extra.Keys) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }
         }
     }
 }

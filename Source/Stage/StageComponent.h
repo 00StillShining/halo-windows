@@ -1,10 +1,12 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "Core/StageCamera.h"
 #include "Core/StagePose.h"
 #include "Stage/DisplayRenderer.h"
 #include "Stage/HaloMesh.h"
 #include "Stage/StageLog.h"
+#include "Stage/StageLook.h"
 #include "Stage/StageStats.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -36,6 +38,10 @@ namespace halo
         void mouseDoubleClick (const juce::MouseEvent&) override;
         void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
+        // The stage's surroundings (backdrop, floor, shadow, ring pool). Copied
+        // under the lock; the GL thread picks it up on its next frame.
+        void setLook (const StageLook&);
+
     private:
         // OpenGLRenderer (GL thread)
         void newOpenGLContextCreated() override;
@@ -63,6 +69,8 @@ namespace halo
             RingState ring;
             juce::Image displayImage;
             bool displayDirty = false;
+            StageLook look = StageLook::paper();
+            bool lookDirty = true;
         };
 
         struct PadAnim
@@ -93,7 +101,7 @@ namespace halo
         void applyPose (const StagePose&);
         void drawDepth (const DepthTarget&, const juce::Matrix3D<float>& viewProj, bool partsInWorld);
         void drawBackground();
-        void drawGround (const juce::Matrix3D<float>& viewProj);
+        void drawGround (const juce::Matrix3D<float>& viewProj, const SharedState&, float time);
         void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&, float time);
 
         AppModel& model;
@@ -110,6 +118,9 @@ namespace halo
         std::array<int, 12> padParts {};
         std::array<int, 4> groupParts {};
         int displayPart = -1, ringPart = -1, platePart = -1;
+        StageLook look = StageLook::paper();   // GL thread's copy
+        float groundZ = -0.008f;               // model z of the floor: lowest shadow-casting point
+        StageBox deviceBox;                    // world-space bounds of the shadow-casting parts
         std::array<PadAnim, 12> padAnim {};
         double lastFrameTime = 0.0, startTime = 0.0;
         bool meshLoaded = false;
@@ -130,8 +141,13 @@ namespace halo
         juce::SpinLock lock;
         SharedState shared;
 
-        // Camera (message thread writes, GL thread reads)
-        std::atomic<float> yawDegrees { 28.0f }, pitchDegrees { 42.0f }, radius { 0.70f };
+        // Camera (message thread writes, GL thread reads). The radius comes from
+        // fitting the device into the stage (Core/StageCamera); zoom scales it.
+        static constexpr float heroYaw = 28.0f, heroPitch = 38.0f;
+        std::atomic<float> yawDegrees { heroYaw }, pitchDegrees { heroPitch }, zoom { 1.0f };
+        std::atomic<bool> orthoView { false };
+        Vec3f presetOffset; // world metres, set once by HALO_STAGE_PRESET before the GL thread starts
+        std::atomic<bool> presetOffsetActive { true };
         float dragStartYaw = 0.0f, dragStartPitch = 0.0f;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StageComponent)

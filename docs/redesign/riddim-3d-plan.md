@@ -1291,3 +1291,24 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   orange ΔE 4.5, green #0F644D (ΔE 8.4), label plate ΔE 1.6; the shell band is grey (ΔE 33 to
   the green shell) and the screen frame near-black (ΔE 13.7).
 - **Mask, `hero`:** margins L 23.5 % R 26.6 % T 18.6 % B 9.4 %; fill 49.9 % × 72.1 %.
+
+### M1 (quick wins on the current asset)
+
+- **Asset:** the section 2.5 palette (cream #DCD2BF body and deck, #E9E9E5 numeral keys,
+  #DDD3C2 group pads and beige function caps, #0A4A36 green, #FA5A16 orange, #0B2E24 glossy
+  frame, #1C1B19 gaps, TE's inks); the bottom shell is a 3.8 mm dark-green stripe all round;
+  `legend_25..29` dropped (no more "DUB"); `halo_ring` is a zero-triangle anchor.
+- **Deviation (LEDs):** the plan said to remove `status_lamp_top_*`, but TE's front drawing and
+  section 2.3's own LED table have a fourth LED row at y 132.0 (LEVEL / PITCH / TIME). All 16 + 2
+  LEDs are now generated as flush 1.8 mm unlit discs at the section 2.3 positions (the Blender
+  lamps were 2.5 mm pills 1.3 mm above the plate and about 4 mm right of the real spots).
+- **Print:** TE positions in reference mm, green #00503A / orange #FF681D ink, 2.1 mm caps, plus
+  VOLUME, BPM ─ METRONOME, GAIN and SWING brackets and the big X / Y. The bracket row sits at
+  y 108.6 instead of 108.0 until M5a, because the carried-over display band reaches y 107.4.
+- **Card:** deck ΔE 1.75, key 1.31, orange 2.59, green 0.67, label plate 1.55, frame 1.47.
+- **Mask:** `hero` margins ≥ 6.9 %, limiting fill 84.7 %; `rack` 6.9 % / 86.1 %; `small` 7.0 % / 84.7 %.
+- **Border:** `dark()` stage border is exactly #060607 in `hero`, `rack`, `small`, `low`, `top`,
+  `edge` (floor terms fade out over the outer 4 % of the stage). With `paper()` the backdrop is
+  unchanged from M0 wherever M0 had no floor shadow (the only differences are M0's shadow
+  reaching the stage edge, which M1 no longer does).
+- **Determinism:** two `hero` runs: max delta 0.
