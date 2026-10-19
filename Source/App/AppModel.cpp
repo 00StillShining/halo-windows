@@ -49,6 +49,73 @@ namespace halo
                 appendLog ("warning: " + juce::String (juce::roundToInt ((double) take.droppedSamples / take.sampleRate * 1000.0))
                            + " ms of audio was dropped (disk too slow)");
         };
+
+        // Restore conveniences (never device facts).
+        engine.setGainDb (settings.getDouble ("monitorGainDb", MonitorGain::defaultDb));
+        engine.setOutputName (settings.getString ("monitorOutput"));
+        grab.bars = settings.getInt ("grabBars", 8);
+        grab.seconds = settings.getInt ("grabSeconds", 10);
+
+        grab.onFinished = [this] (const GrabController::Result& r)
+        {
+            using K = GrabController::Result::Kind;
+            switch (r.kind)
+            {
+                case K::grabbed:
+                    grabStatus = "GRABBED " + juce::String (r.gotBars > 0 ? juce::String (r.gotBars) + " BARS" : juce::String (r.seconds, 1) + " S");
+                    break;
+                case K::truncated:
+                    grabStatus = "ONLY " + juce::String (r.gotBars) + " OF " + juce::String (r.askedBars) + " BARS IN HISTORY";
+                    break;
+                default:
+                    grabStatus = r.message.toUpperCase();
+                    break;
+            }
+            grabStatusUntil = now() + 2.5;
+
+            if (r.file.existsAsFile())
+            {
+                latestTake = SessionRecorder::Take { r.file, r.seconds, engine.route().sampleRate, 0 };
+                appendLog ("grab saved: " + r.file.getFileName());
+            }
+            else
+            {
+                appendLog ("grab: " + r.message);
+            }
+            listeners.call ([] (Listener& l) { l.statusChanged(); });
+        };
+    }
+
+    void AppModel::grabNow()
+    {
+        grab.grab (engine.history(), engine.route().sampleRate, clockBpm());
+    }
+
+    void AppModel::setGrabLength (int value)
+    {
+        if (grabUsesBars())
+        {
+            grab.bars = value;
+            settings.set ("grabBars", value);
+        }
+        else
+        {
+            grab.seconds = value;
+            settings.set ("grabSeconds", value);
+        }
+        listeners.call ([] (Listener& l) { l.statusChanged(); });
+    }
+
+    void AppModel::setMonitorGainDb (double db)
+    {
+        engine.setGainDb (db);
+        settings.set ("monitorGainDb", engine.gainDb());
+    }
+
+    void AppModel::setMonitorOutput (const juce::String& name)
+    {
+        engine.setOutputName (name);
+        settings.set ("monitorOutput", name);
     }
 
     void AppModel::toggleMonitor()
@@ -164,6 +231,8 @@ namespace halo
                 engine.stop();
                 appendLog ("monitor stopped: EP-40 disconnected");
             }
+            grab.setTransportPlaying (false);
+            grab.clockLost();
             // No pad hold, LED or live display may survive a connection change.
             releaseAllPads();
             reducer.connectionChanged (connected);
@@ -195,6 +264,17 @@ namespace halo
 
         if (reducer.apply (event, now()))
             listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
+
+        // GRAB's bar grid: transport state, and downbeats stamped as the exact
+        // audio frame captured when the clock tick arrived.
+        if (event.kind == MidiKind::start || event.kind == MidiKind::continuePlaying)
+            grab.setTransportPlaying (true);
+        else if (event.kind == MidiKind::stop)
+            grab.setTransportPlaying (false);
+        else if (event.kind == MidiKind::timingClock && reducer.state().isPlaying && reducer.clock().lastTickWasDownbeat())
+            if (const auto history = engine.history())
+                if (const auto frame = history->frameAt (event.timeSeconds, engine.route().sampleRate); frame >= 0)
+                    grab.markDownbeat (frame);
 
         // The lifecycle flips to LIVE only on the first live event, so the
         // status bar isn't refreshed for every note.
@@ -256,7 +336,14 @@ namespace halo
 
         if (reducer.expire (t))
         {
+            grab.clockLost();
             listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
+            listeners.call ([] (Listener& l) { l.statusChanged(); });
+        }
+
+        if (grabStatus.isNotEmpty() && t > grabStatusUntil)
+        {
+            grabStatus.clear();
             listeners.call ([] (Listener& l) { l.statusChanged(); });
         }
     }

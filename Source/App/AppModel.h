@@ -1,5 +1,7 @@
 #pragma once
 
+#include "App/Settings.h"
+#include "Audio/GrabController.h"
 #include "Audio/MonitorEngine.h"
 #include "Core/DisplayReducer.h"
 #include "Core/PadHoldRegistry.h"
@@ -62,6 +64,18 @@ namespace halo
         void toggleRecording();
         const std::optional<SessionRecorder::Take>& lastTake() const noexcept { return latestTake; }
 
+        // GRAB: last N bars (clock + transport playing) or last N seconds.
+        GrabController& grabber() noexcept { return grab; }
+        void grabNow();
+        bool grabUsesBars() const { return grab.canGrabBars (clockBpm()); }
+        void setGrabLength (int barsOrSeconds); // applies to the current mode
+        // A short outcome line for the UI, cleared after a few seconds.
+        const juce::String& grabMessage() const noexcept { return grabStatus; }
+
+        // Persisted conveniences.
+        void setMonitorGainDb (double db);
+        void setMonitorOutput (const juce::String& name);
+
         // Recent human-readable events for the rail's log (newest last).
         const std::deque<juce::String>& eventLog() const noexcept { return log; }
 
@@ -78,7 +92,11 @@ namespace halo
 
         const bool mock;
         Ep40MidiConnection connection;
+        Settings settings;
         MonitorEngine engine;
+        GrabController grab;
+        juce::String grabStatus;
+        double grabStatusUntil = 0.0;
         std::optional<SessionRecorder::Take> latestTake;
         std::optional<double> recordingStartedAt;
         int diskCheckCountdown = 0;

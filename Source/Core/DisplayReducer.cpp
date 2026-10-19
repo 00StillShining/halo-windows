@@ -10,6 +10,11 @@ namespace halo
     void ClockTracker::reset() noexcept
     {
         count = 0;
+        resetTiming();
+    }
+
+    void ClockTracker::resetTiming() noexcept
+    {
         stored = 0;
         head = 0;
         lastClock.reset();
@@ -168,9 +173,10 @@ namespace halo
                 break;
 
             case MidiKind::stop:
-                // Unlike the Mac app, Stop also forgets the clock so nothing
-                // downstream keeps using a stale tempo.
-                clockTracker.reset();
+                // Unlike the Mac app, Stop also forgets the tempo so nothing
+                // downstream keeps using a stale one. The bar phase survives
+                // so Continue resumes in phase.
+                clockTracker.resetTiming();
                 state.mode = DisplayMode::main;
                 state.isPlaying = false;
                 state.clockPulse = false;
@@ -214,7 +220,7 @@ namespace halo
 
     bool DisplayReducer::expire (double nowSeconds)
     {
-        if (current.feedMode != FeedMode::live || clockTracker.clockCount() == 0 || ! clockTracker.isStale (nowSeconds))
+        if (current.feedMode != FeedMode::live || ! clockTracker.wentQuiet (nowSeconds))
             return false;
 
         clockTracker.reset();

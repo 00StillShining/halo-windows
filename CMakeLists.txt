@@ -27,6 +27,7 @@ FetchContent_MakeAvailable(doctest)
 # ---------------------------------------------------------------------------
 add_library(HaloCore STATIC
     Source/Core/DisplayReducer.cpp
+    Source/Core/GrabMath.cpp
     Source/Core/MidiEvent.cpp)
 target_include_directories(HaloCore PUBLIC Source)
 if(MSVC)
@@ -45,6 +46,7 @@ target_sources(Halo PRIVATE
     Source/App/Main.cpp
     Source/App/MainComponent.cpp
     Source/App/AppModel.cpp
+    Source/Audio/GrabController.cpp
     Source/Audio/MonitorEngine.cpp
     Source/Audio/SessionRecorder.cpp
     Source/Device/Ep40MidiConnection.cpp
@@ -94,7 +96,8 @@ add_executable(HaloTests
     Tests/PadHoldRegistryTests.cpp
     Tests/RingAndLifecycleTests.cpp
     Tests/DisplayReducerTests.cpp
-    Tests/MonitorDspTests.cpp)
+    Tests/MonitorDspTests.cpp
+    Tests/GrabTests.cpp)
 target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)

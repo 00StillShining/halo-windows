@@ -60,6 +60,15 @@ namespace halo
                     }
             if (env ("HALO_AUTOMONITOR") == "1")
             {
+                // HALO_AUTOGRAB=<seconds>[,bars]: GRAB once after that long.
+                const auto autoGrab = juce::StringArray::fromTokens (env ("HALO_AUTOGRAB"), ",", {});
+                if (autoGrab.size() > 0 && autoGrab[0].getIntValue() > 0)
+                {
+                    if (autoGrab.size() > 1)
+                        model->grabber().bars = autoGrab[1].getIntValue();
+                    juce::Timer::callAfterDelay (1500 + autoGrab[0].getIntValue() * 1000, [this] { model->grabNow(); });
+                }
+
                 juce::Timer::callAfterDelay (1500, [this, seconds = env ("HALO_AUTORECORD").getIntValue()]
                 {
                     model->toggleMonitor();

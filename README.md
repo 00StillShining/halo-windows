@@ -11,8 +11,9 @@ A native Windows companion app for the Teenage Engineering **EP-40 Riddim**: a t
 | Status bar and rail: honest connection, feed, clock and transport state | Working |
 | Audio monitor: EP-40 USB input to any PC output, gain (default -12 dB), -1 dBFS safety limiter, meters with clip | Working (WASAPI shared mode). It refuses EP-40-to-EP-40 feedback and stops on unplug |
 | Recorder: raw pre-monitor takes, 24-bit WAV, in `Music\Halo\Recordings` | Working; the file is fully finalised before it's read back |
+| GRAB: the last 4/8/16 bars (clock + transport playing) or 5/10/30 s, zero-cross trimmed | Working; downbeats are exact audio frames from MIDI timestamps |
 | LOAD, EDIT, CAPTURE, RACK, BACKUPS | Not ported yet; each shows a "not ported yet" plate |
-| Dub rack, GRAB, CHOP | Not ported yet (see `docs/plan.md`) |
+| Dub rack, CHOP | Not ported yet (see `docs/plan.md`) |
 | Sending samples to the EP-40 | Not possible yet anywhere: needs TE's private protocol (plan §5) |
 
 ## Build
@@ -44,12 +45,13 @@ Debug builds read these environment variables, so each state can be screenshotte
 | `HALO_MONITOR_DB=-60` | Sets the monitor level (-60 is silent) |
 | `HALO_AUTOMONITOR=1` | Starts the monitor |
 | `HALO_AUTORECORD=<seconds>` | Records one take of that length |
+| `HALO_AUTOGRAB=<seconds>[,bars]` | GRABs once after that long |
 
 Tools:
 - `tools\dev\screenshot.ps1` captures just the Halo window.
 - `tools\dev\inspect_take.py` prints a take's format and level.
 
-Keyboard shortcuts: Ctrl+1..6 switch modes, Ctrl+M toggles the monitor, Ctrl+R toggles recording.
+Keyboard shortcuts: Ctrl+1..6 switch modes, Ctrl+M toggles the monitor, Ctrl+R toggles recording, Ctrl+G grabs.
 
 For the 3D stage, `HALO_STAGE_CAMERA=yaw,pitch,radius` (degrees, degrees, metres; the default is `28,42,0.7`) fixes the camera for before/after comparisons, and `HALO_STAGE_DEBUG=1..4` shows the lighting terms: ambient occlusion, key-light shadow, height-map contours, and the floor shadow's components.
 

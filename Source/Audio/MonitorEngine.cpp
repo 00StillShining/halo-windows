@@ -148,6 +148,10 @@ namespace halo
             ? 1000.0 * (device->getInputLatencyInSamples() + device->getOutputLatencyInSamples() + info.bufferSize) / info.sampleRate
             : 0.0;
 
+        // GRAB history: a fresh buffer per route, so no previous session leaks in.
+        historyBuffer = std::make_shared<RollingCaptureBuffer> (60.0, info.sampleRate);
+        inputLatencyFrames = device->getInputLatencyInSamples();
+
         device->start (this);
         setState (State::running);
     }
@@ -238,6 +242,9 @@ namespace halo
                                                           float* const* outputs, int numOutputs,
                                                           int numSamples, const juce::AudioIODeviceCallbackContext&)
     {
+        const double blockTime = juce::Time::getMillisecondCounterHiRes() * 0.001; // same clock as MIDI timestamps
+        auto* history = historyBuffer.get();
+
         for (int offset = 0; offset < numSamples; offset += scratch.getNumSamples())
         {
             const int n = juce::jmin (scratch.getNumSamples(), numSamples - offset);
@@ -250,8 +257,10 @@ namespace halo
             if (inL != nullptr) std::copy (inL, inL + n, l); else std::fill (l, l + n, 0.0f);
             if (inR != nullptr) std::copy (inR, inR + n, r); else std::fill (r, r + n, 0.0f);
 
-            // Raw, pre-monitor tap for the recorder.
+            // Raw, pre-monitor taps: the recorder and the GRAB history.
             recorder.write (l, r, n);
+            if (history != nullptr)
+                history->write (l, r, n, blockTime, inputLatencyFrames + (numSamples - offset - n));
 
             const float rawPeakL = MeterMath::peak (l, n), rawPeakR = MeterMath::peak (r, n);
             gain.process (l, r, n);

@@ -2,6 +2,7 @@
 
 #include "Audio/SessionRecorder.h"
 #include "Core/MonitorDsp.h"
+#include "Core/RollingCaptureBuffer.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 
@@ -61,6 +62,9 @@ namespace halo
 
         StereoLevels levels() { return meter.snapshot(); }
 
+        // The always-on raw history for GRAB (60 s+), only while the route runs.
+        std::shared_ptr<RollingCaptureBuffer> history() const { return isRunning() ? historyBuffer : nullptr; }
+
         // Recording needs a running route (as on the Mac).
         juce::String startRecording();
         void stopRecording();
@@ -98,6 +102,8 @@ namespace halo
         AudioMeter meter;
         juce::AudioBuffer<float> scratch;
         SessionRecorder recorder;
+        std::shared_ptr<RollingCaptureBuffer> historyBuffer;
+        std::int64_t inputLatencyFrames = 0;
 
         // Lets async callbacks notice the engine has gone (message thread only).
         std::shared_ptr<bool> alive = std::make_shared<bool> (true);

@@ -1,4 +1,5 @@
 #include "UI/MonitorPanel.h"
+#include "Core/GrabMath.h"
 #include "UI/HaloColours.h"
 
 namespace halo
@@ -27,8 +28,18 @@ namespace halo
         outputBox.onChange = [this]
         {
             const int index = outputBox.getSelectedItemIndex();
-            model.monitor().setOutputName (index <= 0 ? juce::String() : outputs[index - 1]);
+            model.setMonitorOutput (index <= 0 ? juce::String() : outputs[index - 1]);
         };
+
+        grabButton.onClick = [this] { model.grabNow(); };
+        for (size_t i = 0; i < lengthButtons.size(); ++i)
+        {
+            lengthButtons[i].onClick = [this, i]
+            {
+                model.setGrabLength (model.grabUsesBars() ? grab::barChoices[i] : grab::secondsChoices[i]);
+            };
+            addAndMakeVisible (lengthButtons[i]);
+        }
 
         level.setSliderStyle (juce::Slider::LinearHorizontal);
         level.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0); // value drawn in paint()
@@ -37,11 +48,11 @@ namespace halo
         level.setValue (model.monitor().gainDb(), juce::dontSendNotification);
         level.onValueChange = [this]
         {
-            model.monitor().setGainDb (level.getValue());
+            model.setMonitorGainDb (level.getValue());
             repaint();
         };
 
-        for (auto* comp : std::initializer_list<juce::Component*> { &monitorButton, &recordButton, &showButton, &outputBox, &level })
+        for (auto* comp : std::initializer_list<juce::Component*> { &monitorButton, &recordButton, &showButton, &outputBox, &level, &grabButton })
             addAndMakeVisible (comp);
 
         model.addListener (this);
@@ -85,6 +96,18 @@ namespace halo
         recordButton.setToggleState (engine.isRecording(), juce::dontSendNotification);
         recordButton.setEnabled (running);
         showButton.setVisible (model.lastTake().has_value());
+
+        // GRAB lengths: bars when a clock is running with the transport playing.
+        const bool bars = model.grabUsesBars();
+        const auto& grabber = model.grabber();
+        for (size_t i = 0; i < lengthButtons.size(); ++i)
+        {
+            const int value = bars ? grab::barChoices[i] : grab::secondsChoices[i];
+            lengthButtons[i].setButtonText (juce::String (value) + (bars ? "" : "s"));
+            lengthButtons[i].setToggleState (value == (bars ? grabber.bars : grabber.seconds), juce::dontSendNotification);
+        }
+        grabButton.setEnabled (running && ! grabber.isBusy());
+
         if (! level.isMouseButtonDown())
             level.setValue (engine.gainDb(), juce::dontSendNotification);
 
@@ -110,6 +133,11 @@ namespace halo
         }
         repaint (meterArea.getSmallestIntegerContainer().expanded (2));
         repaint (infoArea);
+
+        // The clock/transport can switch GRAB between bars and seconds.
+        const bool bars = model.grabUsesBars();
+        if (bars != (lengthButtons[0].getButtonText() == "4"))
+            refresh();
     }
 
     void MonitorPanel::resized()
@@ -120,7 +148,16 @@ namespace halo
         monitorButton.setBounds (buttons.removeFromLeft (buttons.getWidth() * 3 / 5).reduced (0, 2));
         buttons.removeFromLeft (8);
         recordButton.setBounds (buttons.reduced (0, 2));
-        area.removeFromTop (8);
+        area.removeFromTop (6);
+
+        auto grabRow = area.removeFromTop (36);
+        grabLabelArea = grabRow.removeFromLeft (44);
+        grabButton.setBounds (grabRow.removeFromRight (78).reduced (0, 2));
+        grabRow.removeFromRight (8);
+        const int each = grabRow.getWidth() / 3;
+        for (auto& b : lengthButtons)
+            b.setBounds (grabRow.removeFromLeft (each).reduced (2, 3));
+        area.removeFromTop (6);
 
         auto outputRow = area.removeFromTop (26);
         outputRow.removeFromLeft (72);
@@ -168,6 +205,7 @@ namespace halo
         g.setFont (HaloType::label (11.0f, false));
         g.setColour (c.inkSoft.withAlpha (0.85f));
         g.drawText ("OUTPUT", outputBox.getBounds().withX (0).withWidth (70), juce::Justification::centredLeft);
+        g.drawText (model.grabUsesBars() ? "BARS" : "GRAB", grabLabelArea, juce::Justification::centredLeft);
         g.drawText ("LEVEL", level.getBounds().withX (0).withWidth (70), juce::Justification::centredLeft);
         g.setFont (HaloType::mono (13.0f));
         g.setColour (c.ink);
@@ -189,7 +227,12 @@ namespace halo
 
         // Route facts or the honest reason it isn't running.
         g.setFont (HaloType::mono (11.5f));
-        if (running)
+        if (model.grabMessage().isNotEmpty())
+        {
+            g.setColour (c.orange);
+            g.drawFittedText (model.grabMessage(), infoArea, juce::Justification::centredLeft, 2, 1.0f);
+        }
+        else if (running)
         {
             const auto& r = engine.route();
             juce::String text = juce::String (r.sampleRate / 1000.0, 1) + " kHz  " + juce::String (r.bufferSize) + " fr  ~"
@@ -207,16 +250,19 @@ namespace halo
         else
         {
             g.setColour (c.inkSoft);
-            g.drawText (engine.ep40InputName().isNotEmpty() ? "off  (starts at -12 dB)" : "no EP-40 audio input found",
+            g.drawText (engine.ep40InputName().isNotEmpty() ? "off" : "no EP-40 audio input found",
                         infoArea, juce::Justification::centredLeft, true);
         }
 
         if (const auto& take = model.lastTake())
         {
+            const auto name = take->file.getFileName();
+            const auto grabTitle = grab::titleFromFilename (name.toStdString());
+            const auto label = grabTitle ? juce::String::fromUTF8 (grabTitle->c_str()).fromFirstOccurrenceOf ("GRAB", true, false)
+                                         : name.upToLastOccurrenceOf (".", false, false).fromFirstOccurrenceOf ("Halo Take ", false, false)
+                                               + "  " + juce::String (take->seconds, 1) + " s";
             g.setColour (c.ink);
-            g.drawText (take->file.getFileNameWithoutExtension().fromFirstOccurrenceOf ("Halo Take ", false, false)
-                            + "  " + juce::String (take->seconds, 1) + " s",
-                        takeArea, juce::Justification::centredLeft, true);
+            g.drawText (label, takeArea, juce::Justification::centredLeft, true);
         }
     }
 }

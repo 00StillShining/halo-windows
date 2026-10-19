@@ -50,6 +50,7 @@ namespace halo
         {
             if (key.getKeyCode() == 'M') { model.toggleMonitor(); return true; }
             if (key.getKeyCode() == 'R') { model.toggleRecording(); return true; }
+            if (key.getKeyCode() == 'G') { model.grabNow(); return true; }
 
             constexpr AppMode modes[] { AppMode::play, AppMode::load, AppMode::edit,
                                         AppMode::capture, AppMode::rack, AppMode::backups };

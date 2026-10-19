@@ -15,7 +15,7 @@ namespace halo
         explicit MonitorPanel (AppModel&);
         ~MonitorPanel() override;
 
-        static constexpr int preferredHeight = 274;
+        static constexpr int preferredHeight = 316;
 
         void paint (juce::Graphics&) override;
         void resized() override;
@@ -28,7 +28,9 @@ namespace halo
         void paintMeter (juce::Graphics&, juce::Rectangle<float>, float rmsDb, float peakDb, bool clipped) const;
 
         AppModel& model;
-        juce::TextButton monitorButton, recordButton, showButton { "SHOW" };
+        juce::TextButton monitorButton, recordButton, showButton { "SHOW" }, grabButton { "GRAB" };
+        std::array<juce::TextButton, 3> lengthButtons;
+        juce::Rectangle<int> grabLabelArea;
         juce::ComboBox outputBox;
         juce::Slider level;
         juce::StringArray outputs;

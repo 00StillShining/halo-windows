@@ -28,7 +28,13 @@ namespace halo
         static constexpr int minimumTicks = 12; // half a beat before reading
 
         void reset() noexcept;
+        // Forget tempo timing but keep the bar phase (Stop, so Continue resumes in phase).
+        void resetTiming() noexcept;
         void tick (double timeSeconds) noexcept;
+
+        // True when the most recent tick was the first tick of a bar: tick 1
+        // after Start, then 97, 193... (the Mac marked tick 96, one tick early).
+        bool lastTickWasDownbeat() const noexcept { return count > 0 && (count - 1) % clocksPerBar == 0; }
 
         // Bar phase in clocks since Start or a Song Position locate.
         int clockCount() const noexcept { return count; }
@@ -41,6 +47,9 @@ namespace halo
         std::optional<double> bpm (double nowSeconds) const noexcept;
 
         bool isStale (double nowSeconds) const noexcept;
+
+        // Ticks were arriving and then stopped (not just "no timing yet").
+        bool wentQuiet (double nowSeconds) const noexcept { return lastClock && nowSeconds - *lastClock > staleAfterSeconds; }
 
     private:
         int count = 0;
