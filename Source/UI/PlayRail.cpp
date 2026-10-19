@@ -36,6 +36,7 @@ namespace halo
 
     PlayRail::PlayRail (AppModel& m) : model (m)
     {
+        addChildComponent (monitorPanel);
         model.addListener (this);
         startTimerHz (20); // coalesce bursty MIDI into at most 20 repaints a second
     }
@@ -57,6 +58,7 @@ namespace halo
         dirty = true;
         if (onPreferredWidthChanged)
             onPreferredWidthChanged();
+        resized(); // mode changes show or hide the monitor panel
     }
 
     void PlayRail::timerCallback()
@@ -80,6 +82,7 @@ namespace halo
         expanded = shouldExpand;
         if (onPreferredWidthChanged)
             onPreferredWidthChanged();
+        resized();
         repaint();
     }
 
@@ -114,7 +117,20 @@ namespace halo
         g.fillRect (spine.getCentreX() - 2, spine.getCentreY() + 48, 4, 4);
 
         if (expanded)
-            paintPlay (g, getLocalBounds().withTrimmedLeft (spine.getWidth()).reduced (16, 8));
+            paintPlay (g, contentArea());
+    }
+
+    juce::Rectangle<int> PlayRail::contentArea() const
+    {
+        return getLocalBounds().withTrimmedLeft (HaloMetrics::railSpineWidth).reduced (16, 8);
+    }
+
+    void PlayRail::resized()
+    {
+        const bool show = model.mode() == AppMode::play && expanded;
+        monitorPanel.setVisible (show);
+        if (show)
+            monitorPanel.setBounds (contentArea().withTrimmedTop (infoHeight).withHeight (MonitorPanel::preferredHeight));
     }
 
     void PlayRail::paintPlay (juce::Graphics& g, juce::Rectangle<int> area)
@@ -127,23 +143,24 @@ namespace halo
         row (g, area, "EP-40", model.deviceStatus());
         row (g, area, "FEED", model.displayStatus(), live ? c.riddimGreen : c.ink);
 
+        // Always four rows, so the monitor panel below never moves.
         sectionTitle (g, area, "LAST PAD");
-        if (live && d.activePadIndex && d.activeGroup)
-        {
-            row (g, area, "GROUP", juce::String (ep40::groupLabels[(size_t) *d.activeGroup].data()));
-            row (g, area, "PAD", juce::String (ep40::gridLabels[(size_t) *d.activePadIndex].data()));
-            row (g, area, "NOTE", juce::String (d.value));
-            row (g, area, "VELOCITY", juce::String (juce::roundToInt (d.velocity * 127.0f)));
-        }
-        else
-        {
-            row (g, area, "PAD", live ? "none held" : "no live feed", c.inkSoft);
-        }
+        const bool held = live && d.activePadIndex && d.activeGroup;
+        row (g, area, "PAD", held ? juce::String (ep40::groupLabels[(size_t) *d.activeGroup].data()) + " "
+                                        + juce::String (ep40::gridLabels[(size_t) *d.activePadIndex].data())
+                                  : juce::String (live ? "none held" : "no live feed"),
+             held ? c.ink : c.inkSoft);
+        row (g, area, "NOTE", held ? juce::String (d.value) : noValue, held ? c.ink : c.inkSoft);
+        row (g, area, "VELOCITY", held ? juce::String (juce::roundToInt (d.velocity * 127.0f)) : noValue, held ? c.ink : c.inkSoft);
+        row (g, area, "LISTENING", "all 16 channels", c.inkSoft); // a halo fact, not a device claim
 
         sectionTitle (g, area, "CLOCK");
         const auto bpm = model.clockBpm();
         row (g, area, "TEMPO", bpm ? juce::String (*bpm, 1) + " BPM" : juce::String ("no clock"), bpm ? c.ink : c.inkSoft);
         row (g, area, "TRANSPORT", live ? (d.isPlaying ? "PLAYING" : "STOPPED") : noValue);
+
+        // The monitor panel (a child component) sits here.
+        area.removeFromTop (MonitorPanel::preferredHeight);
 
         sectionTitle (g, area, "EVENTS");
         g.setFont (HaloType::mono (11.5f));

@@ -16,6 +16,23 @@ namespace halo
         setColour (juce::TextButton::textColourOnId, c.ink);
         setColour (juce::Label::textColourId, c.ink);
         setColour (juce::ScrollBar::thumbColourId, c.inkSoft.withAlpha (0.35f));
+
+        setColour (juce::ComboBox::backgroundColourId, c.paperHigh);
+        setColour (juce::ComboBox::textColourId, c.ink);
+        setColour (juce::ComboBox::outlineColourId, c.ink.withAlpha (0.25f));
+        setColour (juce::ComboBox::arrowColourId, c.inkSoft);
+        setColour (juce::ComboBox::focusedOutlineColourId, c.orange);
+        setColour (juce::PopupMenu::backgroundColourId, c.paperHigh);
+        setColour (juce::PopupMenu::textColourId, c.ink);
+        setColour (juce::PopupMenu::highlightedBackgroundColourId, c.ink);
+        setColour (juce::PopupMenu::highlightedTextColourId, c.paperHigh);
+
+        setColour (juce::Slider::backgroundColourId, c.metal.withAlpha (0.6f));
+        setColour (juce::Slider::trackColourId, c.riddimGreen);
+        setColour (juce::Slider::thumbColourId, c.orange);
+        setColour (juce::Slider::textBoxTextColourId, c.ink);
+        setColour (juce::Slider::textBoxBackgroundColourId, c.paperHigh);
+        setColour (juce::Slider::textBoxOutlineColourId, c.ink.withAlpha (0.2f));
         setDefaultSansSerifTypefaceName ("Segoe UI");
     }
 

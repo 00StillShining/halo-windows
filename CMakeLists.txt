@@ -45,6 +45,8 @@ target_sources(Halo PRIVATE
     Source/App/Main.cpp
     Source/App/MainComponent.cpp
     Source/App/AppModel.cpp
+    Source/Audio/MonitorEngine.cpp
+    Source/Audio/SessionRecorder.cpp
     Source/Device/Ep40MidiConnection.cpp
     Source/Stage/HaloMesh.cpp
     Source/Stage/DisplayRenderer.cpp
@@ -52,7 +54,8 @@ target_sources(Halo PRIVATE
     Source/UI/HaloLookAndFeel.cpp
     Source/UI/StatusBar.cpp
     Source/UI/ModeBar.cpp
-    Source/UI/PlayRail.cpp)
+    Source/UI/PlayRail.cpp
+    Source/UI/MonitorPanel.cpp)
 
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0
@@ -75,6 +78,7 @@ target_link_libraries(Halo
         juce::juce_gui_extra
         juce::juce_opengl
         juce::juce_audio_devices
+        juce::juce_audio_formats
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
@@ -89,7 +93,8 @@ add_executable(HaloTests
     Tests/Ep40MidiMappingTests.cpp
     Tests/PadHoldRegistryTests.cpp
     Tests/RingAndLifecycleTests.cpp
-    Tests/DisplayReducerTests.cpp)
+    Tests/DisplayReducerTests.cpp
+    Tests/MonitorDspTests.cpp)
 target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)

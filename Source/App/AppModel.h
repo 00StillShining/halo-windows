@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Audio/MonitorEngine.h"
 #include "Core/DisplayReducer.h"
 #include "Core/PadHoldRegistry.h"
 #include "Core/RingState.h"
@@ -55,6 +56,12 @@ namespace halo
         juce::String displayStatus() const;
         juce::String deviceName() const;
 
+        // Audio monitor + recorder. Starts only on explicit action.
+        MonitorEngine& monitor() noexcept { return engine; }
+        void toggleMonitor();
+        void toggleRecording();
+        const std::optional<SessionRecorder::Take>& lastTake() const noexcept { return latestTake; }
+
         // Recent human-readable events for the rail's log (newest last).
         const std::deque<juce::String>& eventLog() const noexcept { return log; }
 
@@ -71,6 +78,10 @@ namespace halo
 
         const bool mock;
         Ep40MidiConnection connection;
+        MonitorEngine engine;
+        std::optional<SessionRecorder::Take> latestTake;
+        std::optional<double> recordingStartedAt;
+        int diskCheckCountdown = 0;
         DisplayReducer reducer;
         PadHoldRegistry pads;
         RingState ringState;

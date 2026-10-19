@@ -9,8 +9,10 @@ A native Windows companion app for the Teenage Engineering **EP-40 Riddim**: a t
 | Live PLAY view: 3D EP-40, pad travel, velocity LEDs, replica LCD, halo ring | Working, tested with a real EP-40 on Windows 11 |
 | MIDI: auto-detects the EP-40, follows plug and unplug, reports a port held by another app | Working |
 | Status bar and rail: honest connection, feed, clock and transport state | Working |
+| Audio monitor: EP-40 USB input to any PC output, gain (default -12 dB), -1 dBFS safety limiter, meters with clip | Working (WASAPI shared mode). It refuses EP-40-to-EP-40 feedback and stops on unplug |
+| Recorder: raw pre-monitor takes, 24-bit WAV, in `Music\Halo\Recordings` | Working; the file is fully finalised before it's read back |
 | LOAD, EDIT, CAPTURE, RACK, BACKUPS | Not ported yet; each shows a "not ported yet" plate |
-| Audio monitor, recorder, dub rack, GRAB, CHOP | Not ported yet (see `docs/plan.md`) |
+| Dub rack, GRAB, CHOP | Not ported yet (see `docs/plan.md`) |
 | Sending samples to the EP-40 | Not possible yet anywhere: needs TE's private protocol (plan §5) |
 
 ## Build
@@ -30,7 +32,24 @@ The app is written to `build\<Config>\Halo_artefacts\<Config>\Halo.exe`.
 
 Set `HALO_MOCK_MIDI=1`, or pass `--mock-midi`. A synthetic EP-40 then plays a pad pattern with a 120 BPM clock. The status bar always shows `SOURCE MOCK` in this mode.
 
-Debug builds also read `HALO_RAIL=open` and `HALO_MODE=1..6`, so screenshots can be taken of each state. `tools\dev\screenshot.ps1` captures just the Halo window.
+### Debug-only hooks
+
+Debug builds read these environment variables, so each state can be screenshotted and the audio path tested without clicking:
+
+| Variable | Effect |
+|---|---|
+| `HALO_RAIL=open` | Opens the rail |
+| `HALO_MODE=1..6` | Starts in that mode |
+| `HALO_OUTPUT=<part of a device name>` | Picks the monitor output |
+| `HALO_MONITOR_DB=-60` | Sets the monitor level (-60 is silent) |
+| `HALO_AUTOMONITOR=1` | Starts the monitor |
+| `HALO_AUTORECORD=<seconds>` | Records one take of that length |
+
+Tools:
+- `tools\dev\screenshot.ps1` captures just the Halo window.
+- `tools\dev\inspect_take.py` prints a take's format and level.
+
+Keyboard shortcuts: Ctrl+1..6 switch modes, Ctrl+M toggles the monitor, Ctrl+R toggles recording.
 
 ## Layout
 

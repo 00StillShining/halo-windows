@@ -1,6 +1,7 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "UI/MonitorPanel.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -22,6 +23,7 @@ namespace halo
         std::function<void()> onPreferredWidthChanged;
 
         void paint (juce::Graphics&) override;
+        void resized() override;
         void mouseUp (const juce::MouseEvent&) override;
 
     private:
@@ -33,8 +35,13 @@ namespace halo
         void paintPlay (juce::Graphics&, juce::Rectangle<int>);
         void paintPlate (juce::Graphics&, juce::Rectangle<int>);
         juce::Rectangle<int> spineArea() const;
+        juce::Rectangle<int> contentArea() const;
+
+        // Height of the painted MIDI / LAST PAD / CLOCK block above the monitor.
+        static constexpr int infoHeight = 3 * 39 + (3 + 4 + 2) * 22;
 
         AppModel& model;
+        MonitorPanel monitorPanel { model };
         bool expanded = false;
         bool dirty = true;
     };

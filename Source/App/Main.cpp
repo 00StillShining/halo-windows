@@ -43,6 +43,34 @@ namespace halo
             model = std::make_unique<AppModel> (mock);
             window = std::make_unique<MainWindow> (getApplicationName(), *model);
             model->start();
+
+           #if JUCE_DEBUG
+            // Debug-only verification hooks: HALO_MONITOR_DB sets the level,
+            // HALO_AUTOMONITOR=1 starts the route, HALO_AUTORECORD=<seconds>
+            // records one take of that length.
+            const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
+            if (env ("HALO_MONITOR_DB").isNotEmpty())
+                model->monitor().setGainDb (env ("HALO_MONITOR_DB").getDoubleValue());
+            if (const auto wanted = env ("HALO_OUTPUT"); wanted.isNotEmpty())
+                for (const auto& name : model->monitor().outputNames())
+                    if (name.containsIgnoreCase (wanted))
+                    {
+                        model->monitor().setOutputName (name);
+                        break;
+                    }
+            if (env ("HALO_AUTOMONITOR") == "1")
+            {
+                juce::Timer::callAfterDelay (1500, [this, seconds = env ("HALO_AUTORECORD").getIntValue()]
+                {
+                    model->toggleMonitor();
+                    if (seconds > 0)
+                    {
+                        model->toggleRecording();
+                        juce::Timer::callAfterDelay (seconds * 1000, [this] { model->toggleRecording(); });
+                    }
+                });
+            }
+           #endif
         }
 
         void shutdown() override

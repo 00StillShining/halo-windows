@@ -11,6 +11,7 @@ namespace halo
     StatusBar::StatusBar (AppModel& m) : model (m)
     {
         model.addListener (this);
+        startTimerHz (2);
     }
 
     StatusBar::~StatusBar()
@@ -76,13 +77,41 @@ namespace halo
         x = drawChip (g, { "DISPLAY", model.displayStatus(), live ? green : c.ink }, x, centreY);
         x = drawChip (g, { "HALO", juce::String (ring.statusWord()), ring.isError() ? c.warning : c.ink }, x, centreY);
 
-        // Right-aligned: audio isn't ported yet, so these say so plainly.
-        const auto labelFont = HaloType::label (11.0f, false);
-        const juce::String rightText[] { "OUTPUT", noValue, "MONITOR", "OFF", "REC", noValue };
-        float right = (float) getWidth() - 24.0f;
-        for (int i = 4; i >= 0; i -= 2)
+        // Right-aligned audio chips, all from the running route.
+        auto& engine = model.monitor();
+        const bool running = engine.isRunning();
+        auto outputName = running ? engine.route().outputName : noValue;
+        if (outputName.length() > 22)
+            outputName = outputName.substring (0, 21).trimEnd() + "...";
+
+        juce::String monitorWord = "OFF";
+        auto monitorTint = c.inkSoft;
+        if (running)
         {
-            const Chip chip { rightText[i], rightText[i + 1], c.inkSoft };
+            monitorWord = juce::String (juce::roundToInt (engine.gainDb())) + " dB";
+            monitorTint = green;
+        }
+        else if (engine.currentState() == MonitorEngine::State::failed)
+        {
+            monitorWord = "ERROR";
+            monitorTint = c.warning;
+        }
+
+        juce::String recWord = noValue;
+        if (engine.isRecording())
+        {
+            const int s = (int) engine.recordingSeconds();
+            recWord = juce::String (s / 60).paddedLeft ('0', 2) + ":" + juce::String (s % 60).paddedLeft ('0', 2);
+        }
+
+        const auto labelFont = HaloType::label (11.0f, false);
+        const Chip rightChips[] { { "OUTPUT", outputName.toUpperCase(), running ? c.ink : c.inkSoft },
+                                  { "MONITOR", monitorWord, monitorTint },
+                                  { "REC", recWord, engine.isRecording() ? c.warning : c.inkSoft } };
+        float right = (float) getWidth() - 24.0f;
+        for (int i = 2; i >= 0; --i)
+        {
+            const auto& chip = rightChips[i];
             const float w = juce::GlyphArrangement::getStringWidth (labelFont, chip.label)
                           + juce::GlyphArrangement::getStringWidth (HaloType::label (13.5f, false), chip.value) + 9.0f;
             right -= w;

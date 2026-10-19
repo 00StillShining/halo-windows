@@ -45,9 +45,12 @@ namespace halo
 
     bool MainComponent::keyPressed (const juce::KeyPress& key)
     {
-        // Ctrl+1...6 switch modes (Cmd+1...6 on the Mac).
+        // Ctrl+1...6 switch modes (Cmd+1...6 on the Mac); Ctrl+M monitor; Ctrl+R record.
         if (key.getModifiers().isCtrlDown())
         {
+            if (key.getKeyCode() == 'M') { model.toggleMonitor(); return true; }
+            if (key.getKeyCode() == 'R') { model.toggleRecording(); return true; }
+
             constexpr AppMode modes[] { AppMode::play, AppMode::load, AppMode::edit,
                                         AppMode::capture, AppMode::rack, AppMode::backups };
             const int index = key.getKeyCode() - '1';

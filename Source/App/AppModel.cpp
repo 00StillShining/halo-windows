@@ -29,11 +29,62 @@ namespace halo
             appendLog ("MIDI backlog overflowed: released all pads");
             releaseAllPads();
         };
+
+        engine.onStateChanged = [this]
+        {
+            if (engine.currentState() == MonitorEngine::State::failed && engine.lastError().isNotEmpty())
+                appendLog ("monitor: " + engine.lastError());
+            const bool recording = engine.isRecording();
+            if (recording && ! recordingStartedAt)
+                recordingStartedAt = now();
+            else if (! recording)
+                recordingStartedAt.reset();
+            refreshStatus();
+        };
+        engine.onTakeFinished = [this] (const SessionRecorder::Take& take)
+        {
+            latestTake = take;
+            appendLog ("take saved: " + take.file.getFileName() + " (" + juce::String (take.seconds, 1) + " s)");
+            if (take.droppedSamples > 0)
+                appendLog ("warning: " + juce::String (juce::roundToInt ((double) take.droppedSamples / take.sampleRate * 1000.0))
+                           + " ms of audio was dropped (disk too slow)");
+        };
+    }
+
+    void AppModel::toggleMonitor()
+    {
+        if (engine.isRunning())
+        {
+            engine.stop();
+            appendLog ("monitor off");
+            return;
+        }
+        engine.start();
+        if (engine.isRunning())
+        {
+            const auto& r = engine.route();
+            appendLog ("monitor on: " + r.outputName + " @ " + juce::String (r.sampleRate / 1000.0, 1) + " kHz, "
+                       + juce::String (r.bufferSize) + " frames, ~" + juce::String (juce::roundToInt (r.latencyMs)) + " ms");
+        }
+    }
+
+    void AppModel::toggleRecording()
+    {
+        if (engine.isRecording())
+        {
+            engine.stopRecording();
+            return;
+        }
+        const auto message = engine.startRecording();
+        appendLog (message.isEmpty() ? "recording: " + engine.route().inputName : "can't record: " + message);
     }
 
     AppModel::~AppModel()
     {
         stopTimer();
+        engine.onStateChanged = nullptr;
+        engine.onTakeFinished = nullptr;
+        engine.stop(); // finalises any take before the model goes
     }
 
     void AppModel::start()
@@ -107,6 +158,12 @@ namespace halo
         if (connected != endpointConnected)
         {
             endpointConnected = connected;
+            // A USB removal stops the monitor promptly, finalising any take.
+            if (! connected && ! mock && engine.isRunning())
+            {
+                engine.stop();
+                appendLog ("monitor stopped: EP-40 disconnected");
+            }
             // No pad hold, LED or live display may survive a connection change.
             releaseAllPads();
             reducer.connectionChanged (connected);
@@ -154,13 +211,17 @@ namespace halo
 
     void AppModel::refreshStatus()
     {
+        const auto errorLabel = portBusy ? std::optional<std::string> ("BUSY") : std::nullopt;
         ringState = RingState::derive ({ .observerRunning = observerRunning,
                                          .endpointConnected = endpointConnected,
-                                         .errorLabel = portBusy ? std::optional<std::string> ("BUSY") : std::nullopt });
+                                         .errorLabel = errorLabel,
+                                         .monitorEngaged = engine.isRunning(),
+                                         .recordingStartedAt = recordingStartedAt });
         lifecyclePhase = LifecyclePhase::derive ({ .observerRunning = observerRunning,
                                                    .endpointConnected = endpointConnected,
                                                    .displayLive = reducer.state().feedMode == FeedMode::live,
-                                                   .errorLabel = portBusy ? std::optional<std::string> ("BUSY") : std::nullopt });
+                                                   .monitorEngaged = engine.isRunning(),
+                                                   .errorLabel = errorLabel });
         listeners.call ([] (Listener& l) { l.statusChanged(); });
     }
 
@@ -178,6 +239,12 @@ namespace halo
 
         if (mock)
             runMockStep();
+
+        if (--diskCheckCountdown <= 0)
+        {
+            diskCheckCountdown = 60;
+            engine.checkDiskSpace();
+        }
 
         // Six-frames-per-second PREVIEW demo while nothing is connected.
         if (reducer.state().feedMode == FeedMode::preview && t - lastPreviewTime >= 1.0 / 6.0)

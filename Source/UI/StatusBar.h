@@ -8,7 +8,7 @@ namespace halo
 {
     // Top status bar (HaloStatusBar.swift): wordmark plus honest status chips.
     // Every value comes from the model; nothing is inferred for display.
-    class StatusBar : public juce::Component, private AppModel::Listener
+    class StatusBar : public juce::Component, private AppModel::Listener, private juce::Timer
     {
     public:
         explicit StatusBar (AppModel&);
@@ -18,6 +18,11 @@ namespace halo
 
     private:
         void statusChanged() override { repaint(); }
+        void timerCallback() override
+        {
+            if (model.monitor().isRecording())
+                repaint(); // REC timer
+        }
         void displayChanged (const DisplayState&) override;
 
         struct Chip
