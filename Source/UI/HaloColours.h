@@ -4,14 +4,18 @@
 
 namespace halo
 {
-    // Design tokens (port of HaloColors.swift / HaloMetrics.swift). Palette A,
-    // "graph paper", was picked at the Phase 1 gate; B isn't carried over.
+    // Legacy design tokens (port of HaloColors.swift / HaloMetrics.swift).
+    // Forwarding shim during the redesign (docs/redesign/plan.md section 5.1):
+    // panels that aren't rebuilt yet read their roles from legacyColours(),
+    // which the Theme fills: today's graph paper with HALO_THEME=legacy, or
+    // the legacy-dark mapping onto the black glass. R13 deletes this file.
     struct HaloColours
     {
         juce::Colour canvas, gridMinor, gridMajor, paper, paperHigh, metal,
                      ink, inkSoft, orange, orangeHot, riddimGreen, lcdGreen, warning;
+        bool dark = false; // the legacy-dark mapping is active
 
-        static const HaloColours graphPaper;
+        static const HaloColours graphPaper; // fixed values (the 3D stage until its StageLook lands)
     };
 
     inline const HaloColours HaloColours::graphPaper {
@@ -29,6 +33,15 @@ namespace halo
             juce::Colour (0xffA6D39F),
             juce::Colour (0xffD94A24),
     };
+
+    // The live legacy palette (see above). Bind it once per file:
+    //     const auto& c = legacyColours();
+    // The reference stays valid; setTheme() updates the values in place.
+    inline HaloColours& legacyColours()
+    {
+        static HaloColours colours = HaloColours::graphPaper;
+        return colours;
+    }
 
     // The "no value" placeholder. Built from its code point: juce::String treats
     // narrow literals as ASCII, so a raw UTF-8 dash would render as mojibake.

@@ -1,0 +1,36 @@
+{
+  "_comment": "Type roles (docs/redesign/plan.md section 2.2). em = size in px (point height), tracking in em. 'face' names a file in faces. 'needs' lists the characters each role must render; the build fails if a face's cmap misses one.",
+  "faces": {
+    "LexendGiga-Light":     { "source": "LexendGiga.ttf",   "wght": 300, "licence": "OFL-LexendGiga.txt" },
+    "LexendExa-Medium":     { "source": "LexendExa.ttf",    "wght": 500, "licence": "OFL-LexendExa.txt" },
+    "LexendExa-SemiBold":   { "source": "LexendExa.ttf",    "wght": 600, "licence": "OFL-LexendExa.txt" },
+    "InterTight-Light":     { "source": "InterTight.ttf",   "wght": 300, "licence": "OFL-InterTight.txt" },
+    "InterTight-Regular":   { "source": "InterTight.ttf",   "wght": 400, "licence": "OFL-InterTight.txt" },
+    "InterTight-Medium":    { "source": "InterTight.ttf",   "wght": 500, "licence": "OFL-InterTight.txt" },
+    "InterTight-SemiBold":  { "source": "InterTight.ttf",   "wght": 600, "licence": "OFL-InterTight.txt" },
+    "JetBrainsMono-Regular":{ "source": "JetBrainsMono-Regular.ttf", "licence": "OFL-JetBrainsMono.txt" },
+    "DepartureMono-Regular":{ "source": "DepartureMono-Regular.otf", "licence": "OFL-DepartureMono.txt" }
+  },
+  "roles": {
+    "label":      { "face": "LexendExa-Medium",      "em": 10.5, "tracking": 0.12, "needs": "upper" },
+    "title":      { "face": "LexendGiga-Light",      "em": 19.0, "tracking": 0.06, "needs": "upper lower" },
+    "tag":        { "face": "LexendExa-SemiBold",    "em": 10.5, "tracking": 0.10, "needs": "upper" },
+    "ui":         { "face": "InterTight-Regular",    "em": 12.5, "tracking": 0.0,  "needs": "latin" },
+    "uiStatus":   { "face": "InterTight-Regular",    "em": 13.0, "tracking": 0.0,  "needs": "latin" },
+    "uiLight":    { "face": "InterTight-Light",      "em": 15.0, "tracking": 0.0,  "needs": "latin" },
+    "body":       { "face": "InterTight-Regular",    "em": 13.0, "tracking": 0.0,  "needs": "latin" },
+    "bodyStrong": { "face": "InterTight-SemiBold",   "em": 13.0, "tracking": 0.0,  "needs": "latin" },
+    "print":      { "face": "InterTight-Regular",    "em": 11.0, "tracking": 0.0,  "needs": "latin" },
+    "printMicro": { "face": "InterTight-Medium",     "em": 10.5, "tracking": 0.0,  "needs": "latin" },
+    "mono":       { "face": "JetBrainsMono-Regular", "em": 10.5, "tracking": 0.0,  "needs": "latin" },
+    "pixel":      { "face": "DepartureMono-Regular", "em": 22.0, "tracking": 0.0,  "needs": "upper digits" }
+  },
+  "sets": {
+    "upper":  " !\"#%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_|·–—’“”…−±×°",
+    "lower":  "abcdefghijklmnopqrstuvwxyz",
+    "digits": "0123456789",
+    "latin":  " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·–—’“”…−±×°"
+  },
+  "subset_extra": "–—·’‘“”…−±×°",
+  "metrics_chars": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·–—’“”…−±×°"
+}

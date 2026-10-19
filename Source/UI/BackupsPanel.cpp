@@ -5,7 +5,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
     }
 
     BackupsPanel::BackupsPanel (AppModel& m) : model (m)

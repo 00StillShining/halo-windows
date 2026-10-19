@@ -26,5 +26,14 @@ namespace halo
 
         // Draws the utility-panel look: paper slab with a hard offset shadow.
         static void drawPanel (juce::Graphics&, juce::Rectangle<float> bounds, juce::Colour fill);
+
+        // Tooltips: a small paper card with black text (plan section 3.14).
+        // Nothing depends on them; every reason is also printed.
+        juce::Rectangle<int> getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos, juce::Rectangle<int> parentArea) override;
+        void drawTooltip (juce::Graphics&, const juce::String& text, int width, int height) override;
+
+        // Stock widgets (ComboBox, PopupMenu, AlertWindow) get the embedded
+        // faces once the redesign's theme is on.
+        juce::Typeface::Ptr getTypefaceForFont (const juce::Font&) override;
     };
 }

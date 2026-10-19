@@ -12,3 +12,6 @@ __pycache__/
 reference/
 
 # Halo runtime data lives in %APPDATA%\Halo, never in the repo.
+
+# TE typefaces for the optional local override (DD-007a): never committed.
+assets/fonts/local/

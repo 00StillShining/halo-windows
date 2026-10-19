@@ -33,6 +33,8 @@ namespace halo
         PlayRail rail;
         ModeBar modeBar;
         ChopSurface chopSurface { model };
+        // One tooltip window for the app; nothing depends on it (every reason is also printed).
+        juce::TooltipWindow tooltips { this, 600 };
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
     };

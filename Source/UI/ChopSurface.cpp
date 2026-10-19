@@ -8,7 +8,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
         constexpr Treatment treatments[] { Treatment::original, Treatment::high, Treatment::balanced,
                                            Treatment::loFi22k, Treatment::loFi11k };
         constexpr int sliceChoices[] { EditSession::sliceFit, 4, 8, 16, EditSession::sliceAll };

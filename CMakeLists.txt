@@ -146,3 +146,48 @@ if(Python3_Interpreter_FOUND)
     add_test(NAME check_write_sites
              COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_SOURCE_DIR}/tools/dev/check_write_sites.py ${CMAKE_SOURCE_DIR})
 endif()
+
+# Redesign: theme, embedded OFL fonts (assets/fonts, built by tools/fonts/build_fonts.py).
+juce_add_binary_data(HaloFontAssets
+    HEADER_NAME HaloFontAssets.h
+    NAMESPACE HaloFontAssets
+    SOURCES
+        assets/fonts/LexendGiga-Light.ttf
+        assets/fonts/LexendExa-Medium.ttf
+        assets/fonts/LexendExa-SemiBold.ttf
+        assets/fonts/InterTight-Light.ttf
+        assets/fonts/InterTight-Regular.ttf
+        assets/fonts/InterTight-Medium.ttf
+        assets/fonts/InterTight-SemiBold.ttf
+        assets/fonts/JetBrainsMono-Regular.ttf
+        assets/fonts/DepartureMono-Regular.ttf)
+
+# The redesign's design system, shared by the app and the UI test runner.
+set(HALO_DESIGN_SOURCES
+    Source/UI/Design/Theme.cpp
+    Source/UI/Design/Fonts.cpp)
+target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES})
+target_link_libraries(Halo PRIVATE HaloFontAssets)
+
+target_sources(HaloTests PRIVATE
+    Tests/UiTokensTests.cpp)
+
+# HaloUiTests: doctest with JUCE's GUI modules (fonts, UI state, the write gate).
+juce_add_console_app(HaloUiTests PRODUCT_NAME "HaloUiTests")
+target_sources(HaloUiTests PRIVATE
+    Tests/Ui/UiTestMain.cpp
+    Tests/Ui/FontsTests.cpp
+    ${HALO_DESIGN_SOURCES})
+target_compile_definitions(HaloUiTests PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0
+    DOCTEST_CONFIG_USE_STD_HEADERS)
+target_link_libraries(HaloUiTests PRIVATE
+    HaloCore
+    HaloFontAssets
+    doctest::doctest
+    juce::juce_gui_basics
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
+add_test(NAME HaloUiTests COMMAND HaloUiTests)

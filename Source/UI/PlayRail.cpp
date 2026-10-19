@@ -8,7 +8,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
 
         void sectionTitle (juce::Graphics& g, juce::Rectangle<int>& area, const juce::String& text)
         {

@@ -5,7 +5,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
         constexpr AppMode modes[] { AppMode::play, AppMode::load, AppMode::edit,
                                     AppMode::capture, AppMode::rack, AppMode::backups };
     }

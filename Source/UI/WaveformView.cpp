@@ -5,7 +5,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
         constexpr float handleGrab = 8.0f;
     }
 

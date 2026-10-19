@@ -5,7 +5,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
     }
 
     StatusBar::StatusBar (AppModel& m) : model (m)

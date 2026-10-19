@@ -38,9 +38,14 @@ def near(p, c, tol):
     return all(abs(a - b) <= tol for a, b in zip(p[:3], c))
 
 
+def pixels(img):
+    get = getattr(img, "get_flattened_data", None)
+    return list(get() if get else img.getdata())
+
+
 def fraction(img, box, pred):
     region = img.crop(box).convert("RGB")
-    px = list(region.getdata())
+    px = pixels(region)
     if not px:
         return 0.0
     return 100.0 * sum(1 for p in px if pred(p)) / len(px)
@@ -55,7 +60,7 @@ def cmd_diff(a):
     diff = ImageChops.difference(ia, ib)
     for m in a.mask or []:
         diff.paste((0, 0, 0), rect(m))
-    px = list(diff.getdata())
+    px = pixels(diff)
     bad = sum(1 for p in px if max(p) > a.tol)
     pct = 100.0 * bad / len(px)
     ok = pct <= a.area
@@ -85,7 +90,7 @@ def cmd_greys(a):
     img = Image.open(a.img).convert("RGB")
     box = rect(a.rect)
     region = img.crop(box)
-    px = list(region.getdata())
+    px = pixels(region)
     lum = [round(0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2]) for p in px]
     lo, hi = min(lum), max(lum)
     mids = sum(1 for v in lum if lo + 24 < v < hi - 24)

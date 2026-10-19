@@ -1,10 +1,12 @@
 #include "UI/HaloLookAndFeel.h"
+#include "UI/Design/Fonts.h"
+#include "UI/Design/Theme.h"
 
 namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
     }
 
     HaloLookAndFeel::HaloLookAndFeel()
@@ -38,13 +40,70 @@ namespace halo
 
     void HaloLookAndFeel::drawPanel (juce::Graphics& g, juce::Rectangle<float> bounds, juce::Colour fill)
     {
-        g.setColour (c.ink.withAlpha (0.22f));
-        g.fillRoundedRectangle (bounds.translated ((float) HaloMetrics::panelShadowX, (float) HaloMetrics::panelShadowY),
-                                HaloMetrics::radiusPanel);
+        // On the black glass a light "shadow" would read as a ghost: no shadow there.
+        if (! c.dark)
+        {
+            g.setColour (c.ink.withAlpha (0.22f));
+            g.fillRoundedRectangle (bounds.translated ((float) HaloMetrics::panelShadowX, (float) HaloMetrics::panelShadowY),
+                                    HaloMetrics::radiusPanel);
+        }
         g.setColour (fill);
         g.fillRoundedRectangle (bounds, HaloMetrics::radiusPanel);
         g.setColour (c.ink.withAlpha (0.18f));
         g.drawRoundedRectangle (bounds.reduced (0.5f), HaloMetrics::radiusPanel, 1.0f);
+    }
+
+    namespace
+    {
+        juce::Font tooltipFont()
+        {
+            return HaloFonts::instance() != nullptr ? HaloFonts::font (Role::ui) : HaloType::body (13.0f);
+        }
+
+        juce::TextLayout tooltipLayout (const juce::String& text)
+        {
+            juce::AttributedString s;
+            s.setJustification (juce::Justification::centredLeft);
+            s.append (text, tooltipFont(), juce::Colour (0xff000005));
+            juce::TextLayout layout;
+            layout.createLayoutWithBalancedLineLengths (s, 340.0f);
+            return layout;
+        }
+    }
+
+    juce::Rectangle<int> HaloLookAndFeel::getTooltipBounds (const juce::String& tipText, juce::Point<int> screenPos,
+                                                            juce::Rectangle<int> parentArea)
+    {
+        const auto layout = tooltipLayout (tipText);
+        const int w = (int) std::ceil (layout.getWidth()) + 20;
+        const int h = (int) std::ceil (layout.getHeight()) + 14;
+        return juce::Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - (w + 12) : screenPos.x + 24,
+                                     screenPos.y > parentArea.getCentreY() ? screenPos.y - (h + 6) : screenPos.y + 6,
+                                     w, h).constrainedWithin (parentArea);
+    }
+
+    void HaloLookAndFeel::drawTooltip (juce::Graphics& g, const juce::String& text, int width, int height)
+    {
+        const auto bounds = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height);
+        g.setColour (theme().scr.paper);
+        g.fillRect (bounds);
+        g.setColour (juce::Colour (0xff000005));
+        g.drawRect (bounds, 1.0f);
+        tooltipLayout (text).draw (g, bounds.reduced (10.0f, 7.0f));
+    }
+
+    juce::Typeface::Ptr HaloLookAndFeel::getTypefaceForFont (const juce::Font& font)
+    {
+        if (! theme().legacyLook && HaloFonts::instance() != nullptr)
+        {
+            const auto name = font.getTypefaceName();
+            const bool bold = font.isBold();
+            if (name == juce::Font::getDefaultSansSerifFontName() || name == "Segoe UI")
+                return HaloFonts::instance()->typefaceForFamily ("Inter Tight", bold);
+            if (auto tf = HaloFonts::instance()->typefaceForFamily (name, bold))
+                return tf;
+        }
+        return LookAndFeel_V4::getTypefaceForFont (font);
     }
 
     void HaloLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour& fill,

@@ -4,6 +4,8 @@
 #include "App/MainComponent.h"
 #include "Audio/SampleIO.h"
 #include "Core/Ep40MidiMapping.h"
+#include "UI/Design/Fonts.h"
+#include "UI/Design/Theme.h"
 #include "UI/HaloColours.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -14,7 +16,7 @@ namespace halo
     {
     public:
         MainWindow (const juce::String& name, AppModel& model)
-            : DocumentWindow (name, HaloColours::graphPaper.paper, DocumentWindow::allButtons)
+            : DocumentWindow (name, legacyColours().paper, DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
             setContentOwned (new MainComponent (model), true);
@@ -70,6 +72,11 @@ namespace halo
             if (HaloPaths::sandboxed())
                 DevLog::line ("data root: " + HaloPaths::sandboxRoot().getFullPathName());
            #endif
+
+            // The embedded faces live as long as the app; then the theme
+            // (HALO_THEME=graphite|field|legacy; R1 keeps today's look by default).
+            fonts = std::make_unique<HaloFonts>();
+            setTheme (Theme::fromName (juce::SystemStats::getEnvironmentVariable ("HALO_THEME", "legacy")));
 
             model = std::make_unique<AppModel> (mock);
             window = std::make_unique<MainWindow> (getApplicationName(), *model);
@@ -171,6 +178,7 @@ namespace halo
         {
             window.reset();
             model.reset();
+            fonts.reset();
         }
 
         void systemRequestedQuit() override { quit(); }
@@ -256,6 +264,7 @@ namespace halo
         }
        #endif
 
+        std::unique_ptr<HaloFonts> fonts;
         std::unique_ptr<AppModel> model;
         std::unique_ptr<MainWindow> window;
     };

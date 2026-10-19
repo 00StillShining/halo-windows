@@ -9,7 +9,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
 
         juce::String mb (juce::int64 bytes) { return juce::String ((double) bytes / (1024.0 * 1024.0), 1) + " MB"; }
     }

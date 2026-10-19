@@ -6,7 +6,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
         constexpr Treatment treatments[] { Treatment::original, Treatment::high, Treatment::balanced,
                                            Treatment::loFi22k, Treatment::loFi11k };
         constexpr SamplePrep::Channels channelModes[] { SamplePrep::Channels::preserve, SamplePrep::Channels::mono,

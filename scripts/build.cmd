@@ -40,6 +40,8 @@ if /i "%ACTION%"=="build" (
 if /i "%ACTION%"=="test" (
     cmake --build "%BUILD%" --target HaloTests || exit /b 1
     "%BUILD%\HaloTests.exe" || exit /b 1
+    rem The redesign's GUI-module tests and the H3 write-site lint, when present.
+    cmake --build "%BUILD%" --target HaloUiTests && ctest --test-dir "%BUILD%" -C %CONFIG% --output-on-failure -E "^HaloTests$" || exit /b 1
     exit /b 0
 )
 if /i "%ACTION%"=="run" (

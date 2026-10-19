@@ -5,7 +5,7 @@ namespace halo
 {
     namespace
     {
-        const auto& c = HaloColours::graphPaper;
+        const auto& c = legacyColours();
         constexpr int knobSize = 56, knobLabel = 30, moduleTitle = 30;
         constexpr EchoDivision divisions[] { EchoDivision::eighth, EchoDivision::dottedEighth,
                                              EchoDivision::quarter, EchoDivision::tripletEighth };
