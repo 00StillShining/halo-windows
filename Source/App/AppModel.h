@@ -9,7 +9,9 @@
 #include "Core/DisplayReducer.h"
 #include "Core/PadHoldRegistry.h"
 #include "Core/RingState.h"
+#include "Core/SysEx.h"
 #include "Device/Ep40MidiConnection.h"
+#include "Device/ProtocolTrace.h"
 
 #include <juce_events/juce_events.h>
 
@@ -61,6 +63,17 @@ namespace halo
         juce::String displayStatus() const;
         juce::String deviceName() const;
 
+        // What the EP-40 reported about itself (MIDI identity reply), if anything.
+        const std::optional<sysex::Identity>& deviceIdentity() const noexcept { return identity; }
+        juce::String firmwareStatus() const;
+        bool canTalkToDevice() const noexcept { return endpointConnected && ! mock && connection.canSend(); }
+        Ep40MidiConnection& midi() noexcept { return connection; }
+        ProtocolTrace& trace() noexcept { return protocolTrace; }
+        // Every SysEx from the device, for the protocol layer (message thread).
+        std::function<void (const sysex::Bytes&)> onDeviceSysex;
+        // Sends and traces one SysEx message. False if the EP-40 can't be written to.
+        bool sendToDevice (const sysex::Bytes&, const juce::String& note = {});
+
         // Audio monitor + recorder. Starts only on explicit action.
         MonitorEngine& monitor() noexcept { return engine; }
         void toggleMonitor();
@@ -102,7 +115,12 @@ namespace halo
         void runMockStep();
 
         const bool mock;
+        static juce::String noValueText() { return juce::String::charToString ((juce::juce_wchar) 0x2014); }
+        std::shared_ptr<bool> aliveToken = std::make_shared<bool> (true);
         Ep40MidiConnection connection;
+        ProtocolTrace protocolTrace;
+        std::optional<sysex::Identity> identity;
+        juce::String deviceOs; // from TE's own GREET reply, once that's implemented
         Settings settings;
         MonitorEngine engine;
         RackModel rackModel { engine.rackParameters() };

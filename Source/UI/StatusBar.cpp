@@ -72,6 +72,7 @@ namespace halo
             x = drawChip (g, { "SOURCE", "MOCK", c.orange }, x, centreY);
 
         x = drawChip (g, { "EP-40", model.deviceStatus(), c.ink }, x, centreY);
+        x = drawChip (g, { "FW", model.firmwareStatus(), model.deviceIdentity() ? c.ink : c.inkSoft }, x, centreY);
         x = drawChip (g, { "USB", model.usbStatus(), c.ink }, x, centreY);
         x = drawChip (g, { "STATE", juce::String (life.word()), life.isError() ? c.warning : (live ? green : c.ink) }, x, centreY);
         x = drawChip (g, { "DISPLAY", model.displayStatus(), live ? green : c.ink }, x, centreY);

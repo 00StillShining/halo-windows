@@ -28,6 +28,8 @@ namespace halo
         std::function<void (Status, const juce::String& deviceName)> onStatusChanged;
         std::function<void (const MidiEvent&)> onEvent;
         std::function<void()> onOverflow;
+        // Complete SysEx messages from the EP-40 (F0 ... F7), in arrival order.
+        std::function<void (const juce::MemoryBlock&)> onSysex;
 
         Ep40MidiConnection();
         ~Ep40MidiConnection() override;
@@ -36,6 +38,11 @@ namespace halo
 
         Status status() const noexcept { return currentStatus; }
         const juce::String& deviceName() const noexcept { return currentName; }
+
+        // The EP-40's MIDI output (Halo -> device), needed for SysEx requests.
+        bool canSend() const noexcept { return output != nullptr; }
+        // Sends one complete SysEx message (F0 ... F7). Message thread.
+        bool sendSysex (const std::uint8_t* bytes, std::size_t size);
 
         // True for a port name that identifies an EP-40 / Riddim, so unrelated
         // controllers can't animate the replica.
@@ -53,7 +60,12 @@ namespace halo
         std::atomic<bool> overflowed { false };
 
         std::unique_ptr<juce::MidiInput> input;
-        juce::String openIdentifier;
+        std::unique_ptr<juce::MidiOutput> output;
+        juce::String openIdentifier, openOutputIdentifier;
+
+        // SysEx is rare and variable-length: a locked queue is fine here.
+        juce::CriticalSection sysexLock;
+        std::vector<juce::MemoryBlock> sysexQueue;
         juce::MidiDeviceListConnection deviceListConnection;
         Status currentStatus = Status::searching;
         juce::String currentName;

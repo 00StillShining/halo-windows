@@ -26,6 +26,14 @@ namespace halo
         rescan();
     }
 
+    bool Ep40MidiConnection::sendSysex (const std::uint8_t* bytes, std::size_t size)
+    {
+        if (output == nullptr || size < 2 || bytes[0] != 0xF0 || bytes[size - 1] != 0xF7)
+            return false;
+        output->sendMessageNow (juce::MidiMessage (bytes, (int) size));
+        return true;
+    }
+
     void Ep40MidiConnection::rescan()
     {
         const auto devices = juce::MidiInput::getAvailableDevices();
@@ -39,7 +47,9 @@ namespace halo
 
             input->stop();
             input.reset();
+            output.reset();
             openIdentifier.clear();
+            openOutputIdentifier.clear();
         }
 
         for (const auto& device : devices)
@@ -52,6 +62,17 @@ namespace halo
                 input = std::move (opened);
                 openIdentifier = device.identifier;
                 fifo.reset();
+
+                // The matching output port, for SysEx requests. If it can't be
+                // opened, live MIDI still works; device library features won't.
+                for (const auto& out : juce::MidiOutput::getAvailableDevices())
+                    if (isEp40Name (out.name))
+                        if ((output = juce::MidiOutput::openDevice (out.identifier)) != nullptr)
+                        {
+                            openOutputIdentifier = out.identifier;
+                            break;
+                        }
+
                 input->start();
                 setStatus (Status::connected, device.name);
                 return;
@@ -78,6 +99,16 @@ namespace halo
 
     void Ep40MidiConnection::handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage& message)
     {
+        if (message.isSysEx())
+        {
+            {
+                const juce::ScopedLock sl (sysexLock);
+                sysexQueue.emplace_back (message.getRawData(), (size_t) message.getRawDataSize());
+            }
+            triggerAsyncUpdate();
+            return;
+        }
+
         const auto parsed = parseMidi (message.getRawData(), (std::size_t) message.getRawDataSize(),
                                        message.getTimeStamp());
         if (! parsed)
@@ -113,5 +144,14 @@ namespace halo
         };
         deliver (scope.startIndex1, scope.blockSize1);
         deliver (scope.startIndex2, scope.blockSize2);
+
+        std::vector<juce::MemoryBlock> sysex;
+        {
+            const juce::ScopedLock sl (sysexLock);
+            sysex.swap (sysexQueue);
+        }
+        for (const auto& m : sysex)
+            if (onSysex)
+                onSysex (m);
     }
 }

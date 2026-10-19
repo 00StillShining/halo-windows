@@ -29,6 +29,27 @@ namespace halo
             appendLog ("MIDI backlog overflowed: released all pads");
             releaseAllPads();
         };
+        connection.onSysex = [this] (const juce::MemoryBlock& block)
+        {
+            const auto* p = static_cast<const std::uint8_t*> (block.getData());
+            const sysex::Bytes bytes (p, p + block.getSize());
+            if (const auto id = sysex::parseIdentityReply (bytes))
+            {
+                identity = id;
+                protocolTrace.log ("RX", bytes, "identity reply");
+                appendLog ("identity: " + juce::String (id->isTeenageEngineering() ? "Teenage Engineering" : "unknown maker")
+                           + ", family " + juce::String::toHexString ((int) id->family)
+                           + ", model " + juce::String::toHexString ((int) id->model)
+                           + ", version " + juce::String (sysex::toHex (id->version)));
+                refreshStatus();
+            }
+            else
+            {
+                protocolTrace.log ("RX", bytes);
+            }
+            if (onDeviceSysex)
+                onDeviceSysex (bytes);
+        };
 
         engine.onStateChanged = [this]
         {
@@ -245,8 +266,37 @@ namespace halo
             releaseAllPads();
             reducer.connectionChanged (connected);
             listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
+
+            // Ask who it is (standard MIDI identity request; changes nothing).
+            identity.reset();
+            if (connected && ! mock)
+                juce::Timer::callAfterDelay (300, [this, alive = std::weak_ptr<bool> (aliveToken)]
+                {
+                    if (! alive.expired() && endpointConnected)
+                        sendToDevice (sysex::identityRequest(), "identity request");
+                });
         }
         refreshStatus();
+    }
+
+    bool AppModel::sendToDevice (const sysex::Bytes& bytes, const juce::String& note)
+    {
+        if (! canTalkToDevice())
+            return false;
+        protocolTrace.log ("TX", bytes, note);
+        return connection.sendSysex (bytes.data(), bytes.size());
+    }
+
+    juce::String AppModel::firmwareStatus() const
+    {
+        // The EP-40's identity reply leaves the version bytes at zero: don't
+        // dress that up as "0.0.0.0".
+        if (! identity || std::all_of (identity->version.begin(), identity->version.end(), [] (auto b) { return b == 0; }))
+            return deviceOs.isNotEmpty() ? deviceOs : noValueText();
+        juce::String v;
+        for (auto b : identity->version)
+            v << (v.isEmpty() ? "" : ".") << (int) b;
+        return v;
     }
 
     void AppModel::receive (const MidiEvent& event)
