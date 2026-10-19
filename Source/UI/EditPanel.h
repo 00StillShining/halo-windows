@@ -1,6 +1,7 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "UI/Design/WriteGate.h"
 #include "UI/WaveformView.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -13,7 +14,7 @@ namespace halo
     class EditPanel : public juce::Component, private juce::ChangeListener
     {
     public:
-        explicit EditPanel (AppModel&);
+        EditPanel (AppModel&, WriteGate&);
         ~EditPanel() override;
 
         void paint (juce::Graphics&) override;
@@ -26,6 +27,7 @@ namespace halo
         juce::Slider& addKnob (juce::Slider&, double min, double max, double mid, std::function<void()> onChange);
 
         AppModel& model;
+        WriteGate& gate;
         EditSession& session;
         WaveformView waveform;
         juce::Slider fadeIn, fadeOut, gain;

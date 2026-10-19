@@ -106,6 +106,35 @@ namespace halo
         return LookAndFeel_V4::getTypefaceForFont (font);
     }
 
+    void HaloLookAndFeel::drawAlertBox (juce::Graphics& g, juce::AlertWindow& alert, const juce::Rectangle<int>& textArea,
+                                        juce::TextLayout& layout)
+    {
+        if (theme().legacyLook)
+            return LookAndFeel_V4::drawAlertBox (g, alert, textArea, layout);
+        const auto r = alert.getLocalBounds().toFloat();
+        g.setColour (theme().scr.paper);
+        g.fillRect (r);
+        g.setColour (juce::Colour (0xff000005));
+        g.drawRect (r, 1.0f);
+        layout.draw (g, juce::Rectangle<int> (textArea.getX(), textArea.getY(), alert.getWidth() - textArea.getX() - 16,
+                                              alert.getHeight() - textArea.getY()).toFloat());
+    }
+
+    juce::Font HaloLookAndFeel::getAlertWindowTitleFont()
+    {
+        return ! theme().legacyLook && HaloFonts::instance() != nullptr ? HaloFonts::font (Role::tag, 12.0f) : LookAndFeel_V4::getAlertWindowTitleFont();
+    }
+
+    juce::Font HaloLookAndFeel::getAlertWindowMessageFont()
+    {
+        return ! theme().legacyLook && HaloFonts::instance() != nullptr ? HaloFonts::font (Role::body) : LookAndFeel_V4::getAlertWindowMessageFont();
+    }
+
+    juce::Font HaloLookAndFeel::getAlertWindowFont()
+    {
+        return ! theme().legacyLook && HaloFonts::instance() != nullptr ? HaloFonts::font (Role::ui) : LookAndFeel_V4::getAlertWindowFont();
+    }
+
     void HaloLookAndFeel::drawButtonBackground (juce::Graphics& g, juce::Button& button, const juce::Colour& fill,
                                                 bool highlighted, bool down)
     {

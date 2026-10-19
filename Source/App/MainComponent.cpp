@@ -3,9 +3,19 @@
 namespace halo
 {
     MainComponent::MainComponent (AppModel& m)
-        : model (m), statusBar (m), stage (m), rail (m), modeBar (m)
+        : model (m),
+          writeGate (*this, WriteGate::Environment {
+              [this] { return model.writesUnlocked(); },
+              [this] { return model.canTalkToDevice(); },
+              [this] { const auto b = model.latestBackup(); return b ? Ep40Backup::describe (*b) : juce::String(); },
+              [this] { model.backup().forceRescan(); },
+              [this] (bool hide) { stage.setVisible (! hide && ! model.editor().chopOpen); },
+              deviceWrites.get() }),
+          statusBar (m), stage (m), rail (m, writeGate), modeBar (m)
     {
         setLookAndFeel (&lookAndFeel);
+        // Desktop windows (popup menus, alert windows, tooltips) get it too.
+        juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
         addAndMakeVisible (statusBar);
         addAndMakeVisible (stage);
         addAndMakeVisible (rail);
@@ -35,6 +45,7 @@ namespace halo
     MainComponent::~MainComponent()
     {
         model.editor().removeChangeListener (this);
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
         setLookAndFeel (nullptr);
     }
 

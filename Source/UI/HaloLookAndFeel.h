@@ -35,5 +35,11 @@ namespace halo
         // Stock widgets (ComboBox, PopupMenu, AlertWindow) get the embedded
         // faces once the redesign's theme is on.
         juce::Typeface::Ptr getTypefaceForFont (const juce::Font&) override;
+
+        // Any remaining AlertWindow wears the ConfirmCard's paper (plan 3.13).
+        void drawAlertBox (juce::Graphics&, juce::AlertWindow&, const juce::Rectangle<int>& textArea, juce::TextLayout&) override;
+        juce::Font getAlertWindowTitleFont() override;
+        juce::Font getAlertWindowMessageFont() override;
+        juce::Font getAlertWindowFont() override;
     };
 }

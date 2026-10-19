@@ -32,8 +32,8 @@ namespace halo
         return s;
     }
 
-    EditPanel::EditPanel (AppModel& m)
-        : model (m), session (m.editor()), waveform (m.editor(), WaveformView::Style::edit)
+    EditPanel::EditPanel (AppModel& m, WriteGate& g)
+        : model (m), gate (g), session (m.editor()), waveform (m.editor(), WaveformView::Style::edit)
     {
         addAndMakeVisible (waveform);
 
@@ -86,36 +86,39 @@ namespace halo
                 return;
             const auto e = session.sendEstimate();
             const int slot = model.device().firstFreeSlot (Ep40Writer::userFirstSlot, Ep40Writer::userLastSlot);
-            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Send to EP-40",
-                "Upload \"" + session.item().title + "\" (" + juce::String (formatBytes (e.payloadBytes))
-                    + ") to empty slot " + juce::String (slot) + " in USER?" + juce::newLine + juce::newLine
-                    + (session.sendIsTrimmed() ? "It's auto-trimmed to the first " + juce::String ((int) maxSoundSeconds) + " s of your selection." + juce::newLine
-                                               : juce::String())
-                    + "Takes " + Ep40Writer::expectedTime (e.payloadBytes) + ". Nothing on the EP-40 is overwritten.",
-                "Send", "Cancel", this,
-                juce::ModalCallbackFunction::create ([this] (int result)
+            WriteSpec spec;
+            spec.kind = WriteSpec::Kind::send;
+            spec.confirmLabel = "send";
+            spec.body = "Upload \"" + session.item().title + "\" (" + juce::String (formatBytes (e.payloadBytes))
+                        + ") to empty slot " + juce::String (slot) + " in USER?" + juce::newLine + juce::newLine
+                        + (session.sendIsTrimmed() ? "It's auto-trimmed to the first " + juce::String ((int) maxSoundSeconds) + " s of your selection." + juce::newLine
+                                                   : juce::String())
+                        + "Takes " + Ep40Writer::expectedTime (e.payloadBytes) + ". Nothing on the EP-40 is overwritten.";
+            spec.from = session.item().title;
+            spec.to = "slot " + juce::String (slot);
+            spec.estimateSeconds = (double) e.payloadBytes / Ep40Writer::typicalBytesPerSecond;
+            spec.estimateText = Ep40Writer::expectedTime (e.payloadBytes);
+            gate.request (spec, [this] (GatedWriter writer)
+            {
+                session.report ("Sending to the EP-40...");
+                session.renderSend ([this, writer] (std::shared_ptr<const AudioData> audio)
                 {
-                    if (result == 0)
-                        return;
-                    session.report ("Sending to the EP-40...");
-                    session.renderSend ([this] (std::shared_ptr<const AudioData> audio)
+                    auto lastMs = std::make_shared<double> (0.0);
+                    writer.upload (*audio, session.item().title, 0, [this] (Ep40Writer::Result r)
                     {
-                        auto lastMs = std::make_shared<double> (0.0);
-                        model.deviceWriter().upload (*audio, session.item().title, 0, [this] (Ep40Writer::Result r)
-                        {
-                            session.report (r.ok ? r.message + ". Assign it to a pad in LOAD." : "Send failed: " + r.message);
-                        },
-                        [this, lastMs] (juce::int64 sent, juce::int64 total)
-                        {
-                            const double now = juce::Time::getMillisecondCounterHiRes();
-                            if (now - *lastMs < 250.0)
-                                return;
-                            *lastMs = now;
-                            session.report ("Sending to the EP-40: " + juce::String ((int) (100 * sent / juce::jmax<juce::int64> (1, total))) + "%, "
-                                            + Ep40Writer::expectedTime (total - sent) + " left");
-                        });
+                        session.report (r.ok ? r.message + ". Assign it to a pad in LOAD." : "Send failed: " + r.message);
+                    },
+                    [this, lastMs] (juce::int64 sent, juce::int64 total)
+                    {
+                        const double now = juce::Time::getMillisecondCounterHiRes();
+                        if (now - *lastMs < 250.0)
+                            return;
+                        *lastMs = now;
+                        session.report ("Sending to the EP-40: " + juce::String ((int) (100 * sent / juce::jmax<juce::int64> (1, total))) + "%, "
+                                        + Ep40Writer::expectedTime (total - sent) + " left");
                     });
-                }));
+                });
+            });
         };
 
         for (auto* b : { &normalizeButton, &resetTrimButton, &auditionButton, &exportButton, &chopButton,
@@ -300,12 +303,12 @@ namespace halo
         if (blocker.isNotEmpty())
             g.setColour (c.warning);
         else if (trimNote.isNotEmpty())
-            g.setColour (c.orange);
+            g.setColour (c.orangeHot); // info: Halo orange
         g.drawFittedText (sendNote,
                           sendNoteArea, juce::Justification::centredLeft, 2, 1.0f);
 
         g.setFont (HaloType::mono (11.5f));
-        g.setColour (session.status().startsWith ("Export failed") ? c.warning : c.ink);
+        g.setColour (session.status().startsWith ("Export failed") || session.status().startsWith ("Send failed") ? c.warning : c.ink);
         g.drawText (session.status(), statusArea, juce::Justification::centredLeft, true);
     }
 }

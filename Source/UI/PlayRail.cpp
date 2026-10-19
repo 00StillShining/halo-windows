@@ -34,7 +34,7 @@ namespace halo
         }
     }
 
-    PlayRail::PlayRail (AppModel& m) : model (m)
+    PlayRail::PlayRail (AppModel& m, WriteGate& g) : model (m), gate (g)
     {
         for (auto* panel : std::initializer_list<juce::Component*> { &monitorPanel, &rackPanel, &libraryPanel, &editPanel, &loadPanel, &backupsPanel })
             addChildComponent (panel);

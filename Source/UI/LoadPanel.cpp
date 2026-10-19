@@ -14,7 +14,7 @@ namespace halo
         juce::String mb (juce::int64 bytes) { return juce::String ((double) bytes / (1024.0 * 1024.0), 1) + " MB"; }
     }
 
-    LoadPanel::LoadPanel (AppModel& m) : model (m), lib (m.device())
+    LoadPanel::LoadPanel (AppModel& m, WriteGate& g) : model (m), gate (g), lib (m.device())
     {
         list.setRowHeight (30);
         list.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
@@ -38,23 +38,25 @@ namespace halo
                 return;
             const int slot = s->slot;
             const auto name = s->name;
-            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::WarningIcon, "Delete from EP-40",
-                "Delete sound " + juce::String (slot) + " \"" + name + "\" from the EP-40?" + juce::newLine + juce::newLine
-                    + "Your Halo backup still has a copy. Pads that use it will be silent.",
-                "Delete", "Cancel", this,
-                juce::ModalCallbackFunction::create ([this, slot, name] (int result)
+            WriteSpec spec;
+            spec.kind = WriteSpec::Kind::deleteSound;
+            spec.destructive = true;
+            spec.confirmLabel = "delete";
+            spec.body = "Delete sound " + juce::String (slot) + " \"" + name + "\" from the EP-40?" + juce::newLine + juce::newLine
+                        + "Your Halo backup still has a copy. Pads that use it will be silent.";
+            spec.from = "sound " + juce::String (slot);
+            spec.to = "deleted";
+            gate.request (spec, [this, slot, name] (GatedWriter writer)
+            {
+                status = "Deleting...";
+                cache.erase (slot);
+                writer.deleteSound (slot, [this, name] (Ep40Writer::Result r)
                 {
-                    if (result == 0)
-                        return;
-                    status = "Deleting...";
-                    cache.erase (slot);
-                    model.deviceWriter().deleteSound (slot, [this, name] (Ep40Writer::Result r)
-                    {
-                        status = r.ok ? "Deleted \"" + name + "\"" : "Delete failed: " + r.message;
-                        refresh();
-                    });
+                    status = r.ok ? "Deleted \"" + name + "\"" : "Delete failed: " + r.message;
                     refresh();
-                }));
+                });
+                refresh();
+            });
         };
         for (auto* b : { &refreshButton, &auditionButton, &saveButton, &assignButton, &deleteButton })
             addAndMakeVisible (b);
@@ -210,7 +212,8 @@ namespace halo
     void LoadPanel::confirmAssign (int gridIndex, const Ep40Library::Sound& sound)
     {
         // ASSIGN changes a pad on the device, so it asks first like every other
-        // write (plan U20 / H3), naming the pad's current sound and the backup.
+        // write (plan U20 / H3), naming the pad's current sound; the card adds
+        // the backup line.
         const int project = lib.activeProject();
         const int targetGroup = group;
         const auto soundName = sound.name.isNotEmpty() ? sound.name : "sound " + juce::String (sound.slot);
@@ -220,27 +223,24 @@ namespace halo
         const auto padName = juce::String (ep40::groupLabels[(size_t) targetGroup].data()) + " "
                            + juce::String (ep40::gridLabels[(size_t) gridIndex].data());
 
-        juce::String body = "Put \"" + soundName + "\" on pad " + padName + " in project " + juce::String (project) + "? ";
-        body << (oldSlot > 0 ? "It currently plays \"" + oldName + "\". Nothing is deleted: \"" + oldName + "\" stays in the library."
-                             : juce::String ("The pad is empty now."));
-        const auto backup = model.latestBackup();
-        body << juce::newLine << juce::newLine
-             << (backup ? Ep40Backup::describe (*backup) : juce::String ("no complete backup: writes are locked"));
-
-        juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Assign to pad?", body, "Assign", "Cancel", this,
-            juce::ModalCallbackFunction::create ([this, project, targetGroup, gridIndex, slot = sound.slot, soundName, padName] (int result)
+        WriteSpec spec;
+        spec.kind = WriteSpec::Kind::assign;
+        spec.confirmLabel = "assign";
+        spec.body = "Put \"" + soundName + "\" on pad " + padName + " in project " + juce::String (project) + "? ";
+        spec.body << (oldSlot > 0 ? "It currently plays \"" + oldName + "\". Nothing is deleted: \"" + oldName + "\" stays in the library."
+                                  : juce::String ("The pad is empty now."));
+        spec.from = soundName;
+        spec.to = "pad " + padName.toLowerCase() + ", project " + juce::String (project);
+        gate.request (spec, [this, project, targetGroup, gridIndex, slot = sound.slot, soundName, padName] (GatedWriter writer)
+        {
+            status = "Assigning...";
+            writer.assignPad (project, targetGroup, gridIndex, slot, [this, soundName, padName] (Ep40Writer::Result r)
             {
-                // Re-check the gate: the device or the backup may have gone while the dialog was open.
-                if (result == 0 || ! model.writesUnlocked() || model.deviceWriter().isBusy())
-                    return;
-                status = "Assigning...";
-                model.deviceWriter().assignPad (project, targetGroup, gridIndex, slot, [this, soundName, padName] (Ep40Writer::Result r)
-                {
-                    status = r.ok ? "\"" + soundName + "\" is now on pad " + padName : "Assign failed: " + r.message;
-                    refresh();
-                });
+                status = r.ok ? "\"" + soundName + "\" is now on pad " + padName : "Assign failed: " + r.message;
                 refresh();
-            }));
+            });
+            refresh();
+        });
     }
 
     juce::Rectangle<float> LoadPanel::padCell (int gridIndex) const
@@ -436,8 +436,10 @@ namespace halo
             }
         }
 
+        // Failures are blockers (danger); results and downloads stay plain.
+        const bool failed = status.startsWith ("Assign failed") || status.startsWith ("Delete failed") || status.startsWith ("Couldn't");
         g.setFont (HaloType::mono (11.5f));
-        g.setColour (c.ink);
+        g.setColour (failed ? c.warning : c.ink);
         g.drawText (status, statusArea, juce::Justification::centredLeft, true);
     }
 }

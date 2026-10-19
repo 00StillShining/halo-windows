@@ -1,6 +1,6 @@
 # Halo redesign plan: one big TE screen
 
-**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** in progress (R0, R1, R2a, R2b landed; revised after critic review; §8 lists where each issue was resolved)
+**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** in progress (R0-R3 landed; revised after critic review; §8 lists where each issue was resolved)
 **Companion plan:** `docs/redesign/riddim-3d-plan.md`. It owns everything inside the 3D stage: `Source/Stage/*`, the model pipeline and the stage's look tokens. The two plans meet at only three points:
 - `StageLook` (3D plan §3.1)
 - the overlay rule (3D plan §3.9): nothing JUCE draws can sit on top of the stage

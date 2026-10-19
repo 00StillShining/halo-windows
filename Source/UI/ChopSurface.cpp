@@ -65,8 +65,8 @@ namespace halo
     }
 
     //==============================================================================
-    ChopSurface::ChopSurface (AppModel& m)
-        : model (m), session (m.editor()), waveform (m.editor(), WaveformView::Style::chop), pads (m.editor())
+    ChopSurface::ChopSurface (AppModel& m, WriteGate& g)
+        : model (m), gate (g), session (m.editor()), waveform (m.editor(), WaveformView::Style::chop), pads (m.editor())
     {
         setWantsKeyboardFocus (true);
         addAndMakeVisible (waveform);
@@ -107,31 +107,34 @@ namespace halo
                 return;
             const auto plan = session.plan();
             const int project = model.device().activeProject();
-            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Send to pads",
-                "Upload " + juce::String ((int) plan.writes.size()) + " slices (" + juce::String (formatBytes (plan.totalBytes))
-                    + ") into empty USER slots, and assign them to group " + ep40::groupLabels[(size_t) plan.group].data()
-                    + " pads in project " + juce::String (project) + "?" + juce::newLine + juce::newLine
-                    + (plan.trimmedCount > 0 ? juce::String (plan.trimmedCount) + " slice(s) are cut to "
-                                                   + juce::String (session.sliceCapSeconds(), 1) + " s." + juce::newLine
-                                             : juce::String())
-                    + "Takes " + Ep40Writer::expectedTime (plan.totalBytes) + " (the EP-40 takes about 40 KB/s; MONO or a LO quality is quicker)." + juce::newLine
-                    + "No sound is overwritten. The pads' old sounds stay in the library.",
-                "Send", "Cancel", this,
-                juce::ModalCallbackFunction::create ([this, plan, project] (int result)
+            WriteSpec spec;
+            spec.kind = WriteSpec::Kind::sendToPads;
+            spec.confirmLabel = "send";
+            spec.body = "Upload " + juce::String ((int) plan.writes.size()) + " slices (" + juce::String (formatBytes (plan.totalBytes))
+                        + ") into empty USER slots, and assign them to group " + ep40::groupLabels[(size_t) plan.group].data()
+                        + " pads in project " + juce::String (project) + "?" + juce::newLine + juce::newLine
+                        + (plan.trimmedCount > 0 ? juce::String (plan.trimmedCount) + " slice(s) are cut to "
+                                                       + juce::String (session.sliceCapSeconds(), 1) + " s." + juce::newLine
+                                                 : juce::String())
+                        + "Takes " + Ep40Writer::expectedTime (plan.totalBytes) + " (the EP-40 takes about 40 KB/s; MONO or a LO quality is quicker)." + juce::newLine
+                        + "No sound is overwritten. The pads' old sounds stay in the library.";
+            spec.from = juce::String ((int) plan.writes.size()) + " slices";
+            spec.to = "group " + juce::String (ep40::groupLabels[(size_t) plan.group].data()).toLowerCase() + ", project " + juce::String (project);
+            spec.estimateSeconds = (double) plan.totalBytes / Ep40Writer::typicalBytesPerSecond;
+            spec.estimateText = Ep40Writer::expectedTime (plan.totalBytes);
+            gate.request (spec, [this, plan, project] (GatedWriter writer)
+            {
+                session.report ("Preparing slices...");
+                session.renderPlacedSlices ([this, plan, project, writer] (std::shared_ptr<std::vector<AudioData>> audio)
                 {
-                    if (result == 0)
-                        return;
-                    session.report ("Preparing slices...");
-                    session.renderPlacedSlices ([this, plan, project] (std::shared_ptr<std::vector<AudioData>> audio)
-                    {
-                        std::vector<Ep40Writer::PadJob> jobs;
-                        for (size_t i = 0; i < plan.writes.size() && i < audio->size(); ++i)
-                            jobs.push_back ({ std::move ((*audio)[i]), juce::String (plan.writes[i].name), plan.writes[i].group, plan.writes[i].gridIndex });
-                        model.deviceWriter().uploadToPads (std::move (jobs), project,
-                            [this] (const juce::String& progress) { session.report (progress); },
-                            [this] (Ep40Writer::Result r) { session.report (r.ok ? r.message + ". Play them on the EP-40!" : "Send failed: " + r.message); });
-                    });
-                }));
+                    std::vector<Ep40Writer::PadJob> jobs;
+                    for (size_t i = 0; i < plan.writes.size() && i < audio->size(); ++i)
+                        jobs.push_back ({ std::move ((*audio)[i]), juce::String (plan.writes[i].name), plan.writes[i].group, plan.writes[i].gridIndex });
+                    writer.uploadToPads (std::move (jobs), project,
+                        [this] (const juce::String& progress) { session.report (progress); },
+                        [this] (Ep40Writer::Result r) { session.report (r.ok ? r.message + ". Play them on the EP-40!" : "Send failed: " + r.message); });
+                });
+            });
         };
 
         const char* sliceNames[] { "FIT", "4", "8", "16", "ALL" };
@@ -412,11 +415,11 @@ namespace halo
         if (blocker.isNotEmpty())
             g.setColour (c.warning);
         else if (trimmed.isNotEmpty())
-            g.setColour (c.orange);
+            g.setColour (c.orangeHot); // info: Halo orange
         g.drawFittedText (sendNote,
                           noteArea, juce::Justification::centredLeft, 3, 1.0f);
         g.setFont (HaloType::mono (11.5f));
-        g.setColour (session.status().startsWith ("Export failed") ? c.warning : c.ink);
+        g.setColour (session.status().startsWith ("Export failed") || session.status().startsWith ("Send failed") ? c.warning : c.ink);
         g.drawText (session.status(), statusArea, juce::Justification::centredLeft, true);
     }
 }

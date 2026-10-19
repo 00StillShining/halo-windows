@@ -179,10 +179,14 @@ set(HALO_DESIGN_SOURCES
     Source/UI/Design/Primitives/ParamStrip.cpp
     Source/UI/Design/Primitives/Gauges.cpp
     Source/UI/Design/Primitives/PadGrid.cpp
-    Source/UI/Design/Primitives/Waveform/WaveCache.cpp)
+    Source/UI/Design/Primitives/Waveform/WaveCache.cpp
+    Source/UI/Design/WriteGate.cpp
+    Source/UI/Design/Primitives/ConfirmCard.cpp)
 target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
+    Source/UI/Design/WriteGateDevice.cpp
     Source/UI/Design/Gallery.cpp
-    Source/UI/Design/GalleryEncoders.cpp)
+    Source/UI/Design/GalleryEncoders.cpp
+    Source/UI/Design/GalleryCards.cpp)
 target_link_libraries(Halo PRIVATE HaloFontAssets)
 
 target_sources(HaloTests PRIVATE
@@ -195,6 +199,7 @@ target_sources(HaloUiTests PRIVATE
     Tests/Ui/UiTestMain.cpp
     Tests/Ui/FontsTests.cpp
     Tests/Ui/WaveCacheTests.cpp
+    Tests/Ui/WriteGateTests.cpp
     ${HALO_DESIGN_SOURCES})
 target_compile_definitions(HaloUiTests PRIVATE
     JUCE_WEB_BROWSER=0

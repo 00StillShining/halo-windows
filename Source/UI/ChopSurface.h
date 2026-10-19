@@ -1,6 +1,7 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "UI/Design/WriteGate.h"
 #include "UI/WaveformView.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -15,7 +16,7 @@ namespace halo
     class ChopSurface : public juce::Component, private juce::ChangeListener
     {
     public:
-        explicit ChopSurface (AppModel&);
+        ChopSurface (AppModel&, WriteGate&);
         ~ChopSurface() override;
 
         void paint (juce::Graphics&) override;
@@ -39,6 +40,7 @@ namespace halo
         juce::String trimNote() const;
 
         AppModel& model;
+        WriteGate& gate;
         EditSession& session;
         WaveformView waveform;
         PadGrid pads;

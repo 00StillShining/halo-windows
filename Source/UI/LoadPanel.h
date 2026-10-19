@@ -1,6 +1,7 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "UI/Design/WriteGate.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -15,7 +16,7 @@ namespace halo
     class LoadPanel : public juce::Component, private juce::ListBoxModel, private juce::ChangeListener
     {
     public:
-        explicit LoadPanel (AppModel&);
+        LoadPanel (AppModel&, WriteGate&);
         ~LoadPanel() override;
 
         void paint (juce::Graphics&) override;
@@ -40,6 +41,7 @@ namespace halo
         bool deviceAvailable() const;
 
         AppModel& model;
+        WriteGate& gate;
         Ep40Library& lib;
         juce::ListBox list { "ep40 sounds", this };
         juce::TextButton refreshButton { "REFRESH" }, auditionButton { "AUDITION" }, saveButton { "SAVE TO LIBRARY" }, assignButton { "ASSIGN TO PAD" }, deleteButton { "DELETE" };

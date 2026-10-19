@@ -18,13 +18,17 @@ DIRECT_CALL = re.compile(r"deviceWriter\s*\(\s*\)\s*\.\s*(" + "|".join(WRITE_MET
 ALIAS = re.compile(r"\bEp40Writer\s*&")
 
 # File (relative to Source/UI) -> how many direct write calls it may hold.
-# R0: today's three confirm dialogs (send, send to pads, delete) plus the new
-# assign confirm. Each call sits inside its dialog's OK callback.
+# R3: only the write gate talks to Ep40Writer. Pages call WriteGate::request
+# and write through the GatedWriter handed to the confirmed action; the
+# gate's device adapter is the one place holding an Ep40Writer reference.
 ALLOWED = {
-    "EditPanel.cpp": 1,    # SEND TO EP-40 (confirm dialog)
-    "ChopSurface.cpp": 1,  # SEND TO PADS (confirm dialog)
-    "LoadPanel.cpp": 2,    # DELETE (confirm dialog), ASSIGN (confirm dialog, new in R0)
+    "Design/WriteGate.h": 0,         # declares makeDeviceWrites (Ep40Writer&)
+    "Design/WriteGate.cpp": 0,
+    "Design/WriteGateDevice.cpp": 0, # the adapter: Ep40Writer& writer
 }
+# Any other use of the app's writer (e.g. "auto& w = model.deviceWriter()")
+# could write unseen: only isBusy() may be read outside the gate.
+WRITER_USE = re.compile(r"deviceWriter\s*\(\s*\)(?!\s*\.\s*isBusy\b)")
 
 
 def strip_comments(text: str) -> str:
@@ -49,6 +53,8 @@ def main() -> int:
                     problems.append(f"{rel}:{lineno}: direct device write '{m.group(1)}' outside the write gate")
             if ALIAS.search(line) and rel not in ALLOWED:
                 problems.append(f"{rel}:{lineno}: holds an Ep40Writer reference outside the write gate")
+            if WRITER_USE.search(line) and rel not in ALLOWED:
+                problems.append(f"{rel}:{lineno}: uses the device writer outside the write gate (only isBusy() may be read)")
     for rel, n in counts.items():
         if rel in ALLOWED and n > ALLOWED[rel]:
             problems.append(f"{rel}: {n} direct write calls, allowed {ALLOWED[rel]}")
@@ -57,7 +63,7 @@ def main() -> int:
         for p in problems:
             print("  " + p)
         return 1
-    print(f"check_write_sites: ok ({sum(counts.values())} gated write sites in {len(counts)} file(s))")
+    print("check_write_sites: ok (every device write in Source/UI goes through the write gate)")
     return 0
 
 

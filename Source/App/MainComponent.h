@@ -3,6 +3,7 @@
 #include "App/AppModel.h"
 #include "Stage/StageComponent.h"
 #include "UI/ChopSurface.h"
+#include "UI/Design/WriteGate.h"
 #include "UI/HaloLookAndFeel.h"
 #include "UI/ModeBar.h"
 #include "UI/PlayRail.h"
@@ -28,11 +29,14 @@ namespace halo
 
         AppModel& model;
         HaloLookAndFeel lookAndFeel;
+        // Every device write goes through this gate and its confirm card (H3).
+        std::unique_ptr<DeviceWrites> deviceWrites { makeDeviceWrites (model.deviceWriter()) };
+        WriteGate writeGate;
         StatusBar statusBar;
         StageComponent stage;
         PlayRail rail;
         ModeBar modeBar;
-        ChopSurface chopSurface { model };
+        ChopSurface chopSurface { model, writeGate };
         // One tooltip window for the app; nothing depends on it (every reason is also printed).
         juce::TooltipWindow tooltips { this, 600 };
 

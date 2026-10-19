@@ -2,6 +2,7 @@
 
 #include "App/AppModel.h"
 #include "UI/BackupsPanel.h"
+#include "UI/Design/WriteGate.h"
 #include "UI/EditPanel.h"
 #include "UI/LibraryPanel.h"
 #include "UI/LoadPanel.h"
@@ -19,7 +20,7 @@ namespace halo
     class PlayRail : public juce::Component, private AppModel::Listener, private juce::Timer
     {
     public:
-        explicit PlayRail (AppModel&);
+        PlayRail (AppModel&, WriteGate&);
         ~PlayRail() override;
 
         // The width the rail wants right now (spine when collapsed in PLAY).
@@ -49,8 +50,9 @@ namespace halo
         MonitorPanel monitorPanel { model };
         RackPanel rackPanel { model };
         LibraryPanel libraryPanel { model };
-        EditPanel editPanel { model };
-        LoadPanel loadPanel { model };
+        WriteGate& gate;
+        EditPanel editPanel { model, gate };
+        LoadPanel loadPanel { model, gate };
         BackupsPanel backupsPanel { model };
         bool expanded = false;
         bool dirty = true;
