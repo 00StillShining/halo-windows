@@ -1,6 +1,6 @@
 # Halo redesign plan: one big TE screen
 
-**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** in progress (R0, R1, R2a landed; revised after critic review; §8 lists where each issue was resolved)
+**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** in progress (R0, R1, R2a, R2b landed; revised after critic review; §8 lists where each issue was resolved)
 **Companion plan:** `docs/redesign/riddim-3d-plan.md`. It owns everything inside the 3D stage: `Source/Stage/*`, the model pipeline and the stage's look tokens. The two plans meet at only three points:
 - `StageLook` (3D plan §3.1)
 - the overlay rule (3D plan §3.9): nothing JUCE draws can sit on top of the stage
@@ -1779,3 +1779,13 @@ R6 and R7 may land in either order; both depend only on R2b's WaveCache.
 | Ring colour equals info | `ring.ui` in ink; orange only in the GL pool; RACK LED white |
 | Bookkeeping gaps | 13 files listed; hooks assigned to R0/R1/R2b/R4a; one READY line per side; StageFrame wraps the fallback |
 | TE override untested; DD‑006e | §2.2 self-check; U14 keeps DD‑006e for the silkscreen |
+---
+
+## 9. Gate log (delegated reviews while the owner is away)
+
+**U1 (after R2b): palette, numerals, type.** Reviewed on gallery pages 1-4 at 100/125/150%, in the field skin and in greyscale.
+- Kept: the §2.1 palette as measured (all text pairs >= 4.5:1; "ink on key" measures 8.90, not 9.5); Lexend Exa labels, Lexend Giga titles, Inter Tight UI, JetBrains Mono, Departure Mono name cells (crisp: 0% intermediate greys at 125% and 150%).
+- Numerals: traced from the mockups' own glyph paths; the bare-bar "1" keeps the mockups' proportional advance (6.2 units) rather than a tabular one, so "12" reads "I2" as drawn. A tabular mode exists for live readouts.
+- Encoders follow the mockup's graphite knurled skirt with a coloured cap (cap about 0.77 of the diameter); the plan's skirt colour is used for the dimmed cap of an unavailable binding.
+- Fixed before closing the gate: popup-card header too narrow for SENSITIVITY (now sized to its label); the "1 enc" footer replaced by the press action; compact card drops the cylinder so its hint fits; tick dial reshaped to a semicircle above its caption; the SHIFT key's legend said "fine / alt" (contradicts U19), now "shift".
+- Greyscale: every honest state survives by form (hazard stub, hollow lamp, filled triangle box vs outlined i box).

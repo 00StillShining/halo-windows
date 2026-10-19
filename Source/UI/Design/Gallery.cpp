@@ -380,8 +380,13 @@ namespace halo
         };
     }
 
+    std::unique_ptr<juce::Component> createEncoderGalleryPage();
+    std::unique_ptr<juce::Component> createMetersGalleryPage();
+
     std::unique_ptr<juce::Component> createGallery (int page)
     {
+        if (page == 3) return std::make_unique<GalleryShell> (createEncoderGalleryPage());
+        if (page == 4) return std::make_unique<GalleryShell> (createMetersGalleryPage());
         return std::make_unique<GalleryShell> (std::make_unique<PageOne> (page));
     }
 }

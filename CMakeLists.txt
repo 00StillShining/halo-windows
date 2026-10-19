@@ -172,19 +172,29 @@ set(HALO_DESIGN_SOURCES
     Source/UI/Design/Primitives/Notice.cpp
     Source/UI/Design/Primitives/ActionKey.cpp
     Source/UI/Design/Primitives/StepKeyRow.cpp
-    Source/UI/Design/Primitives/NameCells.cpp)
+    Source/UI/Design/Primitives/NameCells.cpp
+    Source/UI/Design/Motion.cpp
+    Source/UI/Design/EncoderBus.cpp
+    Source/UI/Design/Primitives/DeckControls.cpp
+    Source/UI/Design/Primitives/ParamStrip.cpp
+    Source/UI/Design/Primitives/Gauges.cpp
+    Source/UI/Design/Primitives/PadGrid.cpp
+    Source/UI/Design/Primitives/Waveform/WaveCache.cpp)
 target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
-    Source/UI/Design/Gallery.cpp)
+    Source/UI/Design/Gallery.cpp
+    Source/UI/Design/GalleryEncoders.cpp)
 target_link_libraries(Halo PRIVATE HaloFontAssets)
 
 target_sources(HaloTests PRIVATE
-    Tests/UiTokensTests.cpp)
+    Tests/UiTokensTests.cpp
+    Tests/EncoderMathTests.cpp)
 
 # HaloUiTests: doctest with JUCE's GUI modules (fonts, UI state, the write gate).
 juce_add_console_app(HaloUiTests PRODUCT_NAME "HaloUiTests")
 target_sources(HaloUiTests PRIVATE
     Tests/Ui/UiTestMain.cpp
     Tests/Ui/FontsTests.cpp
+    Tests/Ui/WaveCacheTests.cpp
     ${HALO_DESIGN_SOURCES})
 target_compile_definitions(HaloUiTests PRIVATE
     JUCE_WEB_BROWSER=0
