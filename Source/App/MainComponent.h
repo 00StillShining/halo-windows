@@ -7,6 +7,8 @@
 #include "UI/Design/EncoderBus.h"
 #include "UI/Design/Motion.h"
 #include "UI/Design/Primitives/Deck.h"
+#include "UI/Design/Primitives/Lane.h"
+#include "UI/Design/Primitives/ParamStrip.h"
 #include "UI/Design/Primitives/StageFrame.h"
 #include "UI/Design/Primitives/StatusStrip.h"
 #include "UI/Design/WriteGate.h"
@@ -22,7 +24,7 @@ namespace halo
     // graphite deck (mode keys, SHIFT, REC, four colour encoders). The 3D stage
     // shows only in PLAY; CHOP is a mode; pages not rebuilt yet stay docked at
     // the right of the body beside an honest "not rebuilt yet" plate.
-    class MainComponent : public juce::Component, private AppModel::Listener
+    class MainComponent : public juce::Component, private AppModel::Listener, private juce::Timer
     {
     public:
         explicit MainComponent (AppModel&);
@@ -37,7 +39,10 @@ namespace halo
 
     private:
         void statusChanged() override { updateMode(); }
+        void timerCallback() override;
         void updateMode();
+        void updateBindings();
+        void updateHint();
         void layoutBody();
         float physicalScale() const;
 
@@ -68,11 +73,16 @@ namespace halo
         ChopSurface chopSurface { model, writeGate };
         LegacyPlate plate;
         Deck deck { model, bus };
+        Lane lane { bus };
+        juce::OwnedArray<ParamCell> cells;
+        SoftKeyRow softKeys { bus };
+        juce::String deckHint;
         // One tooltip window for the app; nothing depends on it (every reason is also printed).
         juce::TooltipWindow tooltips { this, 600 };
 
         layout::Frame frame;
         AppMode shownMode = AppMode::play;
+        AppMode boundMode = AppMode::chop;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
     };

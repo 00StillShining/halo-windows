@@ -1,4 +1,6 @@
 #include "App/MainComponent.h"
+#include "App/DevPose.h"
+#include "UI/Pages/PlayEncoders.h"
 #include "UI/Design/Paint.h"
 #include "UI/Design/Pictograms.h"
 
@@ -46,8 +48,11 @@ namespace halo
         // Desktop windows (popup menus, alert windows, tooltips) get it too.
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
 
-        for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &stageFrame, &rail, &plate, &deck })
+        for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &stageFrame, &rail, &plate, &deck, &lane, &softKeys })
             addAndMakeVisible (c);
+        for (int i = 0; i < 4; ++i)
+            addAndMakeVisible (cells.add (new ParamCell (bus, i)));
+        deck.onHint = [this] (const juce::String& h) { deckHint = h; updateHint(); };
         addChildComponent (chopSurface);
         rail.onPreferredWidthChanged = [this] { layoutBody(); };
         model.addListener (this);
@@ -61,10 +66,16 @@ namespace halo
         rail.setExpanded (railHook != "closed");
         if (const auto mode = keymap::modeForCtrlDigit (juce::SystemStats::getEnvironmentVariable ("HALO_MODE", "1").getIntValue()))
             model.setMode (*mode);
+        // HALO_UI_POSE=card:n,shift:1 pins the popup card or the shift layer for shots.
+        if (const int card = DevPose::get ("card"); card >= 1 && card <= 4)
+            bus.pinCard (card - 1);
+        if (DevPose::get ("shift") == 1)
+            bus.pinShift (true);
        #else
         rail.setExpanded (true);
        #endif
         updateMode();
+        startTimer (500); // cells and pills follow cached model state at 2 Hz
     }
 
     MainComponent::~MainComponent()
@@ -94,6 +105,8 @@ namespace halo
         rail.setVisible (! chop);
         plate.setVisible (! play && ! chop);
         plate.setMode (mode);
+        statusStrip.setMonitorOwnedByEncoder (play);
+        updateBindings();
         if (chop && ! chopSurface.hasKeyboardFocus (true) && ! cardOpen)
             chopSurface.grabKeyboardFocus();
         if (mode != shownMode)
@@ -102,6 +115,41 @@ namespace halo
             layoutBody();
         }
         repaint (toInt (frame.body));
+    }
+
+    void MainComponent::updateBindings()
+    {
+        const auto mode = model.mode();
+        if (mode == boundMode)
+            return;
+        boundMode = mode;
+        // Pages not rebuilt yet show dead cells until they land (honest: their
+        // controls are the docked panel's, unchanged).
+        if (mode == AppMode::play)
+            bus.setBindings (playBindings (model));
+        else
+            bus.setBindings ({});
+        updateHint();
+    }
+
+    void MainComponent::updateHint()
+    {
+        juce::String hint;
+        if (deckHint.isNotEmpty())
+            hint = deckHint;
+        else if (model.mode() == AppMode::play)
+            hint = "drag: orbit" + dot + "wheel on stage: zoom" + dot + "double-click: reset";
+        else
+            hint = "encoders arrive with this page" + dot + "use the panel on the right";
+        softKeys.setHint (hint);
+    }
+
+    void MainComponent::timerCallback()
+    {
+        for (auto* c : cells)
+            c->repaint();
+        softKeys.repaint();
+        lane.repaint();
     }
 
     void MainComponent::layoutBody()
@@ -141,6 +189,22 @@ namespace halo
         statusStrip.setBounds (toInt (frame.strip));
         deck.setBounds (toInt (frame.deck));
         deck.setFrame (frame);
+        lane.setBounds (toInt (frame.lane));
+        lane.setCompact (frame.density != layout::Density::regular);
+        const auto size = frame.density == layout::Density::regular ? CellSize::regular
+                        : frame.density == layout::Density::compact ? CellSize::compact : CellSize::ultra;
+        for (int i = 0; i < 4; ++i)
+        {
+            cells[i]->setSize (size);
+            cells[i]->setBounds (toInt (frame.cells[(size_t) i]));
+        }
+        softKeys.setBounds (toInt (frame.softKeys));
+        std::array<float, 4> centres {};
+        for (size_t i = 0; i < 4; ++i)
+            centres[i] = frame.encoderX[i] - frame.softKeys.x;
+        softKeys.setCentres (centres);
+        softKeys.setPillSize (frame.pillW, frame.pillH);
+        softKeys.setHintWidth (frame.lane.w);
         layoutBody();
     }
 

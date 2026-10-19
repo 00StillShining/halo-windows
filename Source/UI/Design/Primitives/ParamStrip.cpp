@@ -217,7 +217,7 @@ namespace halo
             if (b != nullptr)
             {
                 label = shift ? b->shiftPressLabel : b->pressLabel;
-                available = bus.isLive (i) && (shift ? b->shiftPress != nullptr : b->press != nullptr);
+                available = bus.isLive (i) && (shift ? b->shiftPress != nullptr : b->canPress());
                 if (! available && shift && b->shiftPressLabel.isEmpty())
                     label = {};
             }

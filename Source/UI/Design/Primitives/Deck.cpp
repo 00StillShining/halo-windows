@@ -33,11 +33,30 @@ namespace halo
             auto* key = modeKeys.add (new DeckKey (keymap::modeWord (mode), pictFor (mode), juce::String (keymap::shortcutDigit (mode))));
             key->onClick = [this, mode] { model.setMode (mode); };
             key->setTooltip (juce::String (keymap::modeWord (mode)) + "  (ctrl " + juce::String (keymap::shortcutDigit (mode)) + ")");
+            // At compact sizes the caps are pictogram-only: the hovered key's
+            // legend and shortcut appear in the soft-key hint.
+            key->onStateChange = [this, key, mode]
+            {
+                if (onHint != nullptr)
+                    onHint (key->isOver() ? juce::String (keymap::modeWord (mode)) + dot + "ctrl " + juce::String (keymap::shortcutDigit (mode))
+                                          : juce::String());
+            };
             addAndMakeVisible (key);
         }
         shiftKey.onClick = [this] { bus.toggleShiftLatch(); };
         shiftKey.setTooltip ("shift layer: hold Shift, or click to latch it for one press");
         recKey.onClick = [this] { model.toggleRecording(); };
+        recKey.onStateChange = [this]
+        {
+            if (onHint != nullptr)
+                onHint (recKey.isOver() ? (model.monitor().isRunning() || model.monitor().isRecording() ? juce::String ("rec" + dot + "ctrl r") : recReason())
+                                        : juce::String());
+        };
+        shiftKey.onStateChange = [this]
+        {
+            if (onHint != nullptr)
+                onHint (shiftKey.isOver() ? juce::String ("shift layer: hold shift, or click to latch it for one press") : juce::String());
+        };
         addAndMakeVisible (shiftKey);
         addAndMakeVisible (recKey);
         for (int i = 0; i < 4; ++i)
@@ -212,7 +231,8 @@ namespace halo
             auto col = inner.withWidth (12.0f);
             gauges::ladder (g, col, 12, litFor (shown.peakL), t.scr.ink, true, d.ledOffDeck);
             gauges::ladder (g, col.translated (18.0f, 0.0f), 12, litFor (shown.peakR), t.scr.ink, true, d.ledOffDeck);
-            paint::text (g, "l  r", { col.getX() - 1.0f, r.getBottom() - 1.0f, 40.0f, 12.0f }, print, d.print);
+            paint::text (g, "l", { col.getX(), r.getBottom() + 1.0f, 12.0f, 12.0f }, print, d.print, juce::Justification::centredTop);
+            paint::text (g, "r", { col.getX() + 18.0f, r.getBottom() + 1.0f, 12.0f, 12.0f }, print, d.print, juce::Justification::centredTop);
             paint::text (g, "out", { inner.getRight() - 24.0f, inner.getY(), 24.0f, 12.0f }, print, d.print, juce::Justification::topRight);
             paint::text (g, metersLive ? "live" : "off", { inner.getRight() - 30.0f, inner.getBottom() - 12.0f, 30.0f, 12.0f }, print,
                          d.print, juce::Justification::bottomRight);

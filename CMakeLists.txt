@@ -182,12 +182,14 @@ set(HALO_DESIGN_SOURCES
     Source/UI/Design/Primitives/PadGrid.cpp
     Source/UI/Design/Primitives/Waveform/WaveCache.cpp
     Source/UI/Design/WriteGate.cpp
-    Source/UI/Design/Primitives/ConfirmCard.cpp)
+    Source/UI/Design/Primitives/ConfirmCard.cpp
+    Source/UI/Design/Primitives/Lane.cpp)
 target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
     Source/App/WindowsChrome.cpp
     Source/UI/Design/Primitives/StatusStrip.cpp
     Source/UI/Design/Primitives/Deck.cpp
     Source/UI/Design/Primitives/StageFrame.cpp
+    Source/UI/Pages/PlayEncoders.cpp
     Source/UI/Design/WriteGateDevice.cpp
     Source/UI/Design/Gallery.cpp
     Source/UI/Design/GalleryEncoders.cpp

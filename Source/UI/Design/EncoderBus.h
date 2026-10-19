@@ -27,6 +27,7 @@ namespace halo
 
         juce::String pressLabel;                    // pill: "auto-trim"
         std::function<void()> press;
+        std::function<bool()> pressAvailable;       // optional: the pill can be dead while the turn is live
         juce::String shiftLabel;                    // shift layer: label of the shift turn
         std::function<void (int detents)> shiftTurn;
         juce::String shiftPressLabel;
@@ -43,6 +44,7 @@ namespace halo
         std::function<void (juce::Graphics&, juce::Rectangle<float>, juce::Colour line, bool live)> gauge;
 
         bool isAvailable() const { return available == nullptr || available(); }
+        bool canPress() const { return press != nullptr && (pressAvailable == nullptr || pressAvailable()); }
         juce::String valueText() const { return format ? format() : juce::String(); }
         juce::String unitText() const { return unit ? unit() : juce::String(); }
     };

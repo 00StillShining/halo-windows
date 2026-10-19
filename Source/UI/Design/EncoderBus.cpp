@@ -192,7 +192,7 @@ namespace halo
         const bool shifted = shiftActive();
         if (shifted && b->shiftPress != nullptr)
             b->shiftPress();
-        else if (! shifted && b->press != nullptr)
+        else if (! shifted && b->canPress())
             b->press();
         shiftLatched = false; // a latch lasts one press
         changed();

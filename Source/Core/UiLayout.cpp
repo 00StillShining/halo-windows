@@ -116,7 +116,7 @@ namespace halo::layout
         const float vuX = std::max (f.glass.right() - 8.0f - 72.0f, f.encoders[3].right() + 6.0f);
         f.showVu = f.showVu && vuX + 72.0f <= f.glass.right();
         f.vu = f.showVu ? Rect { vuX, f.deck.y + 14.0f, 72.0f, std::max (24.0f, f.deck.h - 46.0f) } : Rect {};
-        f.nameplate = f.showVu ? Rect { f.vu.x, f.vu.bottom() + 6.0f, f.vu.w, 14.0f } : Rect {};
+        f.nameplate = f.showVu ? Rect { f.vu.x + 30.0f, f.vu.bottom() + 6.0f, f.vu.w - 30.0f, 14.0f } : Rect {};
         if (f.density == Density::regular)
         {
             f.modeCaption = { x0, f.deck.y + 2.0f, 200.0f, 12.0f };
