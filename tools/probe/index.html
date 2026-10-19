@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EP-40 Probe</title>
+<style>
+  :root {
+    --canvas: #AEB9BE; --paper: #E6E8E5; --paper-high: #F4F4EF; --metal: #A6B0B4;
+    --ink: #111315; --ink-soft: #343A3D; --orange: #FF5A1F; --green: #405C4C;
+    --lcd: #A6D39F; --warn: #D94A24; --line: rgba(17,19,21,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --canvas: #1B1F21; --paper: #262B2E; --paper-high: #2F3539; --metal: #4A5357;
+      --ink: #ECEFEC; --ink-soft: #B7C0C3; --line: rgba(236,239,236,.16);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink);
+    font: 13px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 16px;
+    border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  h1 { font-size: 15px; letter-spacing: .12em; margin: 0; }
+  h2 { font-size: 11px; letter-spacing: .14em; margin: 0 0 10px; color: var(--ink-soft); font-weight: 600; }
+  main { display: grid; gap: 14px; padding: 16px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  section { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 14px; min-width: 0; }
+  button { font: inherit; letter-spacing: .08em; padding: 7px 12px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--ink); background: var(--paper-high); color: var(--ink); }
+  button.primary { background: var(--orange); border-color: var(--orange); color: #111315; font-weight: 700; }
+  button:disabled { opacity: .45; cursor: default; }
+  .chip { padding: 3px 8px; border-radius: 3px; border: 1px solid var(--line); font-size: 11px; letter-spacing: .1em; }
+  .chip.ok { background: var(--green); color: #fff; border-color: var(--green); }
+  .chip.bad { background: var(--warn); color: #fff; border-color: var(--warn); }
+  .groups { display: flex; gap: 6px; margin-bottom: 10px; }
+  .group { flex: 1; text-align: center; padding: 6px 0; border: 1px solid var(--line); border-radius: 4px; }
+  .group.on { background: var(--ink); color: var(--paper-high); }
+  .pads { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-width: 260px; }
+  .pad { aspect-ratio: 1.3; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-high);
+    display: grid; place-items: center; font-size: 16px; position: relative; overflow: hidden; transition: transform .04s; }
+  .pad .glow { position: absolute; inset: 0; background: var(--orange); opacity: 0; }
+  .pad span { position: relative; }
+  .pad.down { transform: translateY(2px); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--ink-soft); } dd { margin: 0; overflow-wrap: anywhere; }
+  .meter { height: 10px; background: var(--paper-high); border: 1px solid var(--line); border-radius: 2px; margin: 4px 0 8px; overflow: hidden; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--green); }
+  #log { height: 260px; overflow: auto; background: var(--paper-high); border: 1px solid var(--line);
+    border-radius: 4px; padding: 8px; white-space: pre; font-size: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .wide { grid-column: 1 / -1; }
+  .lcd { background: var(--green); color: var(--lcd); padding: 10px 12px; border-radius: 4px; font-size: 22px; letter-spacing: .1em; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>HALO · EP-40 PROBE</h1>
+  <span id="midiChip" class="chip">MIDI —</span>
+  <span id="sysexChip" class="chip">SYSEX —</span>
+  <span id="audioChip" class="chip">AUDIO —</span>
+  <span style="flex:1"></span>
+  <button id="connect" class="primary">CONNECT MIDI</button>
+</header>
+<main>
+  <section>
+    <h2>PADS (LAST NOTE)</h2>
+    <div class="groups" id="groups"></div>
+    <div class="pads" id="pads"></div>
+    <dl style="margin-top:12px">
+      <dt>last note</dt><dd id="lastNote">—</dd>
+      <dt>velocities seen</dt><dd id="vels">—</dd>
+    </dl>
+  </section>
+  <section>
+    <h2>CLOCK + TRANSPORT</h2>
+    <div class="lcd" id="bpm">--- BPM</div>
+    <dl>
+      <dt>transport</dt><dd id="transport">—</dd>
+      <dt>clock ticks</dt><dd id="ticks">0</dd>
+      <dt>song position</dt><dd id="spp">—</dd>
+      <dt>CCs seen</dt><dd id="ccs">—</dd>
+      <dt>program/bank</dt><dd id="pcs">—</dd>
+    </dl>
+  </section>
+  <section>
+    <h2>PORTS + IDENTITY</h2>
+    <dl>
+      <dt>inputs</dt><dd id="ins">—</dd>
+      <dt>outputs</dt><dd id="outs">—</dd>
+      <dt>identity reply</dt><dd id="ident">not asked</dd>
+    </dl>
+    <div class="row">
+      <button id="identBtn" disabled>SEND IDENTITY REQUEST</button>
+    </div>
+    <p style="color:var(--ink-soft);margin:10px 0 0">Sends only the standard MIDI "who are you?" message (F0 7E 7F 06 01 F7). Nothing on the device changes.</p>
+  </section>
+  <section>
+    <h2>USB AUDIO INPUT</h2>
+    <dl>
+      <dt>device</dt><dd id="aDev">—</dd>
+      <dt>sample rate</dt><dd id="aRate">—</dd>
+      <dt>channels</dt><dd id="aCh">—</dd>
+    </dl>
+    <div style="margin-top:10px">L <div class="meter"><i id="mL"></i></div>R <div class="meter"><i id="mR"></i></div></div>
+    <div class="row"><button id="audioBtn">LISTEN TO EP-40 INPUT</button></div>
+    <p style="color:var(--ink-soft);margin:10px 0 0">Meters only. Nothing is played back, so there's no feedback risk.</p>
+  </section>
+  <section class="wide">
+    <h2>EVENT LOG</h2>
+    <div id="log"></div>
+    <div class="row">
+      <button id="copyBtn">COPY FINDINGS (JSON)</button>
+      <button id="clearBtn">CLEAR LOG</button>
+    </div>
+  </section>
+</main>
+<script>
+// Pad layout and note order are taken from halo's EP40EntityNames / EP40MIDIMapping:
+// within a group the notes run ". 0 ENTER 1 2 … 9"; groups A–D start at 36, 48, 60, 72.
+const NOTE_ORDER = [".", "0", "ENT", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+const GRID = ["7", "8", "9", "4", "5", "6", "1", "2", "3", ".", "0", "ENT"];
+const GROUPS = ["A", "B", "C", "D"];
+const IDENTITY_REQUEST = [0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7];
+
+const $ = (id) => document.getElementById(id);
+const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0").toUpperCase()).join(" ");
+
+const findings = {
+  userAgent: navigator.userAgent,
+  midi: { inputs: [], outputs: [], sysexGranted: null },
+  notes: {}, velocities: [], channels: [],
+  clock: { ticks: 0, bpm: null }, transport: [], songPosition: null,
+  cc: {}, programChange: [], sysex: [], identityReply: null,
+  audio: null, unknown: [],
+};
+window.probe = findings;
+
+let access = null, ep40Out = null;
+const held = new Map();
+const tickTimes = [];
+
+// ---------- UI scaffolding ----------
+GROUPS.forEach((g) => { const el = document.createElement("div"); el.className = "group"; el.id = "g" + g; el.textContent = g; $("groups").append(el); });
+GRID.forEach((label) => {
+  const el = document.createElement("div"); el.className = "pad"; el.id = "p" + label;
+  el.innerHTML = `<div class="glow"></div><span>${label === "ENT" ? "ENTER" : label}</span>`;
+  $("pads").append(el);
+});
+
+const logLines = [];
+function log(text) {
+  const t = (performance.now() / 1000).toFixed(3).padStart(9);
+  logLines.push(`${t}  ${text}`);
+  if (logLines.length > 400) logLines.shift();
+  const el = $("log"); el.textContent = logLines.join("\n"); el.scrollTop = el.scrollHeight;
+}
+function chip(id, text, state) { const el = $(id); el.textContent = text; el.className = "chip" + (state ? " " + state : ""); }
+
+// ---------- MIDI ----------
+$("connect").onclick = async () => {
+  if (!navigator.requestMIDIAccess) { chip("midiChip", "MIDI UNSUPPORTED IN THIS BROWSER", "bad"); log("navigator.requestMIDIAccess is missing. Use Chrome or Edge."); return; }
+  try {
+    access = await navigator.requestMIDIAccess({ sysex: true });
+    findings.midi.sysexGranted = true; chip("sysexChip", "SYSEX OK", "ok");
+  } catch (e) {
+    log(`SysEx access refused (${e.name}); retrying without SysEx.`);
+    findings.midi.sysexGranted = false; chip("sysexChip", "SYSEX DENIED", "bad");
+    try { access = await navigator.requestMIDIAccess(); } catch (e2) { chip("midiChip", "MIDI DENIED", "bad"); log(`MIDI access refused: ${e2.name} ${e2.message}`); return; }
+  }
+  access.onstatechange = (e) => { log(`port ${e.port.type} "${e.port.name}" → ${e.port.state}/${e.port.connection}`); bindPorts(); };
+  bindPorts();
+  $("connect").disabled = true;
+};
+
+function bindPorts() {
+  const ins = [...access.inputs.values()], outs = [...access.outputs.values()];
+  findings.midi.inputs = ins.map((p) => ({ name: p.name, manufacturer: p.manufacturer, state: p.state }));
+  findings.midi.outputs = outs.map((p) => ({ name: p.name, manufacturer: p.manufacturer, state: p.state }));
+  $("ins").textContent = ins.map((p) => p.name).join(", ") || "none";
+  $("outs").textContent = outs.map((p) => p.name).join(", ") || "none";
+  const epIn = ins.find((p) => /EP-?40/i.test(p.name));
+  ep40Out = outs.find((p) => /EP-?40/i.test(p.name)) ?? null;
+  ins.forEach((p) => { p.onmidimessage = p === epIn ? onMessage : null; });
+  if (epIn) chip("midiChip", "EP-40 MIDI CONNECTED", "ok"); else chip("midiChip", "NO EP-40 MIDI INPUT", "bad");
+  if (epIn) epIn.open().catch((e) => { chip("midiChip", "EP-40 PORT BUSY", "bad"); log(`Could not open EP-40 input (${e.name}). Another app (DAW / TE tool) may be holding it.`); });
+  $("identBtn").disabled = !(ep40Out && findings.midi.sysexGranted);
+}
+
+function onMessage({ data, timeStamp }) {
+  const [status, d1, d2] = data;
+  if (status === 0xF8) return onClock(timeStamp);
+  if (status === 0xF0) return onSysex(data);
+  if (status === 0xFA || status === 0xFB || status === 0xFC) {
+    const name = { 0xFA: "START", 0xFB: "CONTINUE", 0xFC: "STOP" }[status];
+    findings.transport.push(name); $("transport").textContent = name; log(name);
+    if (status === 0xFA) findings.clock.ticks = 0;
+    return;
+  }
+  if (status === 0xF2) { const pos = d1 | (d2 << 7); findings.songPosition = pos; $("spp").textContent = pos; log(`SONG POSITION ${pos}`); return; }
+  if (status >= 0xF0) { log(`system ${hex(data)}`); return; }
+
+  const kind = status & 0xF0, ch = (status & 0x0F) + 1;
+  if (!findings.channels.includes(ch)) findings.channels.push(ch);
+  if (kind === 0x90 && d2 > 0) return onNote(ch, d1, d2, true);
+  if (kind === 0x80 || (kind === 0x90 && d2 === 0)) return onNote(ch, d1, d2, false);
+  if (kind === 0xB0) {
+    findings.cc[d1] = d2; $("ccs").textContent = Object.entries(findings.cc).map(([k, v]) => `CC${k}=${v}`).join("  ");
+    log(`ch${ch} CC ${d1} = ${d2}`); return;
+  }
+  if (kind === 0xC0) { findings.programChange.push({ ch, program: d1 }); $("pcs").textContent = `PC ${d1} (ch${ch})`; log(`ch${ch} PROGRAM ${d1}`); return; }
+  findings.unknown.push(hex(data)); log(`ch${ch} other ${hex(data)}`);
+}
+
+function onNote(ch, note, vel, on) {
+  const inRange = note >= 36 && note <= 83;
+  const group = inRange ? GROUPS[Math.floor((note - 36) / 12)] : "?";
+  const label = inRange ? NOTE_ORDER[(note - 36) % 12] : "?";
+  const key = `${note}`;
+  findings.notes[key] ??= { note, group, pad: label, ons: 0, offs: 0, channel: ch };
+  findings.notes[key][on ? "ons" : "offs"]++;
+  log(`ch${ch} NOTE ${on ? "ON " : "OFF"} ${note}  → group ${group} pad ${label}${on ? `  vel ${vel}` : ""}`);
+  if (!inRange) return;
+  GROUPS.forEach((g) => $("g" + g).classList.toggle("on", g === group));
+  const pad = $("p" + label);
+  if (on) {
+    if (!findings.velocities.includes(vel)) findings.velocities.push(vel);
+    $("vels").textContent = [...findings.velocities].sort((a, b) => a - b).join(", ");
+    $("lastNote").textContent = `${note} (group ${group}, pad ${label}, vel ${vel})`;
+    held.set(note, true); pad.classList.add("down");
+    pad.querySelector(".glow").style.opacity = (0.25 + 0.75 * (vel / 127) ** 2).toFixed(2);
+  } else {
+    held.delete(note);
+    if (![...held.keys()].some((n) => (n - 36) % 12 === (note - 36) % 12)) { pad.classList.remove("down"); pad.querySelector(".glow").style.opacity = 0; }
+  }
+}
+
+function onClock(t) {
+  findings.clock.ticks++;
+  tickTimes.push(t); if (tickTimes.length > 97) tickTimes.shift();
+  if (tickTimes.length >= 25) {
+    const span = tickTimes.at(-1) - tickTimes[0];
+    const bpm = 60000 / ((span / (tickTimes.length - 1)) * 24);
+    findings.clock.bpm = Math.round(bpm * 10) / 10;
+    $("bpm").textContent = `${bpm.toFixed(1)} BPM`;
+  }
+  if (findings.clock.ticks % 24 === 0) $("ticks").textContent = findings.clock.ticks;
+}
+
+function onSysex(data) {
+  const h = hex(data);
+  findings.sysex.push(h); log(`SYSEX ${h}`);
+  if (data[1] === 0x7E && data[3] === 0x06 && data[4] === 0x02) {
+    const mfr = data[5] === 0x00 ? hex(data.slice(5, 8)) : hex(data.slice(5, 6));
+    const rest = data[5] === 0x00 ? data.slice(8, -1) : data.slice(6, -1);
+    findings.identityReply = { raw: h, manufacturer: mfr, familyModelVersion: hex(rest) };
+    $("ident").textContent = `mfr ${mfr}${mfr === "00 20 76" ? " (Teenage Engineering)" : ""} · ${hex(rest)}`;
+  }
+}
+
+$("identBtn").onclick = () => {
+  if (!ep40Out) return;
+  ep40Out.send(IDENTITY_REQUEST); log(`→ IDENTITY REQUEST ${hex(IDENTITY_REQUEST)}`);
+  $("ident").textContent = "waiting…";
+  setTimeout(() => { if (!findings.identityReply) { $("ident").textContent = "no reply after 2 s"; findings.identityReply = "none"; } }, 2000);
+};
+
+// ---------- Audio ----------
+$("audioBtn").onclick = async () => {
+  try {
+    // Ask once so device labels become visible, then reopen on the EP-40 input.
+    const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+    tmp.getTracks().forEach((t) => t.stop());
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const ep = devices.find((d) => d.kind === "audioinput" && /EP-?40/i.test(d.label));
+    if (!ep) { chip("audioChip", "NO EP-40 AUDIO INPUT", "bad"); log("Audio inputs: " + devices.filter((d) => d.kind === "audioinput").map((d) => d.label).join(" | ")); return; }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      deviceId: { exact: ep.deviceId }, channelCount: 2,
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const track = stream.getAudioTracks()[0], s = track.getSettings();
+    const ctx = new AudioContext({ sampleRate: s.sampleRate || undefined });
+    const src = ctx.createMediaStreamSource(stream);
+    const split = ctx.createChannelSplitter(2);
+    src.connect(split);
+    const analysers = [0, 1].map((i) => { const a = ctx.createAnalyser(); a.fftSize = 1024; split.connect(a, i); return a; });
+    findings.audio = { label: ep.label, trackSampleRate: s.sampleRate, contextSampleRate: ctx.sampleRate, channelCount: s.channelCount, peakDb: [-Infinity, -Infinity] };
+    $("aDev").textContent = ep.label;
+    $("aRate").textContent = `${s.sampleRate ?? "?"} Hz (track) · ${ctx.sampleRate} Hz (context)`;
+    $("aCh").textContent = s.channelCount ?? "?";
+    chip("audioChip", "EP-40 AUDIO IN", "ok");
+    log(`audio input "${ep.label}" ${s.sampleRate} Hz, ${s.channelCount} ch`);
+    const buf = new Float32Array(1024);
+    const meters = [$("mL"), $("mR")];
+    (function tick() {
+      analysers.forEach((a, i) => {
+        a.getFloatTimeDomainData(buf);
+        let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v));
+        const db = 20 * Math.log10(peak || 1e-9);
+        findings.audio.peakDb[i] = Math.max(findings.audio.peakDb[i], Math.round(db * 10) / 10);
+        meters[i].style.width = `${Math.max(0, Math.min(100, (db + 60) / 60 * 100))}%`;
+      });
+      requestAnimationFrame(tick);
+    })();
+    $("audioBtn").disabled = true;
+  } catch (e) {
+    chip("audioChip", "AUDIO DENIED", "bad"); log(`audio error: ${e.name} ${e.message}`);
+  }
+};
+
+$("copyBtn").onclick = async () => {
+  const text = JSON.stringify(findings, null, 2);
+  try { await navigator.clipboard.writeText(text); log("findings copied to clipboard"); }
+  catch { log(text); }
+};
+$("clearBtn").onclick = () => { logLines.length = 0; $("log").textContent = ""; };
+</script>
+</body>
+</html>

@@ -1,0 +1,184 @@
+#include "UI/PlayRail.h"
+#include "Core/Ep40MidiMapping.h"
+#include "UI/HaloColours.h"
+#include "UI/HaloLookAndFeel.h"
+#include "UI/ModeBar.h"
+
+namespace halo
+{
+    namespace
+    {
+        const auto& c = HaloColours::graphPaper;
+
+        void sectionTitle (juce::Graphics& g, juce::Rectangle<int>& area, const juce::String& text)
+        {
+            area.removeFromTop (14);
+            g.setFont (HaloType::label (11.0f));
+            g.setColour (c.inkSoft);
+            g.drawText (text, area.removeFromTop (18), juce::Justification::centredLeft);
+            g.setColour (c.ink.withAlpha (0.14f));
+            g.fillRect (area.removeFromTop (1));
+            area.removeFromTop (6);
+        }
+
+        void row (juce::Graphics& g, juce::Rectangle<int>& area, const juce::String& label,
+                  const juce::String& value, juce::Colour valueColour = c.ink)
+        {
+            auto line = area.removeFromTop (22);
+            g.setFont (HaloType::label (11.0f, false));
+            g.setColour (c.inkSoft.withAlpha (0.85f));
+            g.drawText (label, line.removeFromLeft (96), juce::Justification::centredLeft);
+            g.setFont (HaloType::mono (13.0f));
+            g.setColour (valueColour);
+            g.drawText (value, line, juce::Justification::centredLeft, true);
+        }
+    }
+
+    PlayRail::PlayRail (AppModel& m) : model (m)
+    {
+        model.addListener (this);
+        startTimerHz (20); // coalesce bursty MIDI into at most 20 repaints a second
+    }
+
+    PlayRail::~PlayRail()
+    {
+        model.removeListener (this);
+    }
+
+    int PlayRail::preferredWidth() const
+    {
+        if (model.mode() != AppMode::play)
+            return 360;
+        return expanded ? HaloMetrics::railPlayWidth : HaloMetrics::railSpineWidth;
+    }
+
+    void PlayRail::statusChanged()
+    {
+        dirty = true;
+        if (onPreferredWidthChanged)
+            onPreferredWidthChanged();
+    }
+
+    void PlayRail::timerCallback()
+    {
+        if (dirty)
+        {
+            dirty = false;
+            repaint();
+        }
+    }
+
+    juce::Rectangle<int> PlayRail::spineArea() const
+    {
+        return getLocalBounds().removeFromLeft (HaloMetrics::railSpineWidth);
+    }
+
+    void PlayRail::setExpanded (bool shouldExpand)
+    {
+        if (expanded == shouldExpand)
+            return;
+        expanded = shouldExpand;
+        if (onPreferredWidthChanged)
+            onPreferredWidthChanged();
+        repaint();
+    }
+
+    void PlayRail::mouseUp (const juce::MouseEvent& e)
+    {
+        if (model.mode() == AppMode::play && spineArea().contains (e.getPosition()))
+            setExpanded (! expanded);
+    }
+
+    void PlayRail::paint (juce::Graphics& g)
+    {
+        g.fillAll (c.paperHigh.withAlpha (0.92f));
+        g.setColour (c.ink.withAlpha (0.16f));
+        g.fillRect (getLocalBounds().removeFromLeft (1));
+
+        if (model.mode() != AppMode::play)
+        {
+            paintPlate (g, getLocalBounds());
+            return;
+        }
+
+        // The spine: always present in PLAY, click to expand or collapse.
+        const auto spine = spineArea();
+        g.setFont (HaloType::label (11.0f));
+        g.setColour (c.inkSoft);
+        {
+            juce::Graphics::ScopedSaveState save (g);
+            g.addTransform (juce::AffineTransform::rotation (juce::MathConstants<float>::halfPi,
+                                                             (float) spine.getCentreX(), (float) spine.getCentreY()));
+            g.drawText (expanded ? "HIDE" : "RAIL", spine.withSizeKeepingCentre (80, 20), juce::Justification::centred);
+        }
+        g.fillRect (spine.getCentreX() - 2, spine.getCentreY() + 48, 4, 4);
+
+        if (expanded)
+            paintPlay (g, getLocalBounds().withTrimmedLeft (spine.getWidth()).reduced (16, 8));
+    }
+
+    void PlayRail::paintPlay (juce::Graphics& g, juce::Rectangle<int> area)
+    {
+        const auto& d = model.display();
+        const bool live = d.feedMode == FeedMode::live;
+
+        sectionTitle (g, area, model.isMock() ? "MIDI  (MOCK SOURCE)" : "MIDI");
+        row (g, area, "PORT", model.deviceName().isEmpty() ? noValue : model.deviceName());
+        row (g, area, "EP-40", model.deviceStatus());
+        row (g, area, "FEED", model.displayStatus(), live ? c.riddimGreen : c.ink);
+
+        sectionTitle (g, area, "LAST PAD");
+        if (live && d.activePadIndex && d.activeGroup)
+        {
+            row (g, area, "GROUP", juce::String (ep40::groupLabels[(size_t) *d.activeGroup].data()));
+            row (g, area, "PAD", juce::String (ep40::gridLabels[(size_t) *d.activePadIndex].data()));
+            row (g, area, "NOTE", juce::String (d.value));
+            row (g, area, "VELOCITY", juce::String (juce::roundToInt (d.velocity * 127.0f)));
+        }
+        else
+        {
+            row (g, area, "PAD", live ? "none held" : "no live feed", c.inkSoft);
+        }
+
+        sectionTitle (g, area, "CLOCK");
+        const auto bpm = model.clockBpm();
+        row (g, area, "TEMPO", bpm ? juce::String (*bpm, 1) + " BPM" : juce::String ("no clock"), bpm ? c.ink : c.inkSoft);
+        row (g, area, "TRANSPORT", live ? (d.isPlaying ? "PLAYING" : "STOPPED") : noValue);
+
+        sectionTitle (g, area, "EVENTS");
+        g.setFont (HaloType::mono (11.5f));
+        const auto& log = model.eventLog();
+        const int lineHeight = 17;
+        const int visible = juce::jmax (0, area.getHeight() / lineHeight);
+        const int first = juce::jmax (0, (int) log.size() - visible);
+        for (int i = first; i < (int) log.size(); ++i)
+        {
+            g.setColour (i == (int) log.size() - 1 ? c.ink : c.inkSoft);
+            g.drawText (log[(size_t) i], area.removeFromTop (lineHeight), juce::Justification::centredLeft, true);
+        }
+    }
+
+    void PlayRail::paintPlate (juce::Graphics& g, juce::Rectangle<int> area)
+    {
+        // Unified "not here yet" plate (HaloStatePlate.swift vocabulary).
+        auto plate = area.reduced (24).withHeight (220).toFloat();
+        HaloLookAndFeel::drawPanel (g, plate, c.paper);
+
+        auto inner = plate.reduced (20.0f).toNearestInt();
+        g.setFont (HaloType::label (11.0f));
+        g.setColour (c.orange);
+        g.drawText ("NOT PORTED YET", inner.removeFromTop (18), juce::Justification::centredLeft);
+        inner.removeFromTop (8);
+
+        g.setFont (HaloType::label (22.0f));
+        g.setColour (c.ink);
+        g.drawText (ModeBar::title (model.mode()), inner.removeFromTop (30), juce::Justification::centredLeft);
+        inner.removeFromTop (10);
+
+        g.setFont (HaloType::body (14.0f));
+        g.setColour (c.inkSoft);
+        g.drawFittedText ("This mode works in the Mac app and is next in the Windows porting plan "
+                          "(docs/plan.md). PLAY is live now.",
+                          inner, juce::Justification::topLeft, 5);
+    }
+}

@@ -1,0 +1,252 @@
+#include "App/AppModel.h"
+#include "Core/Ep40MidiMapping.h"
+
+namespace halo
+{
+    namespace
+    {
+        constexpr double mockBpm = 120.0;
+        constexpr double mockSecondsPerClock = 60.0 / (mockBpm * 24.0);
+        constexpr std::size_t maxLogLines = 60;
+
+        juce::String noteName (std::uint8_t note)
+        {
+            const auto group = ep40::groupForNote (note);
+            const auto grid = ep40::gridIndexForNote (note);
+            if (! group || ! grid)
+                return juce::String (note);
+            return juce::String (note) + " (" + juce::String (ep40::groupLabels[(std::size_t) *group].data())
+                   + " " + juce::String (ep40::gridLabels[(std::size_t) *grid].data()) + ")";
+        }
+    }
+
+    AppModel::AppModel (bool mockMidi) : mock (mockMidi)
+    {
+        connection.onStatusChanged = [this] (auto status, const auto& name) { connectionChanged (status, name); };
+        connection.onEvent = [this] (const MidiEvent& e) { receive (e); };
+        connection.onOverflow = [this]
+        {
+            appendLog ("MIDI backlog overflowed: released all pads");
+            releaseAllPads();
+        };
+    }
+
+    AppModel::~AppModel()
+    {
+        stopTimer();
+    }
+
+    void AppModel::start()
+    {
+        observerRunning = true;
+        if (mock)
+        {
+            mockNextTime = now() + 0.6;
+            appendLog ("MOCK MIDI: synthetic EP-40, not real hardware");
+        }
+        else
+        {
+            connection.start();
+        }
+        refreshStatus();
+        startTimerHz (60);
+    }
+
+    void AppModel::setMode (AppMode newMode)
+    {
+        if (newMode == currentMode)
+            return;
+        currentMode = newMode;
+        listeners.call ([] (Listener& l) { l.statusChanged(); });
+    }
+
+    std::optional<double> AppModel::clockBpm() const
+    {
+        return reducer.clock().bpm (now());
+    }
+
+    juce::String AppModel::deviceStatus() const
+    {
+        if (portBusy) return "IN USE";
+        return endpointConnected ? "CONNECTED" : "NO DEVICE";
+    }
+
+    juce::String AppModel::usbStatus() const
+    {
+        if (! endpointConnected) return portBusy ? "BUSY" : "IDLE";
+        return reducer.state().feedMode == FeedMode::live ? "MIDI RX" : "MIDI";
+    }
+
+    juce::String AppModel::displayStatus() const
+    {
+        switch (reducer.state().feedMode)
+        {
+            case FeedMode::preview: return "PREVIEW";
+            case FeedMode::waiting: return "WAIT";
+            case FeedMode::live:    return "LIVE";
+        }
+        return {};
+    }
+
+    juce::String AppModel::deviceName() const
+    {
+        return endpointName;
+    }
+
+    void AppModel::connectionChanged (Ep40MidiConnection::Status status, const juce::String& name)
+    {
+        const bool connected = status == Ep40MidiConnection::Status::connected;
+        portBusy = status == Ep40MidiConnection::Status::busy;
+        endpointName = name;
+
+        if (portBusy)
+            appendLog ("\"" + name + "\" is in use by another app. Close it, then replug the EP-40.");
+        else
+            appendLog (connected ? "connected: " + name : "EP-40 disconnected");
+
+        if (connected != endpointConnected)
+        {
+            endpointConnected = connected;
+            // No pad hold, LED or live display may survive a connection change.
+            releaseAllPads();
+            reducer.connectionChanged (connected);
+            listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
+        }
+        refreshStatus();
+    }
+
+    void AppModel::receive (const MidiEvent& event)
+    {
+        const bool wasLive = reducer.state().feedMode == FeedMode::live;
+
+        if (event.kind == MidiKind::noteOn)
+        {
+            if (const auto t = pads.noteOn (event.channel, event.data1, (float) event.data2 / 127.0f))
+                listeners.call ([&] (Listener& l) { l.padTransition (*t); });
+            appendLog ("note on  " + noteName (event.data1) + "  vel " + juce::String (event.data2));
+        }
+        else if (event.kind == MidiKind::noteOff)
+        {
+            if (const auto t = pads.noteOff (event.channel, event.data1))
+                listeners.call ([&] (Listener& l) { l.padTransition (*t); });
+        }
+        else if (event.kind == MidiKind::start)        appendLog ("START");
+        else if (event.kind == MidiKind::stop)         appendLog ("STOP");
+        else if (event.kind == MidiKind::continuePlaying) appendLog ("CONTINUE");
+        else if (event.kind == MidiKind::controlChange)
+            appendLog ("CC " + juce::String (event.data1) + " = " + juce::String (event.data2));
+
+        if (reducer.apply (event, now()))
+            listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
+
+        // The lifecycle flips to LIVE only on the first live event, so the
+        // status bar isn't refreshed for every note.
+        if (! wasLive)
+            refreshStatus();
+    }
+
+    void AppModel::releaseAllPads()
+    {
+        pads.releaseAll();
+        reducer.releaseAllHeldKeys();
+        listeners.call ([] (Listener& l) { l.allPadsReleased(); });
+    }
+
+    void AppModel::refreshStatus()
+    {
+        ringState = RingState::derive ({ .observerRunning = observerRunning,
+                                         .endpointConnected = endpointConnected,
+                                         .errorLabel = portBusy ? std::optional<std::string> ("BUSY") : std::nullopt });
+        lifecyclePhase = LifecyclePhase::derive ({ .observerRunning = observerRunning,
+                                                   .endpointConnected = endpointConnected,
+                                                   .displayLive = reducer.state().feedMode == FeedMode::live,
+                                                   .errorLabel = portBusy ? std::optional<std::string> ("BUSY") : std::nullopt });
+        listeners.call ([] (Listener& l) { l.statusChanged(); });
+    }
+
+    void AppModel::appendLog (const juce::String& line)
+    {
+        log.push_back (juce::Time::getCurrentTime().formatted ("%H:%M:%S  ") + line);
+        while (log.size() > maxLogLines)
+            log.pop_front();
+        listeners.call ([] (Listener& l) { l.eventLogged(); });
+    }
+
+    void AppModel::timerCallback()
+    {
+        const double t = now();
+
+        if (mock)
+            runMockStep();
+
+        // Six-frames-per-second PREVIEW demo while nothing is connected.
+        if (reducer.state().feedMode == FeedMode::preview && t - lastPreviewTime >= 1.0 / 6.0)
+        {
+            lastPreviewTime = t;
+            if (reducer.showPreview (DisplayState::previewFrame (previewTick++)))
+                listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
+        }
+
+        if (reducer.expire (t))
+        {
+            listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
+            listeners.call ([] (Listener& l) { l.statusChanged(); });
+        }
+    }
+
+    // A deterministic synthetic EP-40: clock at 120 BPM, and a pad pattern that
+    // walks through all four groups. Only used with HALO_MOCK_MIDI=1.
+    void AppModel::runMockStep()
+    {
+        const double t = now();
+        if (t < mockNextTime)
+            return;
+
+        if (! endpointConnected)
+        {
+            connectionChanged (Ep40MidiConnection::Status::connected, "MOCK EP-40");
+            MidiEvent startEvent;
+            startEvent.kind = MidiKind::start;
+            startEvent.timeSeconds = t;
+            receive (startEvent);
+            mockNextTime = t;
+            return;
+        }
+
+        // Catch up on every clock tick that's due, with exact timestamps.
+        while (mockNextTime <= t)
+        {
+            MidiEvent clock;
+            clock.kind = MidiKind::timingClock;
+            clock.timeSeconds = mockNextTime;
+            receive (clock);
+
+            // Every 8th note (12 clocks): release the last pad, strike the next.
+            if (mockStep % 12 == 0)
+            {
+                static constexpr std::uint8_t offsets[] { 7, 4, 1, 9, 10, 3, 5, 11 };
+                const int beat = mockStep / 12;
+                const int group = (beat / 8) % 4;
+                const auto note = (std::uint8_t) (36 + group * 12 + offsets[beat % 8]);
+                const auto previous = (std::uint8_t) (36 + ((beat - 1 + 32) / 8 % 4) * 12 + offsets[(beat + 7) % 8]);
+
+                MidiEvent off;
+                off.kind = MidiKind::noteOff;
+                off.data1 = previous;
+                off.timeSeconds = mockNextTime;
+                if (beat > 0)
+                    receive (off);
+
+                MidiEvent on;
+                on.kind = MidiKind::noteOn;
+                on.data1 = note;
+                on.data2 = (std::uint8_t) (60 + (beat * 37) % 67);
+                on.timeSeconds = mockNextTime;
+                receive (on);
+            }
+
+            ++mockStep;
+            mockNextTime += mockSecondsPerClock;
+        }
+    }
+}

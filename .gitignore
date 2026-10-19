@@ -1,0 +1,14 @@
+# Build output
+build/
+out/
+.vs/
+*.user
+
+# Python tooling venv (recreate with: python -m venv tools/.venv && tools/.venv/Scripts/pip install usd-core)
+tools/.venv/
+__pycache__/
+
+# The Mac app is kept beside this repo as the reference spec; it has its own repo.
+reference/
+
+# Halo runtime data lives in %APPDATA%\Halo, never in the repo.
