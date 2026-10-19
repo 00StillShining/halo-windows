@@ -234,8 +234,29 @@ namespace halo::chop
     }
 
     //==============================================================================
+    double capToFit (const std::vector<double>& lengths, double maxSeconds, double budgetSeconds)
+    {
+        auto total = [&lengths] (double cap)
+        {
+            double sum = 0.0;
+            for (double l : lengths)
+                sum += std::min (l, cap);
+            return sum;
+        };
+        if (total (maxSeconds) <= budgetSeconds)
+            return maxSeconds;
+        // The total grows with the cap: binary-search the largest cap that fits.
+        double lo = 0.0, hi = maxSeconds;
+        for (int i = 0; i < 60; ++i)
+        {
+            const double mid = 0.5 * (lo + hi);
+            (total (mid) <= budgetSeconds ? lo : hi) = mid;
+        }
+        return lo;
+    }
+
     PadPlan planPads (const std::vector<Slice>& slices, int channelCount, Treatment treatment, double sourceRate,
-                      int group, int startGridIndex, const std::string& baseName)
+                      int group, int startGridIndex, const std::string& baseName, int maxSliceFrames)
     {
         PadPlan plan;
         plan.group = std::clamp (group, 0, ep40::groupCount - 1);
@@ -254,13 +275,19 @@ namespace halo::chop
         for (int i = 0; i < placed; ++i)
         {
             const auto& s = slices[(size_t) i];
-            const int frames = outputFrameCount (treatment, s.frameCount(), sourceRate);
+            int sliceFrames = s.frameCount();
+            if (maxSliceFrames > 0 && sliceFrames > maxSliceFrames)
+            {
+                sliceFrames = maxSliceFrames;
+                ++plan.trimmedCount;
+            }
+            const int frames = outputFrameCount (treatment, sliceFrames, sourceRate);
             char name[64];
             std::snprintf (name, sizeof (name), "%s.%02d", base.c_str(), i + 1);
             PadWrite w { s.index, plan.group, plan.startGridIndex + i, name,
                          (long long) frames * std::max (0, channelCount) * (deviceBitDepth / 8) };
             plan.totalBytes += w.payloadBytes;
-            const double seconds = sourceRate > 0.0 ? s.frameCount() / sourceRate : 0.0;
+            const double seconds = sourceRate > 0.0 ? sliceFrames / sourceRate : 0.0;
             plan.longestSeconds = std::max (plan.longestSeconds, seconds);
             if (seconds > maxSoundSeconds)
                 ++plan.tooLongCount;

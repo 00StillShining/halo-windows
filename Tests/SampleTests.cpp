@@ -365,4 +365,23 @@ TEST_CASE ("pad plan: names, pads, exact bytes, overflow reported not wrapped")
     plan = chop::planPads (songSlices, 2, Treatment::original, 44100.0, 0, 0, "y2m");
     CHECK (plan.tooLongCount == 1);
     CHECK (plan.longestSeconds == doctest::Approx (69.0));
+
+    // AUTO-TRIM: capped at 20 s, the same slices fit and nothing is too long.
+    plan = chop::planPads (songSlices, 2, Treatment::original, 44100.0, 0, 0, "y2m", 20 * 44100);
+    CHECK (plan.tooLongCount == 0);
+    CHECK (plan.trimmedCount == 1);
+    CHECK (plan.longestSeconds == doctest::Approx (20.0));
+    CHECK (plan.writes[0].payloadBytes == 20LL * 44100 * 2 * 2);
+    CHECK (plan.writes[1].payloadBytes == 1LL * 44100 * 2 * 2); // short slices untouched
+}
+
+TEST_CASE ("cap to fit: 20 s max, then shrink until the total fits the free space")
+{
+    // Plenty of room: the 20 s limit is the cap.
+    CHECK (chop::capToFit ({ 69.0, 1.0, 30.0 }, 20.0, 1000.0) == doctest::Approx (20.0));
+    // 12 slices of 30 s but only 120 s of space: 10 s each.
+    CHECK (chop::capToFit (std::vector<double> (12, 30.0), 20.0, 120.0) == doctest::Approx (10.0).epsilon (1e-6));
+    // Short slices keep their length; the long ones share what's left.
+    // 2 x 1 s + 2 x 60 s into 22 s: the long ones get 10 s each.
+    CHECK (chop::capToFit ({ 1.0, 1.0, 60.0, 60.0 }, 20.0, 22.0) == doctest::Approx (10.0).epsilon (1e-6));
 }

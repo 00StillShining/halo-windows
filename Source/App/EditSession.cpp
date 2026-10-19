@@ -149,19 +149,15 @@ namespace halo
     {
         if (source == nullptr)
             return;
-        const auto padPlan = plan();
         const auto all = slices.slices();
-        runInBackground ([src = source, padPlan, all, mode = prep.channelMode, t = treatment]
+        std::vector<SamplePrep> preps;
+        for (const auto& w : plan().writes)
+            preps.push_back (slicePrep (all[(size_t) w.sliceIndex]));
+        runInBackground ([src = source, preps, t = treatment]
         {
             auto out = std::make_shared<std::vector<AudioData>>();
-            for (const auto& w : padPlan.writes)
-            {
-                auto p = chop::microFadePrep (src->sampleRate);
-                p.trimStartFrame = all[(size_t) w.sliceIndex].startFrame;
-                p.trimEndFrame = all[(size_t) w.sliceIndex].endFrame;
-                p.channelMode = mode;
+            for (const auto& p : preps)
                 out->push_back (render (*src, p, t));
-            }
             return out;
         }, std::move (done));
     }
@@ -286,12 +282,80 @@ namespace halo
         setStatus (line);
     }
 
+    double EditSession::capSeconds (bool& bySpace) const
+    {
+        bySpace = false;
+        if (! autoTrim || source == nullptr || source->sampleRate <= 0.0)
+            return 0.0;
+        // A hair under 20 s, so resampling rounding can't tip a slice over.
+        const double maxSeconds = maxSoundSeconds - 0.01;
+        if (spaceBudgetBytes < 0)
+            return maxSeconds;
+
+        // Only the slices that land on pads are uploaded.
+        std::vector<double> lengths;
+        const auto all = slices.slices();
+        const int placed = juce::jmin ((int) all.size(), ep40::padsPerGroup - juce::jlimit (0, ep40::padsPerGroup - 1, startPad));
+        for (int i = 0; i < placed; ++i)
+            lengths.push_back (all[(size_t) i].frameCount() / source->sampleRate);
+
+        const double bytesPerSecond = resolvedSampleRate (treatment, source->sampleRate)
+                                    * prep.outputChannelCount (source->channelCount()) * (deviceBitDepth / 8);
+        // 2% headroom for rounding and the device's own bookkeeping.
+        const double budgetSeconds = (double) spaceBudgetBytes * 0.98 / juce::jmax (1.0, bytesPerSecond);
+        const double cap = chop::capToFit (lengths, maxSeconds, budgetSeconds);
+        bySpace = cap < maxSeconds;
+        return cap;
+    }
+
+    int EditSession::sliceCapFrames() const
+    {
+        bool bySpace = false;
+        const double seconds = capSeconds (bySpace);
+        return seconds > 0.0 ? juce::jmax (1, (int) (seconds * source->sampleRate)) : 0;
+    }
+
+    double EditSession::sliceCapSeconds() const
+    {
+        bool bySpace = false;
+        return capSeconds (bySpace);
+    }
+
+    bool EditSession::capLimitedBySpace() const
+    {
+        bool bySpace = false;
+        capSeconds (bySpace);
+        return bySpace;
+    }
+
+    chop::Slice EditSession::playedPart (const chop::Slice& s) const
+    {
+        const int cap = sliceCapFrames();
+        auto out = s;
+        if (cap > 0 && s.frameCount() > cap)
+            out.endFrame = s.startFrame + cap;
+        return out;
+    }
+
+    SamplePrep EditSession::slicePrep (const chop::Slice& s) const
+    {
+        const auto kept = playedPart (s);
+        auto p = chop::microFadePrep (source->sampleRate);
+        p.trimStartFrame = kept.startFrame;
+        p.trimEndFrame = kept.endFrame;
+        p.channelMode = prep.channelMode;
+        // A trimmed slice is cut mid-sound: fade it out over 30 ms, not 4 ms.
+        if (kept.endFrame < s.endFrame)
+            p.fadeOutFrames = juce::jmax (p.fadeOutFrames, (int) (0.03 * source->sampleRate));
+        return p;
+    }
+
     chop::PadPlan EditSession::plan() const
     {
         if (source == nullptr)
             return {};
         return chop::planPads (slices.slices(), prep.outputChannelCount (source->channelCount()), treatment,
-                               source->sampleRate, group, startPad, baseName.toStdString());
+                               source->sampleRate, group, startPad, baseName.toStdString(), sliceCapFrames());
     }
 
     void EditSession::auditionSlice (int index)
@@ -300,10 +364,7 @@ namespace halo
         if (source == nullptr || index < 0 || index >= (int) all.size())
             return;
         selectedSlice = index;
-        auto p = chop::microFadePrep (source->sampleRate);
-        p.trimStartFrame = all[(size_t) index].startFrame;
-        p.trimEndFrame = all[(size_t) index].endFrame;
-        p.channelMode = prep.channelMode;
+        const auto p = slicePrep (all[(size_t) index]); // what SEND would upload
         runInBackground ([src = source, p, t = treatment] { return std::make_shared<const AudioData> (render (*src, p, t)); },
                          [this, index] (std::shared_ptr<const AudioData> data) { play (std::move (data), index); });
     }
@@ -314,10 +375,13 @@ namespace halo
             return;
         const auto padPlan = plan();
         const auto all = slices.slices();
+        std::vector<SamplePrep> preps;
+        for (const auto& s : all)
+            preps.push_back (slicePrep (s));
         const auto folder = SampleIO::exportFolder().getNonexistentChildFile (safeName (baseName), {});
         setStatus ("Exporting slices...");
 
-        runInBackground ([src = source, padPlan, all, folder, mode = prep.channelMode, t = treatment]
+        runInBackground ([src = source, padPlan, all, preps, folder, t = treatment]
         {
             if (! folder.createDirectory())
                 return juce::String ("Export failed: couldn't create " + folder.getFullPathName());
@@ -326,13 +390,10 @@ namespace halo
             // plus a pads.txt that says where each one is meant to go.
             juce::String guide;
             guide << "Halo CHOP export\n"
-                  << "Load these into the EP-40 with Teenage Engineering's EP Sample Tool.\n\n";
+                  << "Send them to the EP-40 with SEND TO PADS in Halo's CHOP (or any EP sample tool).\n\n";
             for (size_t i = 0; i < all.size(); ++i)
             {
-                auto p = chop::microFadePrep (src->sampleRate);
-                p.trimStartFrame = all[i].startFrame;
-                p.trimEndFrame = all[i].endFrame;
-                p.channelMode = mode;
+                const auto& p = preps[i];
                 const auto name = i < padPlan.writes.size() ? juce::String (padPlan.writes[i].name)
                                                             : juce::String::formatted ("SLICE.%02d", (int) i + 1);
                 const auto file = folder.getChildFile (name + ".wav");
@@ -340,6 +401,8 @@ namespace halo
                     return "Export failed: couldn't write " + file.getFileName();
 
                 guide << file.getFileName();
+                if (p.trimEndFrame && *p.trimEndFrame < all[i].endFrame)
+                    guide << "  (auto-trimmed)";
                 if (i < padPlan.writes.size())
                     guide << "  ->  group " << ep40::groupLabels[(size_t) padPlan.writes[i].group].data()
                           << ", pad " << ep40::gridLabels[(size_t) padPlan.writes[i].gridIndex].data();

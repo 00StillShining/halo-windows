@@ -102,6 +102,9 @@ namespace halo
                 "Upload " + juce::String ((int) plan.writes.size()) + " slices (" + juce::String (formatBytes (plan.totalBytes))
                     + ") into empty USER slots, and assign them to group " + ep40::groupLabels[(size_t) plan.group].data()
                     + " pads in project " + juce::String (project) + "?" + juce::newLine + juce::newLine
+                    + (plan.trimmedCount > 0 ? juce::String (plan.trimmedCount) + " slice(s) are auto-trimmed to "
+                                                   + juce::String (session.sliceCapSeconds(), 1) + " s." + juce::newLine
+                                             : juce::String())
                     + "No sound is overwritten. The pads' old sounds stay in the library.",
                 "Send", "Cancel", this,
                 juce::ModalCallbackFunction::create ([this, plan, project] (int result)
@@ -130,6 +133,9 @@ namespace halo
         }
         evenButton.onClick = [this] { session.setEvenSlices (! session.evenSlices); };
         addAndMakeVisible (evenButton);
+        autoTrimButton.setTooltip ("Cut slices that are too long for the EP-40 (over 20 s, or more than its free memory) short, with a fade-out.");
+        autoTrimButton.onClick = [this] { session.setAutoTrim (! session.autoTrim); };
+        addAndMakeVisible (autoTrimButton);
 
         for (size_t i = 0; i < groupButtons.size(); ++i)
         {
@@ -172,20 +178,41 @@ namespace halo
     juce::String ChopSurface::sendBlocker() const
     {
         // What would stop the EP-40 taking these slices, said before sending.
+        // With AUTO-TRIM on, the plan is already capped, so these only fire when
+        // it's off (or the EP-40 is too full for even short slices).
         const auto plan = session.plan();
         if (plan.tooLongCount > 0)
             return juce::String (plan.tooLongCount) + (plan.tooLongCount == 1 ? " slice is" : " slices are") + " over "
                    + juce::String ((int) maxSoundSeconds) + " s (longest " + juce::String (plan.longestSeconds, 1)
-                   + " s), the EP-40's limit per sound. CLOSE, trim to the part you want in EDIT, then CHOP again, or use more slices.";
+                   + " s), the EP-40's limit per sound. Turn on AUTO-TRIM, use more slices, or CLOSE and trim in EDIT.";
         const auto& info = model.device().info();
         if (model.device().state() == Ep40Library::State::ready && info.freeBytes >= 0 && plan.totalBytes > info.freeBytes)
             return "These slices need " + juce::String (formatBytes (plan.totalBytes)) + " but the EP-40 has "
-                   + juce::String (formatBytes (info.freeBytes)) + " free. Trim, use fewer slices, or pick a LO quality.";
+                   + juce::String (formatBytes (info.freeBytes)) + " free. Turn on AUTO-TRIM, use fewer slices, or pick a LO quality.";
+        if (session.autoTrim && plan.trimmedCount > 0 && session.sliceCapSeconds() < 0.25)
+            return "The EP-40 is nearly full: AUTO-TRIM would cut the slices to " + juce::String (session.sliceCapSeconds() * 1000.0, 0)
+                   + " ms. Delete sounds in LOAD, use fewer slices, or pick a LO quality.";
         return {};
+    }
+
+    juce::String ChopSurface::trimNote() const
+    {
+        const auto plan = session.plan();
+        if (! session.autoTrim || plan.trimmedCount == 0)
+            return {};
+        return "AUTO-TRIM: " + juce::String (plan.trimmedCount) + (plan.trimmedCount == 1 ? " slice" : " slices")
+               + " cut to " + juce::String (session.sliceCapSeconds(), 1) + " s"
+               + (session.capLimitedBySpace() ? " to fit the EP-40's free memory" : " (the EP-40's limit)")
+               + ", from each slice's start, with a fade-out. The shaded tails are dropped.";
     }
 
     void ChopSurface::refresh()
     {
+        // AUTO-TRIM sizes the slices to what the EP-40 has free, when it's known.
+        const auto& info = model.device().info();
+        session.spaceBudgetBytes = model.device().state() == Ep40Library::State::ready && info.freeBytes >= 0 ? info.freeBytes : -1;
+        autoTrimButton.setToggleState (session.autoTrim, juce::dontSendNotification);
+
         for (size_t i = 0; i < sliceButtons.size(); ++i)
             sliceButtons[i].setToggleState (session.sliceChoice == sliceChoices[i], juce::dontSendNotification);
         sliceButtons[0].setButtonText ("FIT " + juce::String (juce::jmax (1, ep40::padsPerGroup - session.startPad)));
@@ -250,6 +277,8 @@ namespace halo
             b.setBounds (sliceRow.removeFromLeft (&b == &sliceButtons[0] ? 84 : 60).reduced (2));
         sliceRow.removeFromLeft (16);
         evenButton.setBounds (sliceRow.removeFromLeft (80).reduced (2));
+        sliceRow.removeFromLeft (8);
+        autoTrimButton.setBounds (sliceRow.removeFromLeft (120).reduced (2));
         hintArea = area.removeFromTop (22);
         area.removeFromTop (6);
 
@@ -346,7 +375,9 @@ namespace halo
                     totalsArea.withTrimmedTop (20), juce::Justification::centredLeft);
 
         const auto blocker = sendBlocker();
+        const auto trimmed = trimNote();
         const auto sendNote = blocker.isNotEmpty() ? blocker
+            : trimmed.isNotEmpty() ? trimmed
             : model.writesUnlocked()
             ? "SEND TO PADS uploads the slices into empty USER slots and assigns them to these pads in project "
                   + juce::String (model.device().activeProject()) + " (the project selected in LOAD)."
@@ -354,6 +385,8 @@ namespace halo
                                                                    : juce::String ("Connect the EP-40 to send slices to its pads. EXPORT works now.");
         if (blocker.isNotEmpty())
             g.setColour (c.warning);
+        else if (trimmed.isNotEmpty())
+            g.setColour (c.orange);
         g.drawFittedText (sendNote,
                           noteArea, juce::Justification::centredLeft, 3, 1.0f);
         g.setFont (HaloType::mono (11.5f));

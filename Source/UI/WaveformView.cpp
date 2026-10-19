@@ -152,6 +152,26 @@ namespace halo
                 g.fillRect (x - 4.0f, p.getY() - 6.0f, 8.0f, 6.0f);
             }
             const auto all = session.slices.slices();
+
+            // AUTO-TRIM: hatch the tail each slice loses.
+            for (const auto& s : all)
+            {
+                const auto kept = session.playedPart (s);
+                if (kept.endFrame >= s.endFrame)
+                    continue;
+                const auto tail = juce::Rectangle<float>::leftTopRightBottom (frameToX (kept.endFrame), p.getY(), frameToX (s.endFrame), p.getBottom());
+                g.setColour (c.paperHigh.withAlpha (0.7f));
+                g.fillRect (tail);
+                g.saveState();
+                g.reduceClipRegion (tail.toNearestInt());
+                g.setColour (c.ink.withAlpha (0.12f));
+                for (float x = tail.getX() - tail.getHeight(); x < tail.getRight(); x += 8.0f)
+                    g.drawLine (x, tail.getBottom(), x + tail.getHeight(), tail.getY(), 1.0f);
+                g.restoreState();
+                g.setColour (c.orange.withAlpha (0.8f));
+                g.fillRect (tail.getX() - 0.5f, p.getY(), 1.0f, p.getHeight());
+            }
+
             g.setColour (c.inkSoft);
             for (const auto& s : all)
             {
@@ -172,8 +192,9 @@ namespace halo
                 const auto all = session.slices.slices();
                 if (player.token() >= 0 && player.token() < (int) all.size())
                 {
-                    startFrame = all[(size_t) player.token()].startFrame;
-                    endFrame = all[(size_t) player.token()].endFrame;
+                    const auto kept = session.playedPart (all[(size_t) player.token()]);
+                    startFrame = kept.startFrame;
+                    endFrame = kept.endFrame;
                 }
             }
             const float x = frameToX (startFrame + (endFrame - startFrame) * player.progress());

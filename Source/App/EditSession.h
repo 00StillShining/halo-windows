@@ -66,6 +66,18 @@ namespace halo
         int group = 0, startPad = 0;
         juce::String baseName;
 
+        // AUTO-TRIM (on by default): every slice longer than the EP-40 takes is
+        // cut short from its start, with a fade-out, instead of blocking SEND.
+        // The cap also shrinks so the placed slices fit spaceBudgetBytes (the
+        // EP-40's free memory, when known; -1 = unknown).
+        bool autoTrim = true;
+        long long spaceBudgetBytes = -1;
+        void setAutoTrim (bool on) { autoTrim = on; sendChangeMessage(); }
+        int sliceCapFrames() const;      // 0 = no cap
+        double sliceCapSeconds() const;  // 0 = no cap
+        bool capLimitedBySpace() const;  // the cap is under 20 s because of free memory
+        chop::Slice playedPart (const chop::Slice&) const; // the part of a slice that's kept
+
         void openChop();
         void closeChop();
         void detect();
@@ -85,6 +97,8 @@ namespace halo
 
     private:
         void applySliceChoice();
+        double capSeconds (bool& bySpace) const;
+        SamplePrep slicePrep (const chop::Slice&) const;
         void setStatus (const juce::String&);
         void play (std::shared_ptr<const AudioData>, int token);
         template <typename Work, typename Done>

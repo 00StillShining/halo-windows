@@ -83,16 +83,24 @@ namespace halo::chop
         std::vector<PadWrite> writes;
         int overflowCount = 0; // slices with no pad left in the group
         long long totalBytes = 0;
-        double longestSeconds = 0.0; // of the slices placed on pads
-        int tooLongCount = 0;        // placed slices over maxSoundSeconds
+        double longestSeconds = 0.0; // of the slices placed on pads, after any cap
+        int tooLongCount = 0;        // placed slices still over maxSoundSeconds
+        int trimmedCount = 0;        // placed slices shortened by the cap
         int group = 0;
         int startGridIndex = 0;
     };
 
     // Lay slices onto consecutive pads of one group from a start pad, with
     // exact bytes at the chosen treatment.
+    // maxSliceFrames > 0 caps every slice's length (its start stays put; the
+    // tail is cut) — AUTO-TRIM.
     PadPlan planPads (const std::vector<Slice>&, int channelCount, Treatment, double sourceRate,
-                      int group, int startGridIndex, const std::string& baseName);
+                      int group, int startGridIndex, const std::string& baseName, int maxSliceFrames = 0);
+
+    // The longest per-slice length (seconds) such that every slice is at most
+    // maxSeconds and all of them together fit budgetSeconds of audio. Slices
+    // already shorter than the cap keep their full length.
+    double capToFit (const std::vector<double>& sliceSeconds, double maxSeconds, double budgetSeconds);
 
     // Micro-fade used on every slice by default (4 ms in, 4 ms out).
     SamplePrep microFadePrep (double sampleRate);
