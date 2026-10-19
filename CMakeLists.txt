@@ -26,10 +26,12 @@ FetchContent_MakeAvailable(doctest)
 # the Mac app's pure-Swift logic and is unit tested on its own.
 # ---------------------------------------------------------------------------
 add_library(HaloCore STATIC
+    Source/Core/Chop.cpp
     Source/Core/DisplayReducer.cpp
     Source/Core/DubRack.cpp
     Source/Core/GrabMath.cpp
-    Source/Core/MidiEvent.cpp)
+    Source/Core/MidiEvent.cpp
+    Source/Core/SampleCore.cpp)
 target_include_directories(HaloCore PUBLIC Source)
 if(MSVC)
     target_compile_options(HaloCore PRIVATE /W4 /permissive-)
@@ -100,7 +102,8 @@ add_executable(HaloTests
     Tests/DisplayReducerTests.cpp
     Tests/MonitorDspTests.cpp
     Tests/GrabTests.cpp
-    Tests/DubRackTests.cpp)
+    Tests/DubRackTests.cpp
+    Tests/SampleTests.cpp)
 target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
