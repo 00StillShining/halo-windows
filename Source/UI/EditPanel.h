@@ -22,6 +22,7 @@ namespace halo
     private:
         void changeListenerCallback (juce::ChangeBroadcaster*) override { refresh(); }
         void refresh();
+        juce::String sendBlocker() const;
         juce::Slider& addKnob (juce::Slider&, double min, double max, double mid, std::function<void()> onChange);
 
         AppModel& model;

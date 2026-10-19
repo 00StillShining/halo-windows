@@ -123,6 +123,20 @@ namespace halo
         model.backup().removeChangeListener (this);
     }
 
+    juce::String EditPanel::sendBlocker() const
+    {
+        if (! session.hasSource())
+            return {};
+        const auto e = session.estimate();
+        if (e.durationSeconds() > maxSoundSeconds)
+            return juce::String (e.durationSeconds(), 1) + " s is over the EP-40's " + juce::String ((int) maxSoundSeconds)
+                   + " s per sound. Drag the trim handles to " + juce::String ((int) maxSoundSeconds) + " s or less to send (or CHOP it).";
+        const auto& info = model.device().info();
+        if (model.device().state() == Ep40Library::State::ready && info.freeBytes >= 0 && e.payloadBytes > info.freeBytes)
+            return "Needs " + juce::String (formatBytes (e.payloadBytes)) + " but the EP-40 has " + juce::String (formatBytes (info.freeBytes)) + " free.";
+        return {};
+    }
+
     void EditPanel::refresh()
     {
         const auto audio = session.audio();
@@ -151,7 +165,7 @@ namespace halo
         auditionButton.setButtonText (auditioning ? "STOP" : "AUDITION");
         auditionButton.setToggleState (auditioning, juce::dontSendNotification);
         showButton.setVisible (session.lastExport().exists());
-        sendButton.setEnabled (has && model.writesUnlocked() && ! model.deviceWriter().isBusy());
+        sendButton.setEnabled (has && model.writesUnlocked() && ! model.deviceWriter().isBusy() && sendBlocker().isEmpty());
         repaint();
     }
 
@@ -263,9 +277,13 @@ namespace halo
 
         g.setFont (HaloType::mono (11.0f));
         g.setColour (c.inkSoft);
-        const auto sendNote = model.writesUnlocked() ? juce::String ("SEND TO EP-40 uploads into the first empty USER slot (900-999). It never overwrites a sound.")
+        const auto blocker = sendBlocker();
+        const auto sendNote = blocker.isNotEmpty() ? blocker
+                            : model.writesUnlocked() ? juce::String ("SEND TO EP-40 uploads into the first empty USER slot (900-999). It never overwrites a sound.")
                             : model.device().state() == Ep40Library::State::ready ? juce::String ("Back up the EP-40 in BACKUPS (Ctrl+6) to unlock SEND. Until then, EXPORT works.")
                             : juce::String ("Connect the EP-40 to send directly. Until then, EXPORT works.");
+        if (blocker.isNotEmpty())
+            g.setColour (c.warning);
         g.drawFittedText (sendNote,
                           sendNoteArea, juce::Justification::centredLeft, 2, 1.0f);
 

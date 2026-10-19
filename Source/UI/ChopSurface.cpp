@@ -169,6 +169,21 @@ namespace halo
         model.backup().removeChangeListener (this);
     }
 
+    juce::String ChopSurface::sendBlocker() const
+    {
+        // What would stop the EP-40 taking these slices, said before sending.
+        const auto plan = session.plan();
+        if (plan.tooLongCount > 0)
+            return juce::String (plan.tooLongCount) + (plan.tooLongCount == 1 ? " slice is" : " slices are") + " over "
+                   + juce::String ((int) maxSoundSeconds) + " s (longest " + juce::String (plan.longestSeconds, 1)
+                   + " s), the EP-40's limit per sound. CLOSE, trim to the part you want in EDIT, then CHOP again, or use more slices.";
+        const auto& info = model.device().info();
+        if (model.device().state() == Ep40Library::State::ready && info.freeBytes >= 0 && plan.totalBytes > info.freeBytes)
+            return "These slices need " + juce::String (formatBytes (plan.totalBytes)) + " but the EP-40 has "
+                   + juce::String (formatBytes (info.freeBytes)) + " free. Trim, use fewer slices, or pick a LO quality.";
+        return {};
+    }
+
     void ChopSurface::refresh()
     {
         for (size_t i = 0; i < sliceButtons.size(); ++i)
@@ -185,7 +200,8 @@ namespace halo
             nameEditor.setText (session.baseName, false);
         showButton.setVisible (session.lastExport().exists());
         exportButton.setEnabled (session.slices.sliceCount() > 0);
-        sendButton.setEnabled (session.slices.sliceCount() > 0 && model.writesUnlocked() && ! model.deviceWriter().isBusy());
+        sendButton.setEnabled (session.slices.sliceCount() > 0 && model.writesUnlocked() && ! model.deviceWriter().isBusy()
+                               && sendBlocker().isEmpty());
         pads.repaint();
         repaint();
     }
@@ -265,7 +281,7 @@ namespace halo
         exportButton.setBounds (actions.removeFromLeft (160).reduced (2));
         sendButton.setBounds (actions.removeFromLeft (150).reduced (2));
         showButton.setBounds (actions.removeFromLeft (80).reduced (2));
-        noteArea = bottom.removeFromTop (32);
+        noteArea = bottom.removeFromTop (46);
         statusArea = bottom.removeFromTop (24);
     }
 
@@ -329,13 +345,17 @@ namespace halo
                         + juce::String (resolvedSampleRate (session.treatment, session.audio() != nullptr ? session.audio()->sampleRate : 0.0) / 1000.0, 3) + " kHz",
                     totalsArea.withTrimmedTop (20), juce::Justification::centredLeft);
 
-        const auto sendNote = model.writesUnlocked()
+        const auto blocker = sendBlocker();
+        const auto sendNote = blocker.isNotEmpty() ? blocker
+            : model.writesUnlocked()
             ? "SEND TO PADS uploads the slices into empty USER slots and assigns them to these pads in project "
-                  + juce::String (model.device().activeProject()) + " (the EP-40's active project)."
+                  + juce::String (model.device().activeProject()) + " (the project selected in LOAD)."
             : model.device().state() == Ep40Library::State::ready ? juce::String ("Back up the EP-40 in BACKUPS (Ctrl+6) to unlock SEND TO PADS. EXPORT works now.")
                                                                    : juce::String ("Connect the EP-40 to send slices to its pads. EXPORT works now.");
+        if (blocker.isNotEmpty())
+            g.setColour (c.warning);
         g.drawFittedText (sendNote,
-                          noteArea, juce::Justification::centredLeft, 2, 1.0f);
+                          noteArea, juce::Justification::centredLeft, 3, 1.0f);
         g.setFont (HaloType::mono (11.5f));
         g.setColour (session.status().startsWith ("Export failed") ? c.warning : c.ink);
         g.drawText (session.status(), statusArea, juce::Justification::centredLeft, true);

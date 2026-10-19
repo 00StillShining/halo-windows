@@ -260,6 +260,10 @@ namespace halo::chop
             PadWrite w { s.index, plan.group, plan.startGridIndex + i, name,
                          (long long) frames * std::max (0, channelCount) * (deviceBitDepth / 8) };
             plan.totalBytes += w.payloadBytes;
+            const double seconds = sourceRate > 0.0 ? s.frameCount() / sourceRate : 0.0;
+            plan.longestSeconds = std::max (plan.longestSeconds, seconds);
+            if (seconds > maxSoundSeconds)
+                ++plan.tooLongCount;
             plan.writes.push_back (std::move (w));
         }
         return plan;

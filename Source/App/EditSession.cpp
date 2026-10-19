@@ -191,6 +191,22 @@ namespace halo
     {
         if (source == nullptr)
             return;
+
+        // CHOP slices the part you selected in EDIT, not the whole file: a full
+        // song cut into 12 slices makes sounds far longer than the EP-40 takes.
+        const int n = source->frameCount();
+        const auto r = prep.resolvedTrim (n);
+        if (r.start > 0 || r.end < n)
+        {
+            SamplePrep trimOnly;
+            trimOnly.trimStartFrame = r.start;
+            trimOnly.trimEndFrame = r.end;
+            source = std::make_shared<const AudioData> (trimOnly.apply (*source));
+            mono = source->monoMixdown();
+            wave = WaveformSummary::build (mono, 1024);
+            prep.trimStartFrame = 0;
+            prep.trimEndFrame.reset();
+        }
         chopOpen = true;
         selectedSlice.reset();
         detect();

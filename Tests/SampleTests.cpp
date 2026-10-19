@@ -357,4 +357,12 @@ TEST_CASE ("pad plan: names, pads, exact bytes, overflow reported not wrapped")
     plan = chop::planPads (slices, 1, Treatment::original, 44100.0, 0, 0, "");
     CHECK (plan.overflowCount == 0);
     CHECK (plan.writes[4].name == "CHOP.05");
+    CHECK (plan.tooLongCount == 0);
+    CHECK (plan.longestSeconds == doctest::Approx (1.0));
+
+    // A 69 s slice (what the EP-40 refused as "sample too long") is flagged.
+    const std::vector<chop::Slice> songSlices { { 0, 0, 69 * 44100 }, { 1, 69 * 44100, 70 * 44100 } };
+    plan = chop::planPads (songSlices, 2, Treatment::original, 44100.0, 0, 0, "y2m");
+    CHECK (plan.tooLongCount == 1);
+    CHECK (plan.longestSeconds == doctest::Approx (69.0));
 }

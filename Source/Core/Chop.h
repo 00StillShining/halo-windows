@@ -83,6 +83,8 @@ namespace halo::chop
         std::vector<PadWrite> writes;
         int overflowCount = 0; // slices with no pad left in the group
         long long totalBytes = 0;
+        double longestSeconds = 0.0; // of the slices placed on pads
+        int tooLongCount = 0;        // placed slices over maxSoundSeconds
         int group = 0;
         int startGridIndex = 0;
     };

@@ -45,6 +45,9 @@ namespace halo
             return done ({ false, 0, "The EP-40 isn't synced" });
         if (input.frameCount() == 0 || input.channelCount() < 1 || input.channelCount() > 2)
             return done ({ false, 0, "Nothing to send (empty, or more than 2 channels)" });
+        if (input.durationSeconds() > maxSoundSeconds)
+            return done ({ false, 0, juce::String (input.durationSeconds(), 1) + " s is too long: the EP-40 takes up to "
+                                         + juce::String ((int) maxSoundSeconds) + " s per sound. Trim it in EDIT first." });
 
         // Never above the device's native rate (46,875 Hz on the EP-40).
         const double maxRate = lib.info().nativeRate > 0.0 ? lib.info().nativeRate : 46875.0;
@@ -188,6 +191,27 @@ namespace halo
     void Ep40Writer::uploadToPads (std::vector<PadJob> jobs, int project, std::function<void (const juce::String&)> onProgress,
                                    std::function<void (Result)> done)
     {
+        // Check everything before the first write, so a batch never stops halfway
+        // because of something that was knowable up front.
+        juce::int64 total = 0;
+        int freeSlots = 0;
+        for (int s = userFirstSlot; s <= userLastSlot; ++s)
+            freeSlots += lib.sound (s) == nullptr ? 1 : 0;
+        for (size_t i = 0; i < jobs.size(); ++i)
+        {
+            const auto& a = jobs[i].audio;
+            if (a.durationSeconds() > maxSoundSeconds)
+                return done ({ false, 0, "Slice " + juce::String ((int) i + 1) + " is " + juce::String (a.durationSeconds(), 1)
+                                             + " s; the EP-40 takes up to " + juce::String ((int) maxSoundSeconds) + " s per sound" });
+            const double rate = juce::jmin (a.sampleRate, lib.info().nativeRate > 0.0 ? lib.info().nativeRate : 46875.0);
+            total += (juce::int64) (a.durationSeconds() * rate) * a.channelCount() * 2;
+        }
+        if (lib.info().freeBytes >= 0 && total > lib.info().freeBytes)
+            return done ({ false, 0, "Needs " + juce::String ((double) total / 1048576.0, 1) + " MB but the EP-40 has "
+                                         + juce::String ((double) lib.info().freeBytes / 1048576.0, 1) + " MB free" });
+        if ((int) jobs.size() > freeSlots)
+            return done ({ false, 0, "Needs " + juce::String ((int) jobs.size()) + " empty USER slots, only " + juce::String (freeSlots) + " free" });
+
         runPadJobs (std::make_shared<std::vector<PadJob>> (std::move (jobs)), 0, project, std::move (onProgress), std::move (done));
     }
 

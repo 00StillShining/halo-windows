@@ -34,6 +34,7 @@ namespace halo
 
         void changeListenerCallback (juce::ChangeBroadcaster*) override { refresh(); }
         void refresh();
+        juce::String sendBlocker() const;
 
         AppModel& model;
         EditSession& session;

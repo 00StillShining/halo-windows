@@ -73,6 +73,9 @@ namespace halo
     inline constexpr double deviceMaxSampleRate = 46875.0;
     inline constexpr int deviceBitDepth = 16;
     inline constexpr double deviceMemoryBytes = 122.0 * 1024.0 * 1024.0; // ~122 MB usable (TE docs; prefer device-reported)
+    // Longest single sound Halo will send. TE's own tool refuses longer sources,
+    // and the EP-40 itself answered "sample too long" to a 69 s upload.
+    inline constexpr double maxSoundSeconds = 20.0;
 
     const char* label (Treatment);
     double resolvedSampleRate (Treatment, double sourceSampleRate);
