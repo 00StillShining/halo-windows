@@ -264,6 +264,14 @@ namespace halo::stage_shaders
                 return;
             }
 
+            // 6: silhouette mask of the device (the floor ring is not the device).
+            if (uDebug == 6)
+            {
+                if (uKind == 2) discard;
+                fragColour = vec4 (1.0);
+                return;
+            }
+
             vec3 n = normalize (vNormal);
             if (! gl_FrontFacing) n = -n;
             vec3 mn = normalize (vModelNormal);
@@ -280,6 +288,7 @@ namespace halo::stage_shaders
                 // The LCD is self-lit under a glossy window: show it nearly
                 // unshaded, plus the studio's reflection in the glass.
                 vec3 tex = toLinear (texture (uTexture, vUV).rgb);
+                if (uDebug == 7 || uDebug == 8) { fragColour = vec4 (toSrgb (tex), 1.0); return; }
                 float NoV = clamp (dot (n, v), 0.001, 1.0);
                 vec2 ab = envBRDF (NoV, 0.06);
                 vec3 glass = (0.04 * ab.x + ab.y) * reflection (reflect (-v, n), 0.06, shadow, 1.0);
@@ -300,6 +309,9 @@ namespace halo::stage_shaders
                 roughness = mix (roughness, 0.5, ink.a);
             }
 
+            // 7: unlit albedo (print included); 8: emissive only.
+            if (uDebug == 7) { fragColour = vec4 (toSrgb (albedo), 1.0); return; }
+            if (uDebug == 8) { fragColour = vec4 (toSrgb (albedo * vEmissive * 0.6 + uGlow), 1.0); return; }
             if (uDebug == 1) { fragColour = vec4 (vec3 (ao), 1.0); return; }
             if (uDebug == 2) { fragColour = vec4 (vec3 (shadow), 1.0); return; }
             if (uDebug == 3) { fragColour = vec4 (vec3 (fract (heightAt (vModel.xy, 0.0) * 100.0)), 1.0); return; }
@@ -332,6 +344,39 @@ namespace halo::stage_shaders
         {
             vec2 p = vec2 ((gl_VertexID << 1) & 2, gl_VertexID & 2);
             gl_Position = vec4 (p * 2.0 - 1.0, 0.0, 1.0);
+        })";
+
+    // HALO_STAGE_DEBUG=5, the material swatch card: horizontal bands, top to
+    // bottom, each a material's albedo x exposure through the same Neutral tone
+    // curve and output curve the part shader uses, with no lighting at all.
+    inline const char* cardFragment = R"(
+        #version 150
+        uniform float uHeight;
+        uniform int uCount;
+        uniform float uExposure;
+        uniform vec3 uSwatch[16];
+        out vec4 fragColour;
+        vec3 neutralTonemap (vec3 c)
+        {
+            const float start = 0.8 - 0.04;
+            const float desaturation = 0.15;
+            float x = min (c.r, min (c.g, c.b));
+            float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+            c -= offset;
+            float peak = max (c.r, max (c.g, c.b));
+            if (peak < start) return c;
+            const float d = 1.0 - start;
+            float newPeak = 1.0 - d * d / (peak + d - start);
+            c *= newPeak / peak;
+            float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+            return mix (c, vec3 (newPeak), g);
+        }
+        void main()
+        {
+            float y = (uHeight - gl_FragCoord.y) / uHeight;
+            int i = clamp (int (y * float (uCount)), 0, uCount - 1);
+            vec3 c = neutralTonemap (uSwatch[i] * uExposure);
+            fragColour = vec4 (pow (clamp (c, 0.0, 1.0), vec3 (1.0 / 2.2)), 1.0);
         })";
 
     // The graph-paper canvas (GridCanvas.swift): 16 pt cells, a major line every 4.

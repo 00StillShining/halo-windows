@@ -1263,3 +1263,31 @@ After those, M6's knobs and screen depth have the highest value.
 | 44 | D7, §3.1: `StageLook` by value under the SpinLock |
 | 45 | Moot, because AO is baked offline into the vertex byte (D10) |
 | 46 | Harness swatch-card definition; "≤ 3 geometry draws" in §7; pose override of input in the hooks table; line references corrected in §6 |
+---
+
+## Appendix B. Milestone log
+
+Measured results, newest last. Shots live in the git-ignored `build/shots/<milestone>/`
+(regenerate with `tools/dev/stage_shots.ps1`); numbers here are the record.
+
+### M0 (baseline, today's renderer)
+
+- **Harness:** `tools/dev/stage_shots.ps1` (one MOCK instance per shot, own `HALO_STAGE_LOG`,
+  waits for `HALO_STAGE_READY`, captures by PID, JSON sidecar with the stage rectangle) and
+  `tools/dev/compare_shots.py` (`card`, `mask`, `same`, `diff`, `border`, `hist`, `fringe`, `sheet`).
+  `small` is the app's minimum window (1180 × 720, rail open): the app does not allow 900 × 640.
+  Window size is set by the script (`SetWindowPos`), not by a `HALO_WINDOW_SIZE` hook.
+- **Python wheels (3.14.8):** numpy, Pillow, svgelements, scipy, shapely 2.2, fontTools all
+  resolved as binary wheels; no numpy fallbacks needed (`tools/model/requirements.txt`).
+- **Determinism:** two `hero` runs of the `rest` pose: max delta 0/255 over the whole stage.
+- **GPU, RTX 5080, Release, `hero` 1412 × 780 stage, mock MIDI animating:** p50 0.360 ms,
+  p95 0.366 ms; 367 geometry draws per frame (123 parts × main + shadow + height passes).
+  `GL_RENDERER=NVIDIA GeForce RTX 5080`, `GL_VERSION=3.2.0 NVIDIA 616.56`, default framebuffer
+  `GL_SAMPLES=4`.
+- **GPU, AMD Radeon iGPU:** not measured. It needs Halo.exe set to "Power saving" in Windows
+  Graphics settings, which is the owner's call (a system setting); run
+  `stage_shots.ps1 -Shots hero -Stats -HoldSeconds 12 -Exe <Release exe>` after switching.
+- **Card (Neutral, today's asset):** deck #C4C1B8 (ΔE 6.3 to #DCD2BF), body ΔE 10.1, key ΔE 2.2,
+  orange ΔE 4.5, green #0F644D (ΔE 8.4), label plate ΔE 1.6; the shell band is grey (ΔE 33 to
+  the green shell) and the screen frame near-black (ΔE 13.7).
+- **Mask, `hero`:** margins L 23.5 % R 26.6 % T 18.6 % B 9.4 %; fill 49.9 % × 72.1 %.

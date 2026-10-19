@@ -79,6 +79,12 @@ target_sources(Halo PRIVATE
     Source/UI/LoadPanel.cpp
     Source/UI/BackupsPanel.cpp)
 
+# The 3D stage's own sources (docs/redesign/riddim-3d-plan.md), kept apart from
+# the list above so stage and UI work merge without touching the same lines.
+target_sources(Halo PRIVATE
+    Source/Stage/StageLog.cpp
+    Source/Stage/StageStats.cpp)
+
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
@@ -124,6 +130,16 @@ add_executable(HaloTests
     Tests/SampleTests.cpp
     Tests/SysExTests.cpp
     Tests/TeProtocolTests.cpp)
+# 3D stage tests (pure HaloCore logic: contract, poses, camera, tone curves...).
+target_sources(HaloTests PRIVATE
+    Tests/Ep40EntityNamesTests.cpp
+    Tests/StagePoseTests.cpp)
+# The Mac app (its own repo) sits beside this one as the reference spec; when it
+# is there, the entity-name test cross-checks the frozen contract against it.
+set(HALO_MAC_REFERENCE_DIR "${CMAKE_SOURCE_DIR}/reference/halo-mac" CACHE PATH "Mac app checkout (optional)")
+if(EXISTS "${HALO_MAC_REFERENCE_DIR}/Halo/Reality/EP40EntityNames.swift")
+    target_compile_definitions(HaloTests PRIVATE HALO_MAC_REFERENCE_DIR="${HALO_MAC_REFERENCE_DIR}")
+endif()
 target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)

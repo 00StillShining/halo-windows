@@ -1,0 +1,16 @@
+# Python tooling for the EP-40 model pipeline and stage dev tools (tools/model, tools/dev).
+# Pinned from tools/.venv (Python 3.14.8, win_amd64) after the M0 wheel check of
+# docs/redesign/riddim-3d-plan.md section 4.1:
+#   pip download --only-binary=:all: Pillow svgelements scipy "shapely>=2.1" fonttools
+# Every optional package resolved to a binary wheel (or pure Python) on 2026-10-19,
+# so none of the numpy fallbacks in section 4.1 are needed.
+#
+#   python -m venv tools/.venv
+#   tools/.venv/Scripts/pip install --only-binary=:all: -r tools/model/requirements.txt
+numpy==2.5.4          # required
+usd-core==26.8        # USDZ contract check (usdz_to_hmesh.py)
+pillow==13.0.0        # review sheets, poster PNG, compare_shots.py
+svgelements==1.9.6    # SVG path measurement (pure Python)
+scipy==1.18.1         # distance_transform_edt for SDF atlases
+shapely==2.2.0        # polygon offsets, constrained_delaunay_triangles
+fonttools==4.67.0     # --artwork neutral glyphs

@@ -119,8 +119,8 @@ namespace halo
             return { f (c.getFloatRed()), f (c.getFloatGreen()), f (c.getFloatBlue()) };
         }
 
-        std::unique_ptr<juce::OpenGLShaderProgram> buildProgram (juce::OpenGLContext& context,
-                                                                 const char* vertex, const char* fragment,
+        std::unique_ptr<juce::OpenGLShaderProgram> buildProgram (juce::OpenGLContext& context, StageLog& log,
+                                                                 const char* label, const char* vertex, const char* fragment,
                                                                  std::initializer_list<const char*> attributes)
         {
             auto program = std::make_unique<juce::OpenGLShaderProgram> (context);
@@ -135,10 +135,8 @@ namespace halo
             if (! ok)
             {
                 // A failed shader leaves the stage blank, and drivers differ; keep the
-                // compiler's message somewhere findable in release builds too.
-                DBG ("stage shader: " << program->getLastError());
-                juce::File::getSpecialLocation (juce::File::tempDirectory)
-                    .getChildFile ("halo-stage-shader.log").replaceWithText (program->getLastError());
+                // compiler's message in the stage log, in release builds too.
+                log.line (juce::String ("shader ") + label + " failed: " + program->getLastError());
                 return {};
             }
             return program;
@@ -160,21 +158,101 @@ namespace halo
         context.setContinuousRepainting (true);
         context.attachTo (*this);
 
-        // Dev hooks for repeatable screenshots: HALO_STAGE_CAMERA=yaw,pitch,radius,
-        // and HALO_STAGE_DEBUG=1..4 to view AO, key shadow, height map or floor terms.
-        debugView = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_DEBUG", "0").getIntValue();
-        const auto camera = juce::StringArray::fromTokens (
-            juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_CAMERA", {}), ",", {});
+        // Dev hooks for repeatable screenshots (riddim-3d-plan.md, section 8).
+        // HALO_STAGE_CAMERA=yaw,pitch,radius; HALO_STAGE_PRESET=hero|top|low|keys|edge;
+        // HALO_STAGE_DEBUG=1..4 view AO, key shadow, height map or floor terms,
+        // 5 the material swatch card, 6 the silhouette mask, 7 unlit albedo,
+        // 8 emissive only. HALO_STAGE_POSE freezes input (Core/StagePose.h).
+        const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
+       #if JUCE_DEBUG
+        const char* buildKind = "debug";
+       #else
+        const char* buildKind = "release";
+       #endif
+        log.line ("HALO_STAGE start pid=" + juce::String (StageLog::processId()) + " build=" + buildKind);
+
+        statsEnabled = env ("HALO_STAGE_STATS") == "1";
+        if (const auto tier = env ("HALO_STAGE_TIER").toLowerCase(); tier.isNotEmpty())
+        {
+            if (tier != "high")
+                log.line ("tier: HALO_STAGE_TIER=" + tier + " requested; only the high tier exists yet");
+        }
+
+       #if JUCE_DEBUG
+        debugView = env ("HALO_STAGE_DEBUG").getIntValue();
+
+        if (const auto preset = env ("HALO_STAGE_PRESET").toLowerCase(); preset.isNotEmpty())
+        {
+            struct Preset { const char* name; float yaw, pitch, radius; };
+            static constexpr Preset presets[] {
+                { "hero", 28.0f, 42.0f, 0.70f },
+                { "top",   0.0f, 85.0f, 0.78f },
+                { "low",  28.0f, 12.0f, 0.62f },
+                { "keys", 18.0f, 52.0f, 0.42f },
+                { "edge", 90.0f, 10.0f, 0.62f },
+            };
+            bool found = false;
+            for (const auto& p : presets)
+                if (preset == p.name)
+                {
+                    yawDegrees = p.yaw;
+                    pitchDegrees = p.pitch;
+                    radius = p.radius;
+                    found = true;
+                }
+            log.line ("preset: " + preset + (found ? "" : " (unknown, ignored)"));
+        }
+
+        if (const auto text = env ("HALO_STAGE_POSE"); text.isNotEmpty())
+        {
+            pose = StagePose::parse (text.toStdString());
+            if (pose)
+            {
+                log.line ("pose: " + text);
+                for (const auto& bad : pose->errors)
+                    log.line ("pose: ignored token '" + juce::String (bad) + "'");
+            }
+        }
+       #endif
+
+        const auto camera = juce::StringArray::fromTokens (env ("HALO_STAGE_CAMERA"), ",", {});
         if (camera.size() == 3)
         {
             yawDegrees = camera[0].getFloatValue();
             pitchDegrees = camera[1].getFloatValue();
             radius = camera[2].getFloatValue();
         }
+        if (debugView != 0)
+            log.line ("debug view: " + juce::String (debugView));
 
         model.addListener (this);
-        statusChanged();
-        displayChanged (model.display());
+        if (pose)
+            applyPose (*pose);
+        else
+        {
+            statusChanged();
+            displayChanged (model.display());
+        }
+    }
+
+    // A pose replaces every live or mock input with a fixed state. The
+    // listeners below ignore the model while a pose is active.
+    void StageComponent::applyPose (const StagePose& p)
+    {
+        const auto display = p.display();
+        auto image = displayRenderer.render (display);
+        const juce::SpinLock::ScopedLockType sl (lock);
+        shared.ring = p.ring;
+        shared.displayImage = std::move (image);
+        shared.displayDirty = true;
+        shared.activeGroup = display.activeGroup;
+        shared.displayLive = display.feedMode == FeedMode::live;
+        for (size_t i = 0; i < shared.pads.size(); ++i)
+        {
+            shared.pads[i].held = p.pads[i] > 0.0f;
+            shared.pads[i].velocity = p.pads[i];
+            shared.pads[i].strikeCount = shared.pads[i].held ? 1 : 0;
+        }
     }
 
     StageComponent::~StageComponent()
@@ -186,12 +264,16 @@ namespace halo
     //==============================================================================
     void StageComponent::statusChanged()
     {
+        if (pose)
+            return;
         const juce::SpinLock::ScopedLockType sl (lock);
         shared.ring = model.ring();
     }
 
     void StageComponent::displayChanged (const DisplayState& state)
     {
+        if (pose)
+            return;
         auto image = displayRenderer.render (state);
         const juce::SpinLock::ScopedLockType sl (lock);
         shared.displayImage = std::move (image);
@@ -202,6 +284,8 @@ namespace halo
 
     void StageComponent::padTransition (const PadHoldRegistry::Transition& t)
     {
+        if (pose)
+            return;
         const juce::SpinLock::ScopedLockType sl (lock);
         auto& pad = shared.pads[(std::size_t) t.pad];
         switch (t.kind)
@@ -222,6 +306,8 @@ namespace halo
 
     void StageComponent::allPadsReleased()
     {
+        if (pose)
+            return;
         const juce::SpinLock::ScopedLockType sl (lock);
         for (auto& pad : shared.pads)
             pad.held = false;
@@ -273,11 +359,68 @@ namespace halo
         ringPart = indexOf ("halo_ring");
         platePart = indexOf ("chassis_topPlate");
 
+        // Which GPU and driver the stage landed on: "Let Windows decide" can put
+        // Halo on the iGPU, and every timing or driver report needs this.
+        {
+            auto str = [] (GLenum e) { auto* c = (const char*) glGetString (e); return juce::String (c != nullptr ? c : "?"); };
+            GLint samples = 0;
+            glGetIntegerv (GL_SAMPLES, &samples);
+            log.line ("GL_RENDERER=" + str (GL_RENDERER) + " GL_VERSION=" + str (GL_VERSION)
+                      + " GL_VENDOR=" + str (GL_VENDOR) + " GL_SAMPLES=" + juce::String (samples) + " (default framebuffer)");
+            log.line ("mesh: " + juce::String ((int) mesh.parts.size()) + " parts");
+        }
+        stats.create();
+        if (statsEnabled)
+            log.line (juce::String ("stats: GPU timer ") + (stats.hasTimer() ? "available" : "unavailable"));
+
         using namespace stage_shaders;
-        partShader = buildProgram (context, partVertex, partFragment,
+        partShader = buildProgram (context, log, "part", partVertex, partFragment,
                                    { "aPos", "aNormal", "aColour", "aEmissive", "aUV", "aMaterial" });
-        depthShader = buildProgram (context, depthVertex, depthFragment, { "aPos" });
-        backgroundShader = buildProgram (context, backgroundVertex, backgroundFragment, {});
+        depthShader = buildProgram (context, log, "depth", depthVertex, depthFragment, { "aPos" });
+        backgroundShader = buildProgram (context, log, "background", backgroundVertex, backgroundFragment, {});
+        cardShader = buildProgram (context, log, "card", backgroundVertex, cardFragment, {});
+
+        // The swatch card: each listed part's dominant albedo by surface area.
+        swatches.clear();
+        {
+            struct Entry { const char* name; const char* part; };
+            static constexpr Entry entries[] {
+                { "deck", "chassis_topPlate" }, { "body", "chassis_base" }, { "shell", "chassis_edgeBand" },
+                { "key", "pad_5" }, { "orange", "button_record" }, { "green", "button_play" },
+                { "plate", "brand_panel" }, { "frame", "display_bezel" },
+            };
+            for (const auto& e : entries)
+            {
+                const auto* part = mesh.find (e.part);
+                if (part == nullptr)
+                    continue;
+                std::map<std::array<float, 3>, double> area;
+                const auto& v = part->vertices;
+                constexpr size_t n = MeshPart::floatsPerVertex;
+                for (size_t t = 0; t + 2 < part->indices.size(); t += 3)
+                {
+                    const float* a = &v[part->indices[t] * n];
+                    const float* b = &v[part->indices[t + 1] * n];
+                    const float* c = &v[part->indices[t + 2] * n];
+                    const juce::Vector3D<float> ab (b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+                    const juce::Vector3D<float> ac (c[0] - a[0], c[1] - a[1], c[2] - a[2]);
+                    area[{ a[6], a[7], a[8] }] += 0.5 * (double) (ab ^ ac).length();
+                }
+                auto best = std::max_element (area.begin(), area.end(),
+                                              [] (const auto& x, const auto& y) { return x.second < y.second; });
+                if (best == area.end())
+                    continue;
+                swatches.push_back ({ e.name, { best->first[0], best->first[1], best->first[2] } });
+            }
+            if (debugView == 5)
+            {
+                juce::String line ("card:");
+                for (const auto& sw : swatches)
+                    line << " " << sw.name << "=" << juce::String (sw.linear.x, 4) << "," << juce::String (sw.linear.y, 4)
+                         << "," << juce::String (sw.linear.z, 4);
+                log.line (line);
+            }
+        }
 
         glGenVertexArrays (1, &emptyVao);
 
@@ -304,7 +447,7 @@ namespace halo
         // The shadow map samples its depth texture with hardware comparison. The
         // height map keeps model z in a half-float colour texture, which (unlike
         // a depth texture) filters smoothly everywhere.
-        auto makeTarget = [] (DepthTarget& target, int width, int height, bool shadow)
+        auto makeTarget = [this] (DepthTarget& target, int width, int height, bool shadow)
         {
             target.width = width;
             target.height = height;
@@ -347,7 +490,7 @@ namespace halo
                 glDrawBuffer (GL_COLOR_ATTACHMENT0);
             }
             if (glCheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-                DBG ("stage: map target incomplete");
+                log.line ("map target incomplete (" + juce::String (width) + "x" + juce::String (height) + ")");
             glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) previous);
         };
         makeTarget (shadowTarget, shadowMapSize, shadowMapSize, true);
@@ -372,6 +515,8 @@ namespace halo
         partShader.reset();
         depthShader.reset();
         backgroundShader.reset();
+        cardShader.reset();
+        stats.release();
         for (auto* target : { &shadowTarget, &heightTarget })
         {
             if (target->fbo != 0) glDeleteFramebuffers (1, &target->fbo);
@@ -398,6 +543,11 @@ namespace halo
                 anim.led = ledFloor + ledScale * target.velocity * target.velocity;
             }
             const float depth = target.held ? travelMin + (travelMax - travelMin) * target.velocity : 0.0f;
+            if (pose)
+            {
+                anim.depth = depth; // frozen: the pose shows the settled state
+                continue;
+            }
             const float tau = depth > anim.depth ? pressTau : releaseTau;
             anim.depth += (depth - anim.depth) * (1.0f - std::exp (-dt / tau));
             if (! target.held)
@@ -437,6 +587,7 @@ namespace halo
             const auto m = partsInWorld ? then (partToModel[p], toWorld) : partToModel[p];
             depthShader->setUniformMat4 ("uModel", m.mat, 1, false);
             glBindVertexArray (mesh.parts[p].vao);
+            ++stats.geometryDraws;
             glDrawElements (GL_TRIANGLES, (GLsizei) mesh.parts[p].indices.size(), GL_UNSIGNED_INT, nullptr);
         }
         glBindVertexArray (0);
@@ -445,8 +596,10 @@ namespace halo
 
     void StageComponent::drawBackground()
     {
-        if (backgroundShader == nullptr)
+        if (backgroundShader == nullptr || debugView >= 6) // mask, albedo, emissive: black
             return;
+        if (debugView == 5)
+            return drawCard();
 
         const auto& c = HaloColours::graphPaper;
         const auto scale = (float) context.getRenderingScale();
@@ -463,8 +616,31 @@ namespace halo
         glDrawArrays (GL_TRIANGLES, 0, 3);
     }
 
+    // HALO_STAGE_DEBUG=5: one horizontal band per swatch, top to bottom in the
+    // logged order, each the unlit albedo through the active tone curve.
+    void StageComponent::drawCard()
+    {
+        if (cardShader == nullptr || swatches.empty())
+            return;
+        cardShader->use();
+        const auto scale = (float) context.getRenderingScale();
+        cardShader->setUniform ("uHeight", (float) getHeight() * scale);
+        cardShader->setUniform ("uCount", (int) swatches.size());
+        cardShader->setUniform ("uExposure", 1.0f);
+        for (size_t i = 0; i < swatches.size() && i < 16; ++i)
+        {
+            const auto name = "uSwatch[" + juce::String ((int) i) + "]";
+            cardShader->setUniform (name.toRawUTF8(), swatches[i].linear.x, swatches[i].linear.y, swatches[i].linear.z);
+        }
+        glDisable (GL_DEPTH_TEST);
+        glBindVertexArray (emptyVao);
+        glDrawArrays (GL_TRIANGLES, 0, 3);
+    }
+
     void StageComponent::drawGround (const Mat& viewProj)
     {
+        if (debugView >= 5)
+            return;
         Mat identity;
         partShader->setUniformMat4 ("uModel", modelToWorld().mat, 1, false);
         partShader->setUniformMat4 ("uPartToModel", identity.mat, 1, false);
@@ -538,6 +714,7 @@ namespace halo
             partShader->setUniform ("uGlow", glow.x, glow.y, glow.z);
 
             glBindVertexArray (part.vao);
+            ++stats.geometryDraws;
             glDrawElements (GL_TRIANGLES, (GLsizei) part.indices.size(), GL_UNSIGNED_INT, nullptr);
         }
         glBindVertexArray (0);
@@ -563,6 +740,50 @@ namespace halo
         const int h = juce::roundToInt (scale * (float) getHeight());
         const bool ready = meshLoaded && partShader != nullptr && depthShader != nullptr && w > 0 && h > 0;
 
+        stats.beginFrame();
+        renderFrame (state, nowSeconds, dt, w, h, ready);
+        stats.endFrame ("continuous");
+        if (statsEnabled)
+            if (const auto line = stats.poll (nowSeconds, tierName); line.isNotEmpty())
+                log.line (line);
+        if (ready)
+            noteFrameForReady (w, h);
+    }
+
+    // HALO_STAGE_READY: logged once the stage has drawn 30 frames at one size
+    // for half a second (and again after every later resize), so
+    // tools/dev/stage_shots.ps1 knows when a screenshot shows a settled frame.
+    void StageComponent::noteFrameForReady (int w, int h)
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (w != readyWidth || h != readyHeight)
+        {
+            readyWidth = w;
+            readyHeight = h;
+            framesAtSize = 0;
+            sizeSince = now;
+            readyLogged = false;
+        }
+        ++framesAtSize;
+        if (readyLogged || framesAtSize < 30 || now - sizeSince < 0.5)
+            return;
+        readyLogged = true;
+        juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<StageComponent> (this), w, h]
+        {
+            if (safe == nullptr)
+                return;
+            // Physical screen pixels, so a DPI-aware capture can crop the stage.
+            const auto bounds = safe->getScreenBounds();
+            const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (bounds);
+            const double s = display != nullptr ? display->scale : 1.0;
+            safe->log.line ("HALO_STAGE_READY stage=" + juce::String (juce::roundToInt (bounds.getX() * s)) + ","
+                            + juce::String (juce::roundToInt (bounds.getY() * s)) + ","
+                            + juce::String (w) + "," + juce::String (h) + " scale=" + juce::String (s, 3));
+        });
+    }
+
+    void StageComponent::renderFrame (const SharedState& state, double nowSeconds, float dt, int w, int h, bool ready)
+    {
         GLint mainFramebuffer = 0;
         glGetIntegerv (GL_FRAMEBUFFER_BINDING, &mainFramebuffer);
 
@@ -584,7 +805,7 @@ namespace halo
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         drawBackground();
-        if (! ready)
+        if (! ready || debugView == 5)
             return;
 
         const float yaw = juce::degreesToRadians (yawDegrees.load());
@@ -627,7 +848,8 @@ namespace halo
         partShader->setUniform ("uExposure", 1.0f);
         partShader->setUniform ("uDebug", debugView);
 
-        drawModel (viewProj, state, (float) (nowSeconds - startTime));
+        // A pose freezes the clock too, so two captures of one pose match.
+        drawModel (viewProj, state, pose ? 1.0f : (float) (nowSeconds - startTime));
         drawGround (viewProj); // after the device: the floor beneath it fails the depth test
     }
 }

@@ -1,8 +1,11 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "Core/StagePose.h"
 #include "Stage/DisplayRenderer.h"
 #include "Stage/HaloMesh.h"
+#include "Stage/StageLog.h"
+#include "Stage/StageStats.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_opengl/juce_opengl.h>
@@ -75,7 +78,19 @@ namespace halo
             int width = 0, height = 0;
         };
 
+        // A material swatch for the HALO_STAGE_DEBUG=5 card: the dominant
+        // albedo (by area) of one named part.
+        struct Swatch
+        {
+            juce::String name;
+            juce::Vector3D<float> linear;
+        };
+
         void animatePads (const SharedState&, float dt);
+        void drawCard();
+        void renderFrame (const SharedState&, double nowSeconds, float dt, int width, int height, bool ready);
+        void noteFrameForReady (int width, int height);
+        void applyPose (const StagePose&);
         void drawDepth (const DepthTarget&, const juce::Matrix3D<float>& viewProj, bool partsInWorld);
         void drawBackground();
         void drawGround (const juce::Matrix3D<float>& viewProj);
@@ -87,7 +102,7 @@ namespace halo
 
         // GL-thread state
         HaloMesh mesh;
-        std::unique_ptr<juce::OpenGLShaderProgram> partShader, depthShader, backgroundShader;
+        std::unique_ptr<juce::OpenGLShaderProgram> partShader, depthShader, backgroundShader, cardShader;
         juce::OpenGLTexture displayTexture, printTexture;
         DepthTarget shadowTarget, heightTarget;
         GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
@@ -99,6 +114,17 @@ namespace halo
         double lastFrameTime = 0.0, startTime = 0.0;
         bool meshLoaded = false;
         int debugView = 0; // HALO_STAGE_DEBUG
+        std::vector<Swatch> swatches;
+
+        // Dev hooks and diagnostics (docs/redesign/riddim-3d-plan.md, section 8).
+        StageLog log;
+        StageStats stats;
+        bool statsEnabled = false;          // HALO_STAGE_STATS=1
+        juce::String tierName { "high" };   // HALO_STAGE_TIER (only "high" exists before M2)
+        std::optional<StagePose> pose;      // HALO_STAGE_POSE: frozen input and clock
+        int readyWidth = 0, readyHeight = 0, framesAtSize = 0;
+        double sizeSince = 0.0;
+        bool readyLogged = false;
 
         // Shared between threads
         juce::SpinLock lock;
