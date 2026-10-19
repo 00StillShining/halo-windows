@@ -202,6 +202,17 @@ namespace halo
             log.line ("tone mapper: " + juce::String (std::string (tone::name (shared.look.toneMapper))));
         }
 
+        // HALO_STAGE_GLASS=sheen[,roughness[,peak]]: tune (or with 0, remove)
+        // the screen acrylic's reflection.
+        if (const auto glass = juce::StringArray::fromTokens (env ("HALO_STAGE_GLASS"), ",", {}); glass.size() > 0)
+        {
+            glassSheen = glass[0].getFloatValue();
+            if (glass.size() > 1) glassRoughness = glass[1].getFloatValue();
+            if (glass.size() > 2) glassPeak = glass[2].getFloatValue();
+            log.line ("glass: sheen " + juce::String (glassSheen) + " roughness " + juce::String (glassRoughness)
+                      + " peak " + juce::String (glassPeak));
+        }
+
         if (const auto text = env ("HALO_STAGE_POSE"); text.isNotEmpty())
         {
             pose = StagePose::parse (text.toStdString());
@@ -1085,6 +1096,9 @@ namespace halo
         partProgram.set ("uRimE", rim.irradiance[0] * look.rimIntensity, rim.irradiance[1] * look.rimIntensity, rim.irradiance[2] * look.rimIntensity);
         partProgram.set ("uKeyRadius", key.angularRadius);
         partProgram.set ("uSpecular", 1.0f);
+        partProgram.set ("uGlassSheen", glassSheen);
+        partProgram.set ("uGlassRoughness", glassRoughness);
+        partProgram.set ("uGlassPeak", glassPeak);
         partProgram.set ("uExposure", look.exposure);
         partProgram.set ("uToneMapper", (int) look.toneMapper);
         partProgram.set ("uDebug", debugView);

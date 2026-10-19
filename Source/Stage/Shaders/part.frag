@@ -36,6 +36,9 @@ uniform vec3 uKeyDir, uRimDir;  // towards the lights, world
 uniform vec3 uKeyE, uRimE;      // irradiance at normal incidence (look intensities applied)
 uniform float uKeyRadius;       // angular radius of the key softbox (rad)
 uniform float uSpecular;        // look: scales the studio reflections (rim intensity)
+uniform float uGlassSheen;      // screen acrylic: reflection scale (0 = no sheen)
+uniform float uGlassRoughness;  // screen acrylic: perceptual roughness of the sheen
+uniform float uGlassPeak;       // screen acrylic: soft ceiling of the sheen (linear luma)
 uniform float uExposure;
 uniform int uToneMapper;
 uniform int uDebug;           // 0 normal; 1 AO, 2 key shadow, 3 height contours, 4 floor terms,
@@ -269,8 +272,13 @@ void main()
         vec3 tex = srgbDecode (texture (uTexture, vUV).rgb);
         if (uDebug == 7 || uDebug == 8) { fragColour = displayValue (srgbEncode (tex)); return; }
         // The only truly glossy surface: acrylic over the backlit LCD, with
-        // the studio's rim strip streaking across it.
-        vec3 glass = studioSpecular (n, v, specularAA (n, 0.05), shadow, 1.0);
+        // the studio's rim strip crossing it as a soft diagonal sheen. The
+        // screen is the stage's most important surface, so the sheen is a
+        // highlight, never a veil: scaled (uGlassSheen) and rolled off toward
+        // a ceiling of about a third of the LCD's own range, so icons and
+        // digits stay readable through it at every framing.
+        vec3 glass = studioSpecular (n, v, specularAA (n, uGlassRoughness), shadow, 1.0) * uGlassSheen;
+        glass /= 1.0 + luma (glass) / uGlassPeak;
         vec3 c = tex * mix (0.86, 1.0, shadow) * mix (0.8, 1.0, ao) + glass;
         fragColour = radiance (c);
         return;

@@ -136,6 +136,8 @@ namespace halo
         Environment environment;
         juce::Vector3D<float> keyDirection { -0.45f, 1.0f, 0.55f }; // from the studio; the shadow map follows it
         bool lookChanged = false;
+        // The screen acrylic's sheen: scale, roughness, soft ceiling (linear luma).
+        float glassSheen = 0.55f, glassRoughness = 0.05f, glassPeak = 0.13f;
         bool fxaaEngaged = false;
         int framesSinceShaderCheck = 0;
         juce::OpenGLTexture displayTexture, printTexture;

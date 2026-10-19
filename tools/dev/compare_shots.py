@@ -371,6 +371,39 @@ def cmd_regions(args):
     return 1 if failed else 0
 
 
+def cmd_glass(args):
+    """The screen sheen against the same framing with the sheen removed
+    (HALO_STAGE_GLASS=0): where the sheen lies, how bright its peak is, and how
+    much of the LCD's local contrast survives under it."""
+    from scipy import ndimage
+    a, ma = load(args.shot)
+    b, mb = load(args.bare)
+    a = stage_crop(a, ma).astype(float)
+    b = stage_crop(b, mb).astype(float)
+    la = a @ np.array([0.2126, 0.7152, 0.0722])
+    lb = b @ np.array([0.2126, 0.7152, 0.0722])
+    sheen = (la - lb) > args.threshold
+    sheen = ndimage.binary_opening(sheen, iterations=1)
+    if sheen.sum() == 0:
+        print("no sheen found")
+        return 0
+    # The LCD's own fine detail (icon and digit edges, a narrow high-pass the
+    # sheen's soft gradients barely reach), inside the sheen.
+    hp = lambda l: l - ndimage.gaussian_filter(l, 1.5)
+    region = ndimage.binary_erosion(sheen, iterations=2)
+    if region.sum() < 50:
+        region = sheen
+    ca, cb = hp(la)[region].std(), hp(lb)[region].std()
+    ratio = ca / max(cb, 1e-6)
+    peak = a[sheen].max()
+    lift = (la - lb)[sheen]
+    ok = ratio >= args.min_contrast and peak < 250
+    print(f"sheen {int(sheen.sum())} px; lift mean {lift.mean():.1f} p95 {np.percentile(lift, 95):.1f} max {lift.max():.1f} (8-bit luma); "
+          f"peak channel {peak:.0f}; LCD local contrast under it {ratio * 100:.0f}% of bare -> "
+          f"{'ok' if ok else 'FAIL'} (>= {args.min_contrast * 100:.0f}%, peak < 250)")
+    return 0 if ok else 1
+
+
 def cmd_sheet(args):
     tiles = []
     for p in args.shots:
@@ -457,6 +490,13 @@ def main(argv=None):
     s.add_argument("--tol", type=int, default=1)
     s.add_argument("--normals", help="HALO_STAGE_DEBUG=9 shot from the same camera: limits 'deck' to up-facing pixels")
     s.set_defaults(func=cmd_regions)
+
+    s = sub.add_parser("glass")
+    s.add_argument("shot")
+    s.add_argument("--bare", required=True, help="the same framing with HALO_STAGE_GLASS=0")
+    s.add_argument("--threshold", type=float, default=4.0)
+    s.add_argument("--min-contrast", type=float, default=0.6)
+    s.set_defaults(func=cmd_glass)
 
     s = sub.add_parser("sheet")
     s.add_argument("out")

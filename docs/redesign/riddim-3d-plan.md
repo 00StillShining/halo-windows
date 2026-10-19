@@ -1389,3 +1389,14 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   with a grounded contact shadow. Open: RECORD's highlight (above), white keys a touch brighter
   than TE's photo, the glass streak is strong at `rack` framing, and proportions and artwork are
   still the carried-over Blender asset (M5a/M5b).
+
+### M3 follow-up: screen sheen (review note)
+
+- The rim streak blew the left half of the LCD out to near-white (peak channel 254, LCD detail
+  under it down to 48 % of the bare screen at `rack`). The acrylic's reflection is now a sheen:
+  scaled by 0.55 and rolled off toward a ceiling of 0.13 linear luma (`uGlassSheen`,
+  `uGlassPeak`; `HALO_STAGE_GLASS=sheen,roughness,peak` tunes it in Debug, `0` removes it).
+- `tools/dev/stage_glass.ps1` shoots `hero`, `keys`, `rack`, `small` in both looks with and
+  without the sheen; `compare_shots.py glass` reports the sheen's lift, its peak and the LCD's
+  fine detail under it. Now: peak channel 241-242 (no clipping), mean lift 20-22 / 255, LCD detail
+  under the sheen 82-88 % of the bare screen in all eight shots (target >= 60 %).
