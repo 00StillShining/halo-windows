@@ -10,22 +10,26 @@ namespace halo
     void ClockTracker::reset() noexcept
     {
         count = 0;
+        stored = 0;
+        head = 0;
         lastClock.reset();
-        smoothedInterval.reset();
     }
 
     void ClockTracker::tick (double timeSeconds) noexcept
     {
         ++count;
 
-        if (lastClock)
+        // A long gap (or time going backwards) means the clock restarted:
+        // don't average across it.
+        if (lastClock && (timeSeconds - *lastClock > gapResetSeconds || timeSeconds < *lastClock))
         {
-            const double interval = timeSeconds - *lastClock;
-            if (interval > 0.001 && interval < 0.20)
-                smoothedInterval = smoothedInterval ? *smoothedInterval * 0.84 + interval * 0.16 : interval;
-            else
-                smoothedInterval.reset();
+            stored = 0;
+            head = 0;
         }
+
+        times[(std::size_t) head] = timeSeconds;
+        head = (head + 1) % (int) times.size();
+        stored = std::min (stored + 1, (int) times.size());
         lastClock = timeSeconds;
     }
 
@@ -36,9 +40,16 @@ namespace halo
 
     std::optional<double> ClockTracker::secondsPerClock (double nowSeconds) const noexcept
     {
-        if (isStale (nowSeconds) || ! smoothedInterval || *smoothedInterval <= 0.0)
+        if (isStale (nowSeconds) || stored < minimumTicks + 1)
             return std::nullopt;
-        return smoothedInterval;
+
+        const auto size = (int) times.size();
+        const double newest = times[(std::size_t) ((head - 1 + size) % size)];
+        const double oldest = times[(std::size_t) ((head - stored + size) % size)];
+        const double span = newest - oldest;
+        if (span <= 0.0)
+            return std::nullopt;
+        return span / (double) (stored - 1);
     }
 
     std::optional<double> ClockTracker::bpm (double nowSeconds) const noexcept

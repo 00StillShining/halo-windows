@@ -4,6 +4,8 @@
 
 #include "Core/DisplayReducer.h"
 
+#include <cmath>
+
 using namespace halo;
 
 namespace
@@ -91,6 +93,38 @@ TEST_CASE ("MIDI clock produces a tempo reading")
     CHECK (r.state().value == 120);
     REQUIRE (r.clock().bpm (t).has_value());
     CHECK (*r.clock().bpm (t) == doctest::Approx (120.0).epsilon (0.01));
+}
+
+TEST_CASE ("bursty clock delivery still reads the true tempo (EP-40 at 180 read 179.2)")
+{
+    // Windows hands MIDI over in small bursts: ticks arrive quantised to a
+    // ~2 ms delivery grid, several sometimes sharing one timestamp.
+    DisplayReducer r;
+    r.connectionChanged (true);
+    const double perClock = 60.0 / (180.0 * 24.0);
+    double t = 0.0;
+    for (int i = 0; i < 400; ++i)
+    {
+        const double delivered = std::ceil ((10.0 + i * perClock) / 0.002) * 0.002;
+        r.apply (simple (MidiKind::timingClock, delivered), delivered);
+        t = delivered;
+    }
+    REQUIRE (r.clock().bpm (t).has_value());
+    CHECK (*r.clock().bpm (t) == doctest::Approx (180.0).epsilon (0.002));
+    CHECK (r.state().value == 180);
+}
+
+TEST_CASE ("a clock gap restarts the tempo window")
+{
+    DisplayReducer r;
+    r.connectionChanged (true);
+    double t = 0.0;
+    for (int i = 0; i < 96; ++i, t += 60.0 / (90.0 * 24.0))
+        r.apply (simple (MidiKind::timingClock, t), t);
+    t += 0.3; // clock paused, then resumes at 140 BPM
+    for (int i = 0; i < 40; ++i, t += 60.0 / (140.0 * 24.0))
+        r.apply (simple (MidiKind::timingClock, t), t);
+    CHECK (*r.clock().bpm (t) == doctest::Approx (140.0).epsilon (0.001));
 }
 
 TEST_CASE ("Stop forgets the clock (Mac audit finding #5)")

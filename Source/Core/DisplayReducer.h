@@ -3,21 +3,29 @@
 #include "Core/DisplayState.h"
 #include "Core/MidiEvent.h"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <vector>
 
 namespace halo
 {
-    // MIDI clock tempo tracker (port of HaloAppModel.updateTempo). Unlike the
-    // Mac version it has a freshness timeout, so a vanished clock can't leave a
-    // stale BPM behind (Mac audit finding #5).
+    // MIDI clock tempo tracker. Two changes from the Mac's updateTempo:
+    //  - a freshness timeout, so a vanished clock can't leave a stale BPM
+    //    (Mac audit finding #5);
+    //  - tempo comes from the span across a window of ticks, not a smoothed
+    //    per-tick interval. Windows delivers clock in small bursts; the
+    //    per-tick filter discarded the near-zero gaps inside a burst and read
+    //    a 180 BPM EP-40 as 179.2.
     class ClockTracker
     {
     public:
         static constexpr double staleAfterSeconds = 0.5;
+        static constexpr double gapResetSeconds = 0.2;
         static constexpr int clocksPerQuarter = 24;
         static constexpr int clocksPerBar = 96;
+        static constexpr int windowTicks = 96;  // one bar
+        static constexpr int minimumTicks = 12; // half a beat before reading
 
         void reset() noexcept;
         void tick (double timeSeconds) noexcept;
@@ -36,8 +44,10 @@ namespace halo
 
     private:
         int count = 0;
+        std::array<double, windowTicks + 1> times {}; // ring of recent tick times
+        int stored = 0;                                 // valid entries, up to windowTicks + 1
+        int head = 0;                                   // next write position
         std::optional<double> lastClock;
-        std::optional<double> smoothedInterval;
     };
 
     // Turns observed MIDI into the replica display's state. A port of the
