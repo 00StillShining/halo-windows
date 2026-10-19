@@ -18,7 +18,8 @@ Repo: `00StillShining/halo` (25 commits, last activity 2026-07-14). Reviewed 202
 > - **Mac bugs fixed in the port:**
 >   - Stop clears the clock, and the clock has a 0.5 s freshness timeout (A1.5).
 >   - A MIDI overflow releases all pads instead of dropping a Note Off (A1.9).
-> - **Open question:** the EP-40 clock read 179.2 BPM. Is that its real tempo, or does it send clock at double rate?
+> - **Owner hardware check (2026-10-19):** the owner pressed pads in all four groups on the real EP-40, and the correct keys moved and lit in the Windows app.
+> - **Open question:** the EP-40 clock read 179.2 BPM. Is that its real tempo, or does it send clock at double rate? (The tempo value is still to be confirmed by the owner.)
 
 ---
 
