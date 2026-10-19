@@ -2,7 +2,7 @@
 # PW_RENDERFULLCONTENT, so the OpenGL stage is included and other windows
 # on top of it are not.
 # Usage: powershell -File tools\dev\screenshot.ps1 -Out build\shot.png
-param([string]$Out = "build\halo-shot.png", [string]$Process = "Halo")
+param([string]$Out = "build\halo-shot.png", [string]$Process = "Halo", [int]$ProcessId = 0)
 
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
@@ -17,7 +17,8 @@ public static class HaloWin {
 "@
 [void][HaloWin]::SetProcessDPIAware()
 
-$proc = Get-Process -Name $Process -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+$proc = if ($ProcessId -ne 0) { Get-Process -Id $ProcessId -ErrorAction Stop }
+        else { Get-Process -Name $Process -ErrorAction Stop | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1 }
 $r = New-Object HaloWin+RECT
 [void][HaloWin]::GetWindowRect($proc.MainWindowHandle, [ref]$r)
 $w = $r.Right - $r.Left; $h = $r.Bottom - $r.Top
