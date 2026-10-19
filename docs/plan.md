@@ -24,7 +24,7 @@ Repo: `00StillShining/halo` (25 commits, last activity 2026-07-14). Reviewed 202
 >   - Fixed Mac bugs: the file is closed before it's read back (A1.1); dropped audio and low disk are reported (A1.2); the header uses the route's real rate (A1.3).
 >   - Also fixed: the Mac meter applied per-sample ballistics once per block, so release was hundreds of times too slow.
 >   - Verified: the route opens on the real EP-40 at 44.1 kHz, 480 frames, ~33 ms, and a take is a valid WAV.
->   - **Not yet verified:** hearing real EP-40 audio. The test take was digital silence; the EP-40 was idle and Windows' privacy setting allows input.
+>   - **Owner listening test (2026-10-19): passed.** EP-40 audio is heard clearly through a PC output, and the meters move.
 >   - Windows' default output on this PC *is* the EP-40, so halo asks you to pick another output rather than feed back.
 >   - Still to do in B3: GRAB (rolling buffer) and drift correction. JUCE's single WASAPI device runs input and output on separate clocks with no varispeed.
 > - **Owner hardware check (2026-10-19):** the owner pressed pads in all four groups on the real EP-40, and the correct keys moved and lit in the Windows app.
