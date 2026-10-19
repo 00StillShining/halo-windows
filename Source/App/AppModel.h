@@ -10,6 +10,8 @@
 #include "Core/PadHoldRegistry.h"
 #include "Core/RingState.h"
 #include "Core/SysEx.h"
+#include "Device/DeviceClient.h"
+#include "Device/Ep40Library.h"
 #include "Device/Ep40MidiConnection.h"
 #include "Device/ProtocolTrace.h"
 
@@ -25,7 +27,7 @@ namespace halo
     // The app's single source of truth on the message thread. A slimmed port of
     // HaloAppModel.swift: MIDI connection, display reducer, pad holds, and the
     // honest ring / lifecycle state. Audio, GRAB, rack and storage come later.
-    class AppModel : private juce::Timer
+    class AppModel : private juce::Timer, private juce::ChangeListener
     {
     public:
         struct Listener
@@ -74,6 +76,10 @@ namespace halo
         // Sends and traces one SysEx message. False if the EP-40 can't be written to.
         bool sendToDevice (const sysex::Bytes&, const juce::String& note = {});
 
+        // The EP-40's own sounds, pads and storage (TE protocol).
+        Ep40Library& device() noexcept { return deviceLibrary; }
+        DeviceClient& client() noexcept { return deviceClient; }
+
         // Audio monitor + recorder. Starts only on explicit action.
         MonitorEngine& monitor() noexcept { return engine; }
         void toggleMonitor();
@@ -107,6 +113,7 @@ namespace halo
 
     private:
         void timerCallback() override;
+        void changeListenerCallback (juce::ChangeBroadcaster*) override;
         void connectionChanged (Ep40MidiConnection::Status, const juce::String& name);
         void receive (const MidiEvent&);
         void releaseAllPads();
@@ -119,6 +126,9 @@ namespace halo
         std::shared_ptr<bool> aliveToken = std::make_shared<bool> (true);
         Ep40MidiConnection connection;
         ProtocolTrace protocolTrace;
+        DeviceClient deviceClient { [this] (const te::Bytes& b, const juce::String& note) { return sendToDevice (b, note); } };
+        Ep40Library deviceLibrary { deviceClient };
+        Ep40Library::State lastLibraryState = Ep40Library::State::idle;
         std::optional<sysex::Identity> identity;
         juce::String deviceOs; // from TE's own GREET reply, once that's implemented
         Settings settings;

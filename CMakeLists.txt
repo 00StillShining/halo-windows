@@ -32,7 +32,8 @@ add_library(HaloCore STATIC
     Source/Core/GrabMath.cpp
     Source/Core/MidiEvent.cpp
     Source/Core/SampleCore.cpp
-    Source/Core/SysEx.cpp)
+    Source/Core/SysEx.cpp
+    Source/Core/TeProtocol.cpp)
 target_include_directories(HaloCore PUBLIC Source)
 if(MSVC)
     target_compile_options(HaloCore PRIVATE /W4 /permissive-)
@@ -57,6 +58,8 @@ target_sources(Halo PRIVATE
     Source/Audio/MonitorEngine.cpp
     Source/Audio/SampleIO.cpp
     Source/Audio/SessionRecorder.cpp
+    Source/Device/DeviceClient.cpp
+    Source/Device/Ep40Library.cpp
     Source/Device/Ep40MidiConnection.cpp
     Source/Stage/HaloMesh.cpp
     Source/Stage/DisplayRenderer.cpp
@@ -116,7 +119,8 @@ add_executable(HaloTests
     Tests/GrabTests.cpp
     Tests/DubRackTests.cpp
     Tests/SampleTests.cpp
-    Tests/SysExTests.cpp)
+    Tests/SysExTests.cpp
+    Tests/TeProtocolTests.cpp)
 target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)

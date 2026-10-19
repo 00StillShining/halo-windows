@@ -42,14 +42,30 @@ namespace halo
                            + ", model " + juce::String::toHexString ((int) id->model)
                            + ", version " + juce::String (sysex::toHex (id->version)));
                 refreshStatus();
+
+                // The device byte for every TE frame comes from here (0x3C on the
+                // EP-40, 0x33 on an EP-133), then a read-only sync of its contents.
+                if (id->isTeenageEngineering())
+                {
+                    deviceClient.setDeviceId (id->deviceId);
+                    deviceLibrary.sync();
+                }
             }
             else
             {
                 protocolTrace.log ("RX", bytes);
+                deviceClient.handle (bytes);
             }
             if (onDeviceSysex)
                 onDeviceSysex (bytes);
         };
+
+        deviceClient.onDebug = [this] (const std::string& text)
+        {
+            appendLog ("EP-40 error text: " + juce::String (text).trim().substring (0, 60));
+            deviceLibrary.deviceReportedError (text);
+        };
+        deviceLibrary.addChangeListener (this);
 
         engine.onStateChanged = [this]
         {
@@ -269,6 +285,9 @@ namespace halo
 
             // Ask who it is (standard MIDI identity request; changes nothing).
             identity.reset();
+            deviceClient.reset();
+            deviceLibrary.clear();
+            deviceOs.clear();
             if (connected && ! mock)
                 juce::Timer::callAfterDelay (300, [this, alive = std::weak_ptr<bool> (aliveToken)]
                 {
@@ -277,6 +296,28 @@ namespace halo
                 });
         }
         refreshStatus();
+    }
+
+    void AppModel::changeListenerCallback (juce::ChangeBroadcaster*)
+    {
+        // Device library progress: surface the OS version and outcomes once.
+        const auto& lib = deviceLibrary;
+        if (lib.info().os.isNotEmpty() && deviceOs != lib.info().os)
+        {
+            deviceOs = lib.info().os;
+            appendLog ("EP-40: " + lib.info().product + " OS " + deviceOs + ", " + lib.info().sku);
+            refreshStatus();
+        }
+
+        if (lib.state() != lastLibraryState)
+        {
+            lastLibraryState = lib.state();
+            if (lastLibraryState == Ep40Library::State::ready)
+                appendLog ("EP-40 library: " + juce::String ((int) lib.sounds().size()) + " sounds, project "
+                           + juce::String (lib.activeProject()) + " pads read");
+            else if (lastLibraryState == Ep40Library::State::failed)
+                appendLog ("EP-40 library: " + lib.error());
+        }
     }
 
     bool AppModel::sendToDevice (const sysex::Bytes& bytes, const juce::String& note)
