@@ -83,6 +83,15 @@ namespace halo
         };
         addAndMakeVisible (sensitivity);
 
+        // LENGTH: how long each chop may play, 1-20 s.
+        lengthSlider.setSliderStyle (juce::Slider::LinearHorizontal);
+        lengthSlider.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+        lengthSlider.setRange (EditSession::minChopSeconds, maxSoundSeconds, 0.5);
+        lengthSlider.setValue (session.chopSeconds, juce::dontSendNotification);
+        lengthSlider.setTooltip ("How long each chop may be. Each slice starts at its cut and plays for up to this long, with a fade-out.");
+        lengthSlider.onValueChange = [this] { session.setChopSeconds (lengthSlider.getValue()); };
+        addAndMakeVisible (lengthSlider);
+
         detectButton.onClick = [this] { session.detect(); };
         clearButton.onClick = [this] { session.slices.clear(); session.selectedSlice.reset(); session.changed(); };
         closeButton.onClick = [this] { session.closeChop(); };
@@ -102,7 +111,7 @@ namespace halo
                 "Upload " + juce::String ((int) plan.writes.size()) + " slices (" + juce::String (formatBytes (plan.totalBytes))
                     + ") into empty USER slots, and assign them to group " + ep40::groupLabels[(size_t) plan.group].data()
                     + " pads in project " + juce::String (project) + "?" + juce::newLine + juce::newLine
-                    + (plan.trimmedCount > 0 ? juce::String (plan.trimmedCount) + " slice(s) are auto-trimmed to "
+                    + (plan.trimmedCount > 0 ? juce::String (plan.trimmedCount) + " slice(s) are cut to "
                                                    + juce::String (session.sliceCapSeconds(), 1) + " s." + juce::newLine
                                              : juce::String())
                     + "Takes " + Ep40Writer::expectedTime (plan.totalBytes) + " (the EP-40 takes about 40 KB/s; MONO or a LO quality is quicker)." + juce::newLine
@@ -199,11 +208,14 @@ namespace halo
     juce::String ChopSurface::trimNote() const
     {
         const auto plan = session.plan();
-        if (! session.autoTrim || plan.trimmedCount == 0)
+        if (plan.trimmedCount == 0)
             return {};
-        return "AUTO-TRIM: " + juce::String (plan.trimmedCount) + (plan.trimmedCount == 1 ? " slice" : " slices")
-               + " cut to " + juce::String (session.sliceCapSeconds(), 1) + " s"
-               + (session.capLimitedBySpace() ? " to fit the EP-40's free memory" : " (the EP-40's limit)")
+        const auto why = session.capLimitedBySpace() ? juce::String (" to fit the EP-40's free memory")
+                       : session.lengthIsLimit()     ? juce::String (" (your LENGTH)")
+                                                     : juce::String (" (the EP-40's limit)");
+        return juce::String (session.capLimitedBySpace() || ! session.lengthIsLimit() ? "AUTO-TRIM: " : "LENGTH: ")
+               + juce::String (plan.trimmedCount) + (plan.trimmedCount == 1 ? " slice" : " slices")
+               + " cut to " + juce::String (session.sliceCapSeconds(), 1) + " s" + why
                + ", from each slice's start, with a fade-out. The shaded tails are dropped.";
     }
 
@@ -213,6 +225,8 @@ namespace halo
         const auto& info = model.device().info();
         session.spaceBudgetBytes = model.device().state() == Ep40Library::State::ready && info.freeBytes >= 0 ? info.freeBytes : -1;
         autoTrimButton.setToggleState (session.autoTrim, juce::dontSendNotification);
+        if (! lengthSlider.isMouseButtonDown())
+            lengthSlider.setValue (session.chopSeconds, juce::dontSendNotification);
 
         for (size_t i = 0; i < sliceButtons.size(); ++i)
             sliceButtons[i].setToggleState (session.sliceChoice == sliceChoices[i], juce::dontSendNotification);
@@ -276,10 +290,14 @@ namespace halo
         slicesLabel = sliceRow.removeFromLeft (100);
         for (auto& b : sliceButtons)
             b.setBounds (sliceRow.removeFromLeft (&b == &sliceButtons[0] ? 84 : 60).reduced (2));
-        sliceRow.removeFromLeft (16);
+        sliceRow.removeFromLeft (10);
         evenButton.setBounds (sliceRow.removeFromLeft (80).reduced (2));
         sliceRow.removeFromLeft (8);
-        autoTrimButton.setBounds (sliceRow.removeFromLeft (120).reduced (2));
+        autoTrimButton.setBounds (sliceRow.removeFromLeft (112).reduced (2));
+        sliceRow.removeFromLeft (12);
+        lengthLabel = sliceRow.removeFromLeft (52);
+        lengthSlider.setBounds (sliceRow.removeFromLeft (juce::jmin (200, sliceRow.getWidth() - 46)));
+        lengthValue = sliceRow.removeFromLeft (46);
         hintArea = area.removeFromTop (22);
         area.removeFromTop (6);
 
@@ -332,6 +350,12 @@ namespace halo
         g.setColour (c.inkSoft);
         g.drawText ("SENSITIVITY", sensitivityLabel, juce::Justification::centredLeft);
         g.drawText ("SLICES", slicesLabel, juce::Justification::centredLeft);
+        g.drawText ("LENGTH", lengthLabel, juce::Justification::centredLeft);
+        g.setFont (HaloType::mono (12.0f));
+        g.setColour (session.lengthIsLimit() ? c.orange : c.ink);
+        g.drawText (juce::String (session.chopSeconds, 1) + " s", lengthValue.withTrimmedLeft (4), juce::Justification::centredLeft);
+        g.setFont (HaloType::label (11.0f, false));
+        g.setColour (c.inkSoft);
         g.setFont (HaloType::mono (11.0f));
         g.drawText ("click a slice or press 1-9, 0 to hear it  |  double-click: add cut  |  drag a marker: move  |  right-click a marker or Delete: remove",
                     hintArea, juce::Justification::centredLeft, true);

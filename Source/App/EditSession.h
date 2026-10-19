@@ -79,9 +79,16 @@ namespace halo
         bool autoTrim = true;
         long long spaceBudgetBytes = -1;
         void setAutoTrim (bool on) { autoTrim = on; sendChangeMessage(); }
+        // LENGTH: how long each chop may be, 1-20 s. Each slice still starts at
+        // its cut and plays for up to this long (shorter chops = one-shots).
+        // Under 20 s it applies even with AUTO-TRIM off: it's your choice.
+        static constexpr double minChopSeconds = 1.0;
+        double chopSeconds = maxSoundSeconds;
+        void setChopSeconds (double s) { chopSeconds = juce::jlimit (minChopSeconds, maxSoundSeconds, s); sendChangeMessage(); }
+        bool lengthIsLimit() const noexcept { return chopSeconds < maxSoundSeconds; }
         int sliceCapFrames() const;      // 0 = no cap
         double sliceCapSeconds() const;  // 0 = no cap
-        bool capLimitedBySpace() const;  // the cap is under 20 s because of free memory
+        bool capLimitedBySpace() const;  // the cap is under LENGTH because of free memory
         chop::Slice playedPart (const chop::Slice&) const; // the part of a slice that's kept
 
         void openChop();

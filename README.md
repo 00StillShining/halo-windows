@@ -53,6 +53,7 @@ Debug builds read these environment variables, so each state can be screenshotte
 | `HALO_AUTOGRAB=<seconds>[,bars]` | GRABs once after that long |
 | `HALO_OPEN=<path>[\|chop]` | Opens a file in EDIT (or CHOP) without importing it |
 | `HALO_AUTOEXPORT=edit\|slices` | Exports once the opened file has loaded |
+| `HALO_CHOP_SECONDS=<1-20>` | Sets CHOP's LENGTH (how long each chop may be) |
 
 Tools:
 - `tools\dev\screenshot.ps1` captures just the Halo window.

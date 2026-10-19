@@ -42,7 +42,7 @@ namespace halo
         EditSession& session;
         WaveformView waveform;
         PadGrid pads;
-        juce::Slider sensitivity;
+        juce::Slider sensitivity, lengthSlider;
         juce::TextButton detectButton { "DETECT" }, clearButton { "CLEAR CUTS" }, closeButton { "CLOSE" },
                          exportButton { "EXPORT SLICES" }, sendButton { "SEND TO PADS" }, showButton { "SHOW" };
         std::array<juce::TextButton, 5> sliceButtons; // FIT 4 8 16 ALL
@@ -51,6 +51,6 @@ namespace halo
         std::array<juce::TextButton, 4> groupButtons;
         std::array<juce::TextButton, 5> qualityButtons;
         juce::TextEditor nameEditor;
-        juce::Rectangle<int> headerArea, hintArea, sensitivityLabel, planArea, qualityLabel, nameLabel, totalsArea, statusArea, noteArea;
+        juce::Rectangle<int> headerArea, hintArea, sensitivityLabel, lengthLabel, lengthValue, planArea, qualityLabel, nameLabel, totalsArea, statusArea, noteArea;
     };
 }

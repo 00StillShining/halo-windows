@@ -58,6 +58,9 @@ namespace halo
                 item.file = juce::File (open[0]);
                 item.title = item.file.getFileNameWithoutExtension();
                 model->openInEditor (item, open[1] == "chop");
+                // HALO_CHOP_SECONDS=<1-20>: CHOP's LENGTH.
+                if (const auto secs = env ("HALO_CHOP_SECONDS"); secs.isNotEmpty())
+                    model->editor().setChopSeconds (secs.getDoubleValue());
 
                 // HALO_AUTOEXPORT=edit|slices: export once the file has loaded.
                 const auto what = env ("HALO_AUTOEXPORT");

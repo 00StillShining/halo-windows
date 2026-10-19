@@ -323,11 +323,11 @@ namespace halo
     double EditSession::capSeconds (bool& bySpace) const
     {
         bySpace = false;
-        if (! autoTrim || source == nullptr || source->sampleRate <= 0.0)
+        if (source == nullptr || source->sampleRate <= 0.0 || (! autoTrim && ! lengthIsLimit()))
             return 0.0;
         // A hair under 20 s, so resampling rounding can't tip a slice over.
-        const double maxSeconds = maxSoundSeconds - 0.01;
-        if (spaceBudgetBytes < 0)
+        const double maxSeconds = juce::jmin (chopSeconds, maxSoundSeconds - 0.01);
+        if (! autoTrim || spaceBudgetBytes < 0)
             return maxSeconds;
 
         // Only the slices that land on pads are uploaded.
