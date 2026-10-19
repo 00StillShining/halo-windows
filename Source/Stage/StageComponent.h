@@ -4,7 +4,10 @@
 #include "Core/StageCamera.h"
 #include "Core/StagePose.h"
 #include "Stage/DisplayRenderer.h"
+#include "Stage/GlProgram.h"
 #include "Stage/HaloMesh.h"
+#include "Stage/RenderTargets.h"
+#include "Stage/ShaderLibrary.h"
 #include "Stage/StageLog.h"
 #include "Stage/StageLook.h"
 #include "Stage/StageStats.h"
@@ -94,23 +97,43 @@ namespace halo
             juce::Vector3D<float> linear;
         };
 
+        // How the ring pool looks for a ring state: 0 none, 1 discover sweep, 2 steady.
+        struct RingLight
+        {
+            int mode = 0;
+            float level = 0.0f;
+        };
+
         void animatePads (const SharedState&, float dt);
-        void drawCard();
         void renderFrame (const SharedState&, double nowSeconds, float dt, int width, int height, bool ready);
+        void renderHigh (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);
+        void renderLow (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);
         void noteFrameForReady (int width, int height);
         void applyPose (const StagePose&);
+        bool buildPrograms();
+        void releasePrograms();
+        void runToneSelfTest();
         void drawDepth (const DepthTarget&, const juce::Matrix3D<float>& viewProj, bool partsInWorld);
-        void drawBackground();
-        void drawGround (const juce::Matrix3D<float>& viewProj, const SharedState&, float time);
-        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&, float time);
+        void drawBackground (int height);
+        void drawCard (int height);
+        void setPartUniforms (const StageView&, const juce::Matrix3D<float>& lightViewProj);
+        void drawGround (const juce::Matrix3D<float>& viewProj, const SharedState&, float time, int viewportWidth, int viewportHeight);
+        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&);
+        RingLight ringLight (const SharedState&, float time) const;
 
         AppModel& model;
+        StageLog log; // first: other members log while they are built
         juce::OpenGLContext context;
         DisplayRenderer displayRenderer;
 
         // GL-thread state
         HaloMesh mesh;
-        std::unique_ptr<juce::OpenGLShaderProgram> partShader, depthShader, backgroundShader, cardShader;
+        ShaderLibrary shaders { log };
+        GlProgram partProgram, depthProgram, backgroundProgram, cardProgram;
+        GlProgram resolveProgram, compositeProgram, fxaaProgram, selfTestProgram;
+        RenderTargets targets;
+        bool fxaaEngaged = false;
+        int framesSinceShaderCheck = 0;
         juce::OpenGLTexture displayTexture, printTexture;
         DepthTarget shadowTarget, heightTarget;
         GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
@@ -128,10 +151,11 @@ namespace halo
         std::vector<Swatch> swatches;
 
         // Dev hooks and diagnostics (docs/redesign/riddim-3d-plan.md, section 8).
-        StageLog log;
         StageStats stats;
         bool statsEnabled = false;          // HALO_STAGE_STATS=1
-        juce::String tierName { "high" };   // HALO_STAGE_TIER (only "high" exists before M2)
+        juce::String tierName { "high" };   // the tier in use: high (HDR) or low (LDR forward)
+        juce::String tierRequest;           // HALO_STAGE_TIER
+        bool forceFxaa = false;             // HALO_STAGE_FXAA=1 (Debug)
         std::optional<StagePose> pose;      // HALO_STAGE_POSE: frozen input and clock
         int readyWidth = 0, readyHeight = 0, framesAtSize = 0;
         double sizeSince = 0.0;

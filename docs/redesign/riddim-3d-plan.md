@@ -1312,3 +1312,35 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   unchanged from M0 wherever M0 had no floor shadow (the only differences are M0's shadow
   reaching the stage edge, which M1 no longer does).
 - **Determinism:** two `hero` runs: max delta 0.
+
+### M2 (HDR core and tone mapping)
+
+- **Pipeline:** 4x MSAA RGBA16F scene (device radiance + floor shadow, MRT) -> custom resolve
+  (device samples weighted 1/(1+luma); floor averaged over uncovered samples only) -> composite
+  (tone map once, floor, exact sRGB, ±0.45 LSB dither) -> FXAA only when MSAA < 4 or Low tier.
+  The window framebuffer requests no MSAA. GLSL lives in `Source/Stage/Shaders/` (HaloShaders
+  binary data; Debug hot reload from `HALO_STAGE_SHADER_DIR`, verified). Low tier = the M1
+  forward path into an LDR target + FXAA (`HALO_STAGE_TIER=low` renders a complete frame).
+- **Deviation (floor blend):** the ring pool and the contact shadow are blended in display values
+  in the composite (as the Low tier does), not as `base + (1 − base)·T(light)` in display-linear:
+  a display-linear screen of the saturated orange reads pink on the cool paper floor, and a
+  linear multiply makes the tuned shadow far weaker. Both tiers now match.
+- **Card:** Neutral worst ΔE2000 2.27 (orange), cream 1.47, white key 1.16, green 0.89 — passes
+  ≤ 3. **AgX fails ≤ 4** at exposure 1.0 (cream 7.7, white 9.1, orange 7.6 — AgX's base curve
+  compresses albedo-range values hard by design); ACES Hill 7.7–11.9 (reported only). Neutral
+  stays the default (D2).
+- **Tone curves:** `ToneCurvesTests` (reference values, monotonic, sRGB piecewise and 8-bit round
+  trip) pass; the Debug ramp self-test passes on the RTX 5080 (max |GLSL − C++| 1e-7 Neutral,
+  9e-6 AgX, 4e-7 ACES). Not run on the AMD iGPU (needs the owner's GPU switch).
+- **Border:** `dark()` border exactly #060607 in all six framings; floor terms are exactly zero in
+  the outer 2 px (near black, the sRGB curve made a 0.1 % residue a visible +2). `paper()` border
+  matches M1 within ±1 (dither on the anti-aliased grid lines).
+- **Banding:** `dark()` floor gradient (ring off): no empty histogram bins (R 6–30, G 6–30, B 7–30).
+- **Fringe:** 152 of 1395 silhouette samples fall outside their 2–4 px neighbours' range, all on the
+  bottom shell where the silhouette is the shadowed underside fillet (M1's LDR path: 170 at the same
+  places); none elsewhere. No halo is visible at 4x zoom.
+- **Uniform lookups:** 0 per frame after the first (GlProgram caches locations).
+- **Resize:** a 5 s window-edge drag (`tools/dev/stage_resize.ps1`) reallocated targets once, after
+  the size settled.
+- **GPU, RTX 5080, Release, `hero`:** p50 0.468 ms, p95 0.472 ms (M0 0.366 ms), `GL_SAMPLES=4`.
+- **Determinism:** two `hero` runs: max delta 0.

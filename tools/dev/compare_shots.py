@@ -264,13 +264,16 @@ def cmd_fringe(args):
     st = stage_crop(img, meta).astype(int)
     device = stage_crop(m, mm).max(axis=2) > 127
     from scipy import ndimage
-    inner = ndimage.binary_erosion(device, iterations=3)
-    outer = ~ndimage.binary_dilation(device, iterations=3)
+    # Compare each silhouette pixel with its immediate neighbours: the device
+    # 2-4 px inside and the floor 2-4 px outside. (Interior shading further in,
+    # like a bevel's highlight, is not a fringe.)
+    inner = ndimage.binary_erosion(device, iterations=2) & ~ndimage.binary_erosion(device, iterations=4)
+    outer = ndimage.binary_dilation(device, iterations=4) & ~ndimage.binary_dilation(device, iterations=2)
     edge = ndimage.binary_dilation(device, iterations=1) & ~ndimage.binary_erosion(device, iterations=1)
     ys, xs = np.nonzero(edge)
     bad = 0
     total = 0
-    r = 5
+    r = 4
     for y, x in zip(ys[::args.step], xs[::args.step]):
         y0, y1, x0, x1 = max(y - r, 0), y + r + 1, max(x - r, 0), x + r + 1
         win = st[y0:y1, x0:x1]

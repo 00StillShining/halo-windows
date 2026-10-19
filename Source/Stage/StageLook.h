@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/RingState.h"
+#include "Core/ToneCurves.h"
 
 #include <juce_graphics/juce_graphics.h>
 
@@ -19,8 +20,6 @@ namespace halo
     // component painting off, so no JUCE component can draw over it. Redesign
     // overlays (stageClip treatments, opxy-* mockups) must sit beside the stage
     // or be drawn in GL by the stage itself.
-    enum class ToneMapper { neutral, agx, aces };
-
     inline constexpr int kRingStateCount = 7; // RingState::Kind, in declaration order
 
     struct StageLook

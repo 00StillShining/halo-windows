@@ -85,8 +85,34 @@ target_sources(Halo PRIVATE
 # The 3D stage's own sources (docs/redesign/riddim-3d-plan.md), kept apart from
 # the list above so stage and UI work merge without touching the same lines.
 target_sources(Halo PRIVATE
+    Source/Stage/GlProgram.cpp
+    Source/Stage/RenderTargets.cpp
+    Source/Stage/ShaderLibrary.cpp
     Source/Stage/StageLog.cpp
     Source/Stage/StageStats.cpp)
+
+# The stage's GLSL, embedded; Debug builds can hot-reload it from
+# HALO_STAGE_SHADER_DIR. The tone constants are shared with C++ (Core/ToneCurves.h).
+juce_add_binary_data(HaloShaders
+    HEADER_NAME HaloShaders.h
+    NAMESPACE HaloShaders
+    SOURCES
+        Source/Core/ToneCurveConstants.inc
+        Source/Stage/Shaders/backdrop.glsl
+        Source/Stage/Shaders/background.frag
+        Source/Stage/Shaders/card.frag
+        Source/Stage/Shaders/common.glsl
+        Source/Stage/Shaders/composite.frag
+        Source/Stage/Shaders/depth.frag
+        Source/Stage/Shaders/depth.vert
+        Source/Stage/Shaders/floor.glsl
+        Source/Stage/Shaders/fullscreen.vert
+        Source/Stage/Shaders/fxaa.frag
+        Source/Stage/Shaders/part.frag
+        Source/Stage/Shaders/part.vert
+        Source/Stage/Shaders/resolve.frag
+        Source/Stage/Shaders/selftest.frag)
+target_link_libraries(Halo PRIVATE HaloShaders)
 
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0
@@ -137,7 +163,8 @@ add_executable(HaloTests
 target_sources(HaloTests PRIVATE
     Tests/Ep40EntityNamesTests.cpp
     Tests/StagePoseTests.cpp
-    Tests/StageCameraTests.cpp)
+    Tests/StageCameraTests.cpp
+    Tests/ToneCurvesTests.cpp)
 # The Mac app (its own repo) sits beside this one as the reference spec; when it
 # is there, the entity-name test cross-checks the frozen contract against it.
 set(HALO_MAC_REFERENCE_DIR "${CMAKE_SOURCE_DIR}/reference/halo-mac" CACHE PATH "Mac app checkout (optional)")

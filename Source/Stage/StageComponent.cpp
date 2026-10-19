@@ -1,7 +1,7 @@
 #include "Stage/StageComponent.h"
 #include "Core/Ep40MidiMapping.h"
+#include "Core/ToneCurves.h"
 #include "Stage/FacePrint.h"
-#include "Stage/StageShaders.h"
 
 #include <HaloAssets.h>
 
@@ -29,6 +29,9 @@ namespace halo
         const juce::Vector3D<float> keyDir  = juce::Vector3D<float> (-0.45f, 1.0f, 0.55f).normalised();
         const juce::Vector3D<float> topDir  = juce::Vector3D<float> (-0.10f, 1.0f, -0.55f).normalised();
         const juce::Vector3D<float> fillDir = juce::Vector3D<float> (0.85f, 0.35f, 0.40f).normalised();
+
+        // Attribute and output names, bound by index (HaloMesh's vertex layout).
+        const std::initializer_list<const char*> partAttributes { "aPos", "aNormal", "aColour", "aEmissive", "aUV", "aMaterial" };
 
         using Mat = juce::Matrix3D<float>;
 
@@ -105,8 +108,7 @@ namespace halo
 
         juce::Vector3D<float> linear (juce::Colour c)
         {
-            auto f = [] (float v) { return std::pow (v, 2.2f); };
-            return { f (c.getFloatRed()), f (c.getFloatGreen()), f (c.getFloatBlue()) };
+            return { tone::srgbDecode (c.getFloatRed()), tone::srgbDecode (c.getFloatGreen()), tone::srgbDecode (c.getFloatBlue()) };
         }
 
         // Anisotropic filtering where the driver has it (8x), for decals seen
@@ -121,29 +123,6 @@ namespace halo
             glGetFloatv (maxAnisotropy, &limit);
             glTexParameterf (GL_TEXTURE_2D, textureMaxAnisotropy, std::min (8.0f, limit));
         }
-
-        std::unique_ptr<juce::OpenGLShaderProgram> buildProgram (juce::OpenGLContext& context, StageLog& log,
-                                                                 const char* label, const char* vertex, const char* fragment,
-                                                                 std::initializer_list<const char*> attributes)
-        {
-            auto program = std::make_unique<juce::OpenGLShaderProgram> (context);
-            bool ok = program->addVertexShader (vertex) && program->addFragmentShader (fragment);
-            if (ok)
-            {
-                GLuint location = 0;
-                for (auto* name : attributes)
-                    glBindAttribLocation (program->getProgramID(), location++, name);
-                ok = program->link();
-            }
-            if (! ok)
-            {
-                // A failed shader leaves the stage blank, and drivers differ; keep the
-                // compiler's message in the stage log, in release builds too.
-                log.line (juce::String ("shader ") + label + " failed: " + program->getLastError());
-                return {};
-            }
-            return program;
-        }
     }
 
     //==============================================================================
@@ -151,20 +130,24 @@ namespace halo
     {
         setOpaque (true);
 
+        // The stage owns its anti-aliasing (MSAA in its own HDR targets, or FXAA),
+        // so JUCE's window framebuffer asks for none.
         juce::OpenGLPixelFormat format;
-        format.multisamplingLevel = 4;
+        format.multisamplingLevel = 0;
         context.setPixelFormat (format);
-        context.setMultisamplingEnabled (true);
+        context.setMultisamplingEnabled (false);
         context.setOpenGLVersionRequired (juce::OpenGLContext::openGL3_2);
         context.setRenderer (this);
         context.setComponentPaintingEnabled (false);
         context.setContinuousRepainting (true);
 
         // Dev hooks for repeatable screenshots (riddim-3d-plan.md, section 8).
-        // HALO_STAGE_CAMERA=yaw,pitch,radius; HALO_STAGE_PRESET=hero|top|low|keys|edge;
+        // HALO_STAGE_CAMERA=yaw,pitch,zoom; HALO_STAGE_PRESET=hero|top|low|keys|edge;
         // HALO_STAGE_DEBUG=1..4 view AO, key shadow, height map or floor terms,
         // 5 the material swatch card, 6 the silhouette mask, 7 unlit albedo,
         // 8 emissive only. HALO_STAGE_POSE freezes input (Core/StagePose.h).
+        // HALO_STAGE_TIER=high|low, HALO_STAGE_TONEMAP=neutral|agx|aces,
+        // HALO_STAGE_FXAA=1 forces FXAA on the High tier.
         const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
        #if JUCE_DEBUG
         const char* buildKind = "debug";
@@ -174,14 +157,13 @@ namespace halo
         log.line ("HALO_STAGE start pid=" + juce::String (StageLog::processId()) + " build=" + buildKind);
 
         statsEnabled = env ("HALO_STAGE_STATS") == "1";
-        if (const auto tier = env ("HALO_STAGE_TIER").toLowerCase(); tier.isNotEmpty())
-        {
-            if (tier != "high")
-                log.line ("tier: HALO_STAGE_TIER=" + tier + " requested; only the high tier exists yet");
-        }
+        tierRequest = env ("HALO_STAGE_TIER").toLowerCase();
+        if (tierRequest.isNotEmpty())
+            log.line ("tier: HALO_STAGE_TIER=" + tierRequest);
 
        #if JUCE_DEBUG
         debugView = env ("HALO_STAGE_DEBUG").getIntValue();
+        forceFxaa = env ("HALO_STAGE_FXAA") == "1";
 
         if (const auto preset = env ("HALO_STAGE_PRESET").toLowerCase(); preset.isNotEmpty())
         {
@@ -213,6 +195,11 @@ namespace halo
         {
             shared.look = StageLook::named (name);
             log.line ("look: " + name);
+        }
+        if (const auto name = env ("HALO_STAGE_TONEMAP").toLowerCase(); name.isNotEmpty())
+        {
+            shared.look.toneMapper = tone::parse (name.toStdString(), shared.look.toneMapper);
+            log.line ("tone mapper: " + juce::String (std::string (tone::name (shared.look.toneMapper))));
         }
 
         if (const auto text = env ("HALO_STAGE_POSE"); text.isNotEmpty())
@@ -365,6 +352,117 @@ namespace halo
     }
 
     //==============================================================================
+    // Builds every program for the requested tier. High (HDR) needs float MSAA
+    // targets and every HDR program; any failure falls back to Low (today's
+    // forward path into an LDR target, then FXAA), with the reason logged.
+    bool StageComponent::buildPrograms()
+    {
+        releasePrograms();
+        targets.release();
+
+        auto attach = [this] (GlProgram& p) { p.lookupCounter = &stats.uniformLookups; };
+        for (auto* p : { &partProgram, &depthProgram, &backgroundProgram, &cardProgram, &resolveProgram,
+                         &compositeProgram, &fxaaProgram, &selfTestProgram })
+            attach (*p);
+
+        bool high = tierRequest != "low";
+        juce::String why;
+        if (high)
+        {
+            const bool ok = targets.create (true, 4, log)
+                && partProgram.build (shaders, log, "part (HDR)", "part.vert", "part.frag", true, partAttributes, { "fragColour", "floorOut" })
+                && depthProgram.build (shaders, log, "depth", "depth.vert", "depth.frag", true, { "aPos" }, { "fragColour" })
+                && cardProgram.build (shaders, log, "card (HDR)", "fullscreen.vert", "card.frag", true, {}, { "fragColour" })
+                && resolveProgram.build (shaders, log, "resolve", "fullscreen.vert", "resolve.frag", true, {}, { "deviceOut", "floorResolved" })
+                && compositeProgram.build (shaders, log, "composite", "fullscreen.vert", "composite.frag", true, {}, { "fragColour" })
+                && fxaaProgram.build (shaders, log, "fxaa", "fullscreen.vert", "fxaa.frag", true, {}, { "fragColour" });
+            if (! ok)
+            {
+                high = false;
+                why = "an HDR target or program failed (see above)";
+            }
+        }
+        if (! high)
+        {
+            releasePrograms();
+            targets.release();
+            const bool ok = targets.create (false, 1, log)
+                && partProgram.build (shaders, log, "part (LDR)", "part.vert", "part.frag", false, partAttributes, { "fragColour" })
+                && depthProgram.build (shaders, log, "depth", "depth.vert", "depth.frag", false, { "aPos" }, { "fragColour" })
+                && backgroundProgram.build (shaders, log, "background", "fullscreen.vert", "background.frag", false, {}, { "fragColour" })
+                && cardProgram.build (shaders, log, "card (LDR)", "fullscreen.vert", "card.frag", false, {}, { "fragColour" })
+                && fxaaProgram.build (shaders, log, "fxaa", "fullscreen.vert", "fxaa.frag", false, {}, { "fragColour" });
+            if (! ok)
+            {
+                log.line ("tier: low tier failed too; the stage cannot draw");
+                tierName = "none";
+                return false;
+            }
+        }
+       #if JUCE_DEBUG
+        selfTestProgram.build (shaders, log, "selftest", "fullscreen.vert", "selftest.frag", true, {}, { "fragColour" });
+       #endif
+
+        tierName = high ? "high" : "low";
+        fxaaEngaged = ! high || targets.samples() < 4 || forceFxaa;
+        log.line ("tier: " + tierName + (why.isNotEmpty() ? " (demoted: " + why + ")" : juce::String())
+                  + (tierRequest == "low" ? " (requested)" : juce::String())
+                  + "; AA: " + (high ? juce::String (targets.samples()) + "x MSAA" : juce::String ("none"))
+                  + (fxaaEngaged ? " + FXAA" : ""));
+        return true;
+    }
+
+    void StageComponent::releasePrograms()
+    {
+        for (auto* p : { &partProgram, &depthProgram, &backgroundProgram, &cardProgram, &resolveProgram,
+                         &compositeProgram, &fxaaProgram, &selfTestProgram })
+            p->release();
+    }
+
+    // Debug: a 64-pixel ramp through each GLSL tone curve, read back and
+    // compared with Core/ToneCurves.h (which Tests/ToneCurvesTests checks).
+    void StageComponent::runToneSelfTest()
+    {
+        if (! selfTestProgram.valid())
+            return;
+        GLint previous = 0;
+        glGetIntegerv (GL_FRAMEBUFFER_BINDING, &previous);
+        GLuint texture = 0, fbo = 0;
+        glGenTextures (1, &texture);
+        glBindTexture (GL_TEXTURE_2D, texture);
+        glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA32F, 64, 1, 0, GL_RGBA, GL_FLOAT, nullptr);
+        glGenFramebuffers (1, &fbo);
+        glBindFramebuffer (GL_FRAMEBUFFER, fbo);
+        glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+        glViewport (0, 0, 64, 1);
+        glDisable (GL_BLEND);
+        glDisable (GL_DEPTH_TEST);
+        selfTestProgram.use();
+        glBindVertexArray (emptyVao);
+
+        for (auto mapper : { ToneMapper::neutral, ToneMapper::agx, ToneMapper::aces })
+        {
+            selfTestProgram.set ("uToneMapper", (int) mapper);
+            glDrawArrays (GL_TRIANGLES, 0, 3);
+            std::vector<float> pixels (64 * 4);
+            glReadPixels (0, 0, 64, 1, GL_RGBA, GL_FLOAT, pixels.data());
+            float worst = 0.0f;
+            for (int i = 0; i < 64; ++i)
+            {
+                const float x = 4.0f * (float) i / 63.0f;
+                const auto expected = tone::apply (mapper, { x, 0.5f * x, 0.1f * x });
+                for (int c = 0; c < 3; ++c)
+                    worst = std::max (worst, std::abs (pixels[(size_t) (i * 4 + c)] - expected[(size_t) c]));
+            }
+            log.line ("tone self-test " + juce::String (std::string (tone::name (mapper))) + ": max |GLSL - C++| = "
+                      + juce::String (worst, 7) + (worst <= 1e-3f ? " PASS" : " FAIL"));
+        }
+        glBindVertexArray (0);
+        glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) previous);
+        glDeleteFramebuffers (1, &fbo);
+        glDeleteTextures (1, &texture);
+    }
+
     void StageComponent::newOpenGLContextCreated()
     {
         mesh = HaloMesh::parse (HaloAssets::EP40_hmesh, (size_t) HaloAssets::EP40_hmeshSize);
@@ -426,19 +524,16 @@ namespace halo
             GLint samples = 0;
             glGetIntegerv (GL_SAMPLES, &samples);
             log.line ("GL_RENDERER=" + str (GL_RENDERER) + " GL_VERSION=" + str (GL_VERSION)
-                      + " GL_VENDOR=" + str (GL_VENDOR) + " GL_SAMPLES=" + juce::String (samples) + " (default framebuffer)");
+                      + " GL_VENDOR=" + str (GL_VENDOR) + " GL_SAMPLES=" + juce::String (samples) + " (window framebuffer)");
             log.line ("mesh: " + juce::String ((int) mesh.parts.size()) + " parts");
         }
         stats.create();
+        stats.tracksLookups = true;
         if (statsEnabled)
             log.line (juce::String ("stats: GPU timer ") + (stats.hasTimer() ? "available" : "unavailable"));
 
-        using namespace stage_shaders;
-        partShader = buildProgram (context, log, "part", partVertex, partFragment,
-                                   { "aPos", "aNormal", "aColour", "aEmissive", "aUV", "aMaterial" });
-        depthShader = buildProgram (context, log, "depth", depthVertex, depthFragment, { "aPos" });
-        backgroundShader = buildProgram (context, log, "background", backgroundVertex, backgroundFragment, {});
-        cardShader = buildProgram (context, log, "card", backgroundVertex, cardFragment, {});
+        glGenVertexArrays (1, &emptyVao);
+        buildPrograms();
 
         // The swatch card: each listed part's dominant albedo by surface area.
         swatches.clear();
@@ -482,11 +577,9 @@ namespace halo
             }
         }
 
-        glGenVertexArrays (1, &emptyVao);
-
         // Ground quad in model space under the chassis, at the lowest shadow-casting
-        // point: it darkens (contact shadow) and lights (ring pool, dark-look key
-        // spot). Only as large as those fade out (see the shader).
+        // point: it carries the contact shadow (and, on the Low tier, the ring pool
+        // and key spot). Only as large as those fade out (see part.frag).
         const float gx = 0.26f, gy = 0.34f;
         const float quad[] { -gx, -gy, groundZ, 0, 0,   gx, -gy, groundZ, 1, 0,
                              -gx,  gy, groundZ, 0, 1,   gx,  gy, groundZ, 1, 1 };
@@ -576,6 +669,10 @@ namespace halo
         enableAnisotropy();
         printTexture.unbind();
 
+       #if JUCE_DEBUG
+        runToneSelfTest();
+       #endif
+
         startTime = lastFrameTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
     }
 
@@ -584,10 +681,8 @@ namespace halo
         mesh.release();
         displayTexture.release();
         printTexture.release();
-        partShader.reset();
-        depthShader.reset();
-        backgroundShader.reset();
-        cardShader.reset();
+        releasePrograms();
+        targets.release();
         stats.release();
         for (auto* target : { &shadowTarget, &heightTarget })
         {
@@ -649,15 +744,15 @@ namespace halo
         glEnable (GL_POLYGON_OFFSET_FILL);
         glPolygonOffset (1.1f, 2.0f);
 
-        depthShader->use();
-        depthShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
+        depthProgram.use();
+        depthProgram.setMat4 ("uViewProj", viewProj.mat);
         const auto toWorld = modelToWorld();
         for (size_t p = 0; p < mesh.parts.size(); ++p)
         {
             if ((int) p == ringPart || mesh.parts[p].indices.empty()) // anchors never cast
                 continue;
             const auto m = partsInWorld ? then (partToModel[p], toWorld) : partToModel[p];
-            depthShader->setUniformMat4 ("uModel", m.mat, 1, false);
+            depthProgram.setMat4 ("uModel", m.mat);
             glBindVertexArray (mesh.parts[p].vao);
             ++stats.geometryDraws;
             glDrawElements (GL_TRIANGLES, (GLsizei) mesh.parts[p].indices.size(), GL_UNSIGNED_INT, nullptr);
@@ -666,23 +761,20 @@ namespace halo
         glDisable (GL_POLYGON_OFFSET_FILL);
     }
 
-    void StageComponent::drawBackground()
+    // Low tier: the backdrop, drawn first in display values.
+    void StageComponent::drawBackground (int height)
     {
-        if (backgroundShader == nullptr || debugView >= 6) // mask, albedo, emissive: black
+        if (debugView >= 6) // mask, albedo, emissive: black
             return;
-        if (debugView == 5)
-            return drawCard();
-
         const auto scale = (float) context.getRenderingScale();
-        backgroundShader->use();
-        backgroundShader->setUniform ("uScale", scale);
-        backgroundShader->setUniform ("uHeight", (float) getHeight() * scale);
-        backgroundShader->setUniform ("uCell", look.gridCellPt);
+        backgroundProgram.use();
+        backgroundProgram.set ("uScale", scale);
+        backgroundProgram.set ("uHeight", (float) height);
+        backgroundProgram.set ("uCell", look.gridCellPt);
         const auto canvas = toVec (look.floor), minor = toVec (look.gridMinor), major = toVec (look.gridMajor);
-        backgroundShader->setUniform ("uCanvas", canvas.x, canvas.y, canvas.z);
-        backgroundShader->setUniform ("uMinor", minor.x, minor.y, minor.z, look.gridMinor.getFloatAlpha());
-        backgroundShader->setUniform ("uMajor", major.x, major.y, major.z, look.gridMajor.getFloatAlpha());
-
+        backgroundProgram.set ("uCanvas", canvas.x, canvas.y, canvas.z);
+        backgroundProgram.set ("uMinor", minor.x, minor.y, minor.z, look.gridMinor.getFloatAlpha());
+        backgroundProgram.set ("uMajor", major.x, major.y, major.z, look.gridMajor.getFloatAlpha());
         glDisable (GL_DEPTH_TEST);
         glBindVertexArray (emptyVao);
         glDrawArrays (GL_TRIANGLES, 0, 3);
@@ -690,93 +782,103 @@ namespace halo
 
     // HALO_STAGE_DEBUG=5: one horizontal band per swatch, top to bottom in the
     // logged order, each the unlit albedo through the active tone curve.
-    void StageComponent::drawCard()
+    void StageComponent::drawCard (int height)
     {
-        if (cardShader == nullptr || swatches.empty())
+        if (swatches.empty())
             return;
-        cardShader->use();
-        const auto scale = (float) context.getRenderingScale();
-        cardShader->setUniform ("uHeight", (float) getHeight() * scale);
-        cardShader->setUniform ("uCount", (int) swatches.size());
-        cardShader->setUniform ("uExposure", 1.0f);
+        static const char* names[16] { "uSwatch[0]", "uSwatch[1]", "uSwatch[2]", "uSwatch[3]", "uSwatch[4]", "uSwatch[5]",
+                                       "uSwatch[6]", "uSwatch[7]", "uSwatch[8]", "uSwatch[9]", "uSwatch[10]", "uSwatch[11]",
+                                       "uSwatch[12]", "uSwatch[13]", "uSwatch[14]", "uSwatch[15]" };
+        cardProgram.use();
+        cardProgram.set ("uHeight", (float) height);
+        cardProgram.set ("uCount", (int) std::min<size_t> (swatches.size(), 16));
+        cardProgram.set ("uExposure", look.exposure);
+        cardProgram.set ("uToneMapper", (int) look.toneMapper);
         for (size_t i = 0; i < swatches.size() && i < 16; ++i)
-        {
-            const auto name = "uSwatch[" + juce::String ((int) i) + "]";
-            cardShader->setUniform (name.toRawUTF8(), swatches[i].linear.x, swatches[i].linear.y, swatches[i].linear.z);
-        }
+            cardProgram.set (names[i], swatches[i].linear.x, swatches[i].linear.y, swatches[i].linear.z);
         glDisable (GL_DEPTH_TEST);
         glBindVertexArray (emptyVao);
         glDrawArrays (GL_TRIANGLES, 0, 3);
     }
 
+    StageComponent::RingLight StageComponent::ringLight (const SharedState& state, float time) const
+    {
+        // Levels and cadence from the honest ring state (HaloRingRig.swift).
+        RingLight r;
+        switch (state.ring.kind)
+        {
+            case RingState::Kind::discovering: r = { 1, 0.60f }; break;
+            case RingState::Kind::connected:   r = { 2, 0.20f }; break;
+            case RingState::Kind::monitoring:  r = { 2, 0.40f }; break;
+            case RingState::Kind::recording:   r = { 2, 0.22f + 0.18f * (1.0f + std::sin (time * juce::MathConstants<float>::twoPi / 3.2f)) }; break;
+            case RingState::Kind::transfer:    r = { 2, 0.15f + 0.75f * (float) state.ring.transferProgress }; break;
+            case RingState::Kind::error:       r = { 2, 0.40f }; break;
+            case RingState::Kind::disconnected: break;
+        }
+        return r;
+    }
+
     // The floor around the device, drawn after it (the floor hidden under the
-    // device fails the depth test) in up to three passes over the backdrop:
-    //   1. key-light spot (dark look only): the floor near the device is lit,
-    //   2. contact shadow: blends toward the shadow tint,
-    //   3. ring pool: Halo's ring state as light on the floor, screen-blended,
-    //      so where no light falls the backdrop is untouched.
-    void StageComponent::drawGround (const Mat& viewProj, const SharedState& state, float time)
+    // device fails the depth test).
+    // High tier: one pass writing the contact shadow into the floor target;
+    //   the pool and key spot are computed analytically in the composite.
+    // Low tier: up to three passes over the backdrop: key-light spot (dark look,
+    //   screen), contact shadow (alpha toward the tint), ring pool (screen).
+    void StageComponent::drawGround (const Mat& viewProj, const SharedState& state, float time, int vw, int vh)
     {
         if (debugView >= 5)
             return;
-
-        // Ring pool from the honest ring state (HaloRingRig.swift levels).
-        int ringMode = 0; // 0 none, 1 discover sweep, 2 steady
-        float ringLevel = 0.0f;
-        switch (state.ring.kind)
-        {
-            case RingState::Kind::discovering: ringMode = 1; ringLevel = 0.60f; break;
-            case RingState::Kind::connected:   ringMode = 2; ringLevel = 0.20f; break;
-            case RingState::Kind::monitoring:  ringMode = 2; ringLevel = 0.40f; break;
-            case RingState::Kind::recording:   ringMode = 2; ringLevel = 0.22f + 0.18f * (1.0f + std::sin (time * juce::MathConstants<float>::twoPi / 3.2f)); break;
-            case RingState::Kind::transfer:    ringMode = 2; ringLevel = 0.15f + 0.75f * (float) state.ring.transferProgress; break;
-            case RingState::Kind::error:       ringMode = 2; ringLevel = 0.40f; break;
-            case RingState::Kind::disconnected: break;
-        }
+        const auto ring = ringLight (state, time);
         const auto ringColour = toVec (StageLook::ringColour (look, state.ring.kind));
         const auto tint = toVec (look.shadowTint);
 
         Mat identity;
-        partShader->setUniformMat4 ("uModel", modelToWorld().mat, 1, false);
-        partShader->setUniformMat4 ("uPartToModel", identity.mat, 1, false);
-        partShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
-        partShader->setUniform ("uKind", 3);
-        partShader->setUniform ("uShadowTint", tint.x, tint.y, tint.z);
-        partShader->setUniform ("uRingMode", ringMode);
-        partShader->setUniform ("uRingLevel", ringLevel);
-        partShader->setUniform ("uRingColour", ringColour.x, ringColour.y, ringColour.z);
-        partShader->setUniform ("uRingPeriod", ringDiscoverPeriod);
-        partShader->setUniform ("uFloorSpot", look.floorSpot);
-        GLint viewport[4] {};
-        glGetIntegerv (GL_VIEWPORT, viewport);
-        partShader->setUniform ("uViewport", (float) viewport[2], (float) viewport[3]);
-        partShader->setUniform ("uTime", time);
+        partProgram.setMat4 ("uModel", modelToWorld().mat);
+        partProgram.setMat4 ("uPartToModel", identity.mat);
+        partProgram.setMat4 ("uViewProj", viewProj.mat);
+        partProgram.set ("uKind", 3);
+        partProgram.set ("uShadowTint", tint.x, tint.y, tint.z);
+        partProgram.set ("uRingMode", ring.mode);
+        partProgram.set ("uRingLevel", ring.level);
+        partProgram.set ("uRingColour", ringColour.x, ringColour.y, ringColour.z);
+        partProgram.set ("uRingPeriod", ringDiscoverPeriod);
+        partProgram.set ("uFloorSpot", look.floorSpot);
+        partProgram.set ("uTime", time);
+        partProgram.set ("uViewport", (float) vw, (float) vh);
 
-        glEnable (GL_BLEND);
         glDepthMask (GL_FALSE);
         glBindVertexArray (groundVao);
-        auto pass = [this] (int which, GLenum src, GLenum dst)
+        if (targets.isHdr())
         {
-            partShader->setUniform ("uGroundPass", which);
-            glBlendFunc (src, dst);
+            glDisable (GL_BLEND);
+            partProgram.set ("uGroundPass", 0);
             glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
-        };
-        if (look.floorSpot > 0.0f)
-            pass (1, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
-        pass (0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // shadow
-        if (ringMode != 0 && ringLevel > 0.0f)
-            pass (2, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
+        }
+        else
+        {
+            glEnable (GL_BLEND);
+            auto pass = [this] (int which, GLenum src, GLenum dst)
+            {
+                partProgram.set ("uGroundPass", which);
+                glBlendFunc (src, dst);
+                glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
+            };
+            if (look.floorSpot > 0.0f)
+                pass (1, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
+            pass (0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // shadow
+            if (ring.mode != 0 && ring.level > 0.0f)
+                pass (2, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
+            glDisable (GL_BLEND);
+        }
         glDepthMask (GL_TRUE);
-        glDisable (GL_BLEND);
     }
 
-    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state, float time)
+    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state)
     {
-        juce::ignoreUnused (time);
         const auto toWorld = modelToWorld();
         const auto orange = linear (cueOrange);
         const auto green = linear (cueGreen.brighter (0.6f));
-        partShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
+        partProgram.setMat4 ("uViewProj", viewProj.mat);
 
         for (int p = 0; p < (int) mesh.parts.size(); ++p)
         {
@@ -804,10 +906,10 @@ namespace halo
             if (p == platePart)
                 kind = 4;
 
-            partShader->setUniformMat4 ("uModel", then (local, toWorld).mat, 1, false);
-            partShader->setUniformMat4 ("uPartToModel", local.mat, 1, false);
-            partShader->setUniform ("uKind", kind);
-            partShader->setUniform ("uGlow", glow.x, glow.y, glow.z);
+            partProgram.setMat4 ("uModel", then (local, toWorld).mat);
+            partProgram.setMat4 ("uPartToModel", local.mat);
+            partProgram.set ("uKind", kind);
+            partProgram.set ("uGlow", glow.x, glow.y, glow.z);
 
             glBindVertexArray (part.vao);
             ++stats.geometryDraws;
@@ -821,6 +923,19 @@ namespace halo
         const double nowSeconds = juce::Time::getMillisecondCounterHiRes() * 0.001;
         const float dt = (float) juce::jlimit (0.0, 0.1, nowSeconds - lastFrameTime);
         lastFrameTime = nowSeconds;
+
+       #if JUCE_DEBUG
+        // HALO_STAGE_SHADER_DIR: rebuild every program when a source changes.
+        if (shaders.fromDisk() && ++framesSinceShaderCheck >= 30)
+        {
+            framesSinceShaderCheck = 0;
+            if (shaders.changed())
+            {
+                log.line ("shaders: changed on disk, rebuilding");
+                buildPrograms();
+            }
+        }
+       #endif
 
         SharedState state;
         {
@@ -839,14 +954,15 @@ namespace halo
         const auto scale = (float) context.getRenderingScale();
         const int w = juce::roundToInt (scale * (float) getWidth());
         const int h = juce::roundToInt (scale * (float) getHeight());
-        const bool ready = meshLoaded && partShader != nullptr && depthShader != nullptr && w > 0 && h > 0;
+        const bool ready = meshLoaded && partProgram.valid() && depthProgram.valid() && w > 0 && h > 0;
 
         stats.beginFrame();
         renderFrame (state, nowSeconds, dt, w, h, ready);
         stats.endFrame ("continuous");
         if (statsEnabled)
             if (const auto line = stats.poll (nowSeconds, tierName); line.isNotEmpty())
-                log.line (line);
+                log.line (line + " targets=" + juce::String (targets.allocatedWidth()) + "x" + juce::String (targets.allocatedHeight())
+                          + " allocations=" + juce::String (targets.reallocations()));
         if (ready)
             noteFrameForReady (w, h);
     }
@@ -883,44 +999,8 @@ namespace halo
         });
     }
 
-    void StageComponent::renderFrame (const SharedState& state, double nowSeconds, float dt, int w, int h, bool ready)
+    void StageComponent::setPartUniforms (const StageView& camera, const Mat& lightViewProj)
     {
-        GLint mainFramebuffer = 0;
-        glGetIntegerv (GL_FRAMEBUFFER_BINDING, &mainFramebuffer);
-
-        // Shadow and height maps first: both follow the pads as they travel.
-        const auto lightViewProj = keyLightViewProj();
-        if (ready)
-        {
-            animatePads (state, dt);
-            glDisable (GL_BLEND);
-            drawDepth (shadowTarget, lightViewProj, true);
-            drawDepth (heightTarget, heightProjection (groundZ), false);
-            glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
-            glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
-            glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer);
-        }
-
-        glViewport (0, 0, w, h);
-        glClearColor (0, 0, 0, 1);
-        glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        drawBackground();
-        if (! ready || debugView == 5)
-            return;
-
-        // Fit the shadow-casting bounds into the stage at this angle and aspect
-        // (6% margin, centred), then apply the user's zoom.
-        const auto camera = StageCamera::view (deviceBox, yawDegrees.load(), pitchDegrees.load(), zoom.load(),
-                                               (float) w / (float) h, orthoView.load(),
-                                               presetOffsetActive.load() ? presetOffset : Vec3f {});
-        const Mat viewProj (camera.viewProjection.data());
-        const juce::Vector3D<float> eye (camera.eye.x, camera.eye.y, camera.eye.z);
-
-        glEnable (GL_DEPTH_TEST);
-        glDepthFunc (GL_LEQUAL);
-        glEnable (GL_MULTISAMPLE);
-
         glActiveTexture (GL_TEXTURE1);
         glBindTexture (GL_TEXTURE_2D, shadowTarget.texture);
         glActiveTexture (GL_TEXTURE2);
@@ -929,28 +1009,235 @@ namespace halo
         glBindTexture (GL_TEXTURE_2D, printTexture.getTextureID());
         glActiveTexture (GL_TEXTURE0);
 
-        const auto shadowTint = toVec (look.shadowTint);
-        partShader->use();
-        partShader->setUniform ("uTexture", 0);
-        partShader->setUniform ("uShadowMap", 1);
-        partShader->setUniform ("uHeightMap", 2);
-        partShader->setUniform ("uPrint", 3);
-        partShader->setUniform ("uEye", eye.x, eye.y, eye.z);
-        partShader->setUniformMat4 ("uLightViewProj", lightViewProj.mat, 1, false);
-        partShader->setUniform ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));
-        partShader->setUniform ("uHeightRect", 0.0f, 0.0f, heightHalfX, heightHalfY);
-        partShader->setUniform ("uHeightTexel", 2.0f * heightHalfX / (float) heightTarget.width);
-        partShader->setUniform ("uDeviceSize", deviceWidth, deviceDepth);
-        partShader->setUniform ("uKeyDir", keyDir.x, keyDir.y, keyDir.z);
-        partShader->setUniform ("uTopDir", topDir.x, topDir.y, topDir.z);
-        partShader->setUniform ("uFillDir", fillDir.x, fillDir.y, fillDir.z);
-        partShader->setUniform ("uShadowTint", shadowTint.x, shadowTint.y, shadowTint.z);
-        partShader->setUniform ("uExposure", look.exposure);
-        partShader->setUniform ("uDebug", debugView);
+        partProgram.use();
+        partProgram.set ("uTexture", 0);
+        partProgram.set ("uShadowMap", 1);
+        partProgram.set ("uHeightMap", 2);
+        partProgram.set ("uPrint", 3);
+        partProgram.set ("uEye", camera.eye.x, camera.eye.y, camera.eye.z);
+        partProgram.setMat4 ("uLightViewProj", lightViewProj.mat);
+        partProgram.set ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));
+        partProgram.set ("uHeightRect", 0.0f, 0.0f, heightHalfX, heightHalfY);
+        partProgram.set ("uHeightTexel", 2.0f * heightHalfX / (float) heightTarget.width);
+        partProgram.set ("uDeviceSize", deviceWidth, deviceDepth);
+        partProgram.set ("uKeyDir", keyDir.x, keyDir.y, keyDir.z);
+        partProgram.set ("uTopDir", topDir.x, topDir.y, topDir.z);
+        partProgram.set ("uFillDir", fillDir.x, fillDir.y, fillDir.z);
+        partProgram.set ("uExposure", look.exposure);
+        partProgram.set ("uToneMapper", (int) look.toneMapper);
+        partProgram.set ("uDebug", debugView);
+    }
 
+    void StageComponent::renderFrame (const SharedState& state, double nowSeconds, float dt, int w, int h, bool ready)
+    {
+        GLint mainFramebuffer = 0;
+        glGetIntegerv (GL_FRAMEBUFFER_BINDING, &mainFramebuffer);
+
+        if (! ready)
+        {
+            // Never a black flash: the backdrop token until the stage can draw.
+            const auto c = look.backdrop;
+            glViewport (0, 0, juce::jmax (1, w), juce::jmax (1, h));
+            glClearColor (c.getFloatRed(), c.getFloatGreen(), c.getFloatBlue(), 1.0f);
+            glClear (GL_COLOR_BUFFER_BIT);
+            return;
+        }
+
+        // Shadow and height maps first: both follow the pads as they travel.
+        const auto lightViewProj = keyLightViewProj();
+        animatePads (state, dt);
+        glDisable (GL_BLEND);
+        drawDepth (shadowTarget, lightViewProj, true);
+        drawDepth (heightTarget, heightProjection (groundZ), false);
+        glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
+        glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
+        glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer); // the passes below output here
+
+        const auto frame = targets.prepare (w, h, nowSeconds, log);
+
+        // Fit the shadow-casting bounds into the stage at this angle and aspect
+        // (6% margin, centred), then apply the user's zoom.
+        const auto camera = StageCamera::view (deviceBox, yawDegrees.load(), pitchDegrees.load(), zoom.load(),
+                                               (float) w / (float) h, orthoView.load(),
+                                               presetOffsetActive.load() ? presetOffset : Vec3f {});
         // A pose freezes the clock too, so two captures of one pose match.
         const float time = pose ? 1.0f : (float) (nowSeconds - startTime);
-        drawModel (viewProj, state, time);
-        drawGround (viewProj, state, time); // after the device: the floor beneath it fails the depth test
+
+        if (targets.isHdr())
+            renderHigh (state, camera, frame, w, h, time);
+        else
+            renderLow (state, camera, frame, w, h, time);
+
+        // Back to JUCE's framebuffer and a clean state for the next frame.
+        glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer);
+        glDisable (GL_BLEND);
+        glDepthMask (GL_TRUE);
+        juce::ignoreUnused (mainFramebuffer);
+    }
+
+    // High tier (plan section 3.2): MSAA HDR scene -> custom resolve ->
+    // composite (tone map once, floor, exact sRGB, dither) -> optional FXAA.
+    void StageComponent::renderHigh (const SharedState& state, const StageView& camera, const RenderTargets::Frame& frame,
+                                     int w, int h, float time)
+    {
+        GLint output = 0;
+        glGetIntegerv (GL_FRAMEBUFFER_BINDING, &output);
+        juce::ignoreUnused (output);
+
+        // 1. Scene.
+        glBindFramebuffer (GL_FRAMEBUFFER, targets.msFbo);
+        glViewport (0, 0, frame.width, frame.height);
+        const GLenum both[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 };
+        glDrawBuffers (2, both);
+        const float zero[] { 0.0f, 0.0f, 0.0f, 0.0f };
+        glClearBufferfv (GL_COLOR, 0, zero);
+        glClearBufferfv (GL_COLOR, 1, zero);
+        glDepthMask (GL_TRUE);
+        glClearDepth (1.0);
+        glClear (GL_DEPTH_BUFFER_BIT);
+        glEnable (GL_MULTISAMPLE);
+
+        const Mat viewProj (camera.viewProjection.data());
+        if (debugView == 5)
+        {
+            const GLenum deviceOnly[] { GL_COLOR_ATTACHMENT0, GL_NONE };
+            glDrawBuffers (2, deviceOnly);
+            drawCard (frame.height);
+        }
+        else
+        {
+            glEnable (GL_DEPTH_TEST);
+            glDepthFunc (GL_LEQUAL);
+            setPartUniforms (camera, keyLightViewProj());
+            const GLenum deviceOnly[] { GL_COLOR_ATTACHMENT0, GL_NONE };
+            glDrawBuffers (2, deviceOnly);
+            drawModel (viewProj, state);
+            const GLenum floorOnly[] { GL_NONE, GL_COLOR_ATTACHMENT1 };
+            glDrawBuffers (2, floorOnly);
+            drawGround (viewProj, state, time, frame.width, frame.height);
+        }
+        glDisable (GL_DEPTH_TEST);
+
+        // 2. Resolve.
+        glBindFramebuffer (GL_FRAMEBUFFER, targets.resolveFbo);
+        glDrawBuffers (2, both);
+        glViewport (0, 0, frame.width, frame.height);
+        resolveProgram.use();
+        glActiveTexture (GL_TEXTURE0);
+        glBindTexture (GL_TEXTURE_2D_MULTISAMPLE, targets.msDevice);
+        glActiveTexture (GL_TEXTURE1);
+        glBindTexture (GL_TEXTURE_2D_MULTISAMPLE, targets.msFloor);
+        resolveProgram.set ("uDeviceMS", 0);
+        resolveProgram.set ("uFloorMS", 1);
+        resolveProgram.set ("uSamples", juce::jmax (1, targets.samples()));
+        glBindVertexArray (emptyVao);
+        glDrawArrays (GL_TRIANGLES, 0, 3);
+        glBindTexture (GL_TEXTURE_2D_MULTISAMPLE, 0);
+        glActiveTexture (GL_TEXTURE0);
+        glBindTexture (GL_TEXTURE_2D_MULTISAMPLE, 0);
+
+        // 3. Composite, to the window (or to the post target when FXAA follows).
+        const bool viaFxaa = fxaaEngaged;
+        const int outW = viaFxaa ? frame.width : w, outH = viaFxaa ? frame.height : h;
+        glBindFramebuffer (GL_FRAMEBUFFER, viaFxaa ? targets.postFbo : (GLuint) output);
+        glViewport (0, 0, outW, outH);
+        compositeProgram.use();
+        glActiveTexture (GL_TEXTURE0);
+        glBindTexture (GL_TEXTURE_2D, targets.device);
+        glActiveTexture (GL_TEXTURE1);
+        glBindTexture (GL_TEXTURE_2D, targets.floor);
+        compositeProgram.set ("uDevice", 0);
+        compositeProgram.set ("uFloor", 1);
+        compositeProgram.set ("uUvScale", viaFxaa ? frame.uvScaleX * (float) frame.width / (float) outW : frame.uvScaleX,
+                                          viaFxaa ? frame.uvScaleY * (float) frame.height / (float) outH : frame.uvScaleY);
+        compositeProgram.set ("uViewport", (float) outW, (float) outH);
+        compositeProgram.set ("uScale", (float) context.getRenderingScale() * (float) outW / (float) w);
+        compositeProgram.set ("uCell", look.gridCellPt);
+        const auto canvas = toVec (look.floor), minor = toVec (look.gridMinor), major = toVec (look.gridMajor);
+        compositeProgram.set ("uCanvas", canvas.x, canvas.y, canvas.z);
+        compositeProgram.set ("uMinor", minor.x, minor.y, minor.z, look.gridMinor.getFloatAlpha());
+        compositeProgram.set ("uMajor", major.x, major.y, major.z, look.gridMajor.getFloatAlpha());
+        const auto tint = toVec (look.shadowTint);
+        compositeProgram.set ("uShadowTint", tint.x, tint.y, tint.z);
+        compositeProgram.set ("uFloorSpot", look.floorSpot);
+        const auto ring = ringLight (state, time);
+        const auto ringColour = toVec (StageLook::ringColour (look, state.ring.kind));
+        compositeProgram.set ("uRingColour", ringColour.x, ringColour.y, ringColour.z);
+        compositeProgram.set ("uRingMode", ring.mode);
+        compositeProgram.set ("uRingLevel", ring.level);
+        compositeProgram.set ("uRingPeriod", ringDiscoverPeriod);
+        compositeProgram.set ("uTime", time);
+        compositeProgram.set ("uDeviceSize", deviceWidth, deviceDepth);
+        const auto inverse = invert (camera.viewProjection);
+        compositeProgram.setMat4 ("uInvViewProj", inverse.data());
+        compositeProgram.set ("uFloorY", groundZ);
+        compositeProgram.set ("uExposure", look.exposure);
+        compositeProgram.set ("uToneMapper", (int) look.toneMapper);
+        compositeProgram.set ("uBypass", (debugView != 0 && debugView != 5) ? 1 : 0);
+        compositeProgram.set ("uDither", viaFxaa ? 0 : 1);
+        glDrawArrays (GL_TRIANGLES, 0, 3);
+
+        // 4. FXAA, then the dither, into the window.
+        if (viaFxaa)
+        {
+            glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) output);
+            glViewport (0, 0, w, h);
+            fxaaProgram.use();
+            glActiveTexture (GL_TEXTURE0);
+            glBindTexture (GL_TEXTURE_2D, targets.post);
+            fxaaProgram.set ("uImage", 0);
+            fxaaProgram.set ("uViewport", (float) w, (float) h);
+            fxaaProgram.set ("uUvScale", frame.uvScaleX, frame.uvScaleY);
+            fxaaProgram.set ("uDither", 1);
+            glDrawArrays (GL_TRIANGLES, 0, 3);
+        }
+        glBindVertexArray (0);
+        glActiveTexture (GL_TEXTURE1);
+        glBindTexture (GL_TEXTURE_2D, 0);
+        glActiveTexture (GL_TEXTURE0);
+        glBindTexture (GL_TEXTURE_2D, 0);
+    }
+
+    // Low tier: today's forward path into an LDR target (tone mapped per
+    // fragment, exact sRGB), then FXAA and the dither into the window.
+    void StageComponent::renderLow (const SharedState& state, const StageView& camera, const RenderTargets::Frame& frame,
+                                    int w, int h, float time)
+    {
+        GLint output = 0;
+        glGetIntegerv (GL_FRAMEBUFFER_BINDING, &output);
+
+        glBindFramebuffer (GL_FRAMEBUFFER, targets.sceneFbo);
+        glViewport (0, 0, frame.width, frame.height);
+        glClearColor (0, 0, 0, 1);
+        glDepthMask (GL_TRUE);
+        glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        if (debugView == 5)
+            drawCard (frame.height);
+        else
+        {
+            drawBackground (frame.height);
+            const Mat viewProj (camera.viewProjection.data());
+            glEnable (GL_DEPTH_TEST);
+            glDepthFunc (GL_LEQUAL);
+            setPartUniforms (camera, keyLightViewProj());
+            drawModel (viewProj, state);
+            drawGround (viewProj, state, time, frame.width, frame.height);
+            glDisable (GL_DEPTH_TEST);
+        }
+
+        glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) output);
+        glViewport (0, 0, w, h);
+        fxaaProgram.use();
+        glActiveTexture (GL_TEXTURE0);
+        glBindTexture (GL_TEXTURE_2D, targets.scene);
+        fxaaProgram.set ("uImage", 0);
+        fxaaProgram.set ("uViewport", (float) w, (float) h);
+        fxaaProgram.set ("uUvScale", frame.uvScaleX, frame.uvScaleY);
+        fxaaProgram.set ("uDither", 1);
+        glBindVertexArray (emptyVao);
+        glDrawArrays (GL_TRIANGLES, 0, 3);
+        glBindVertexArray (0);
+        glBindTexture (GL_TEXTURE_2D, 0);
     }
 }

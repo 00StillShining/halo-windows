@@ -76,6 +76,32 @@ TEST_CASE ("stage camera: zoom scales the fitted radius and is clamped")
     CHECK (StageCamera::view (ep40, 28, 38, 9.0f, 1.6f).radius == doctest::Approx (fit.radius * StageCamera::maxZoom));
 }
 
+TEST_CASE ("stage camera: the inverse view-projection takes the screen back to the floor")
+{
+    // The composite finds the floor point under each pixel this way.
+    for (bool ortho : { false, true })
+    {
+        const auto v = StageCamera::view (ep40, 28.0f, ortho ? 90.0f : 38.0f, 1.0f, 1.8f, ortho);
+        const auto inv = invert (v.viewProjection);
+        const Vec3f floorPoint { 0.05f, -0.0083f, 0.07f };
+        const auto ndc = v.project (floorPoint);
+        auto unproject = [&] (float z)
+        {
+            const float x = ndc.x, y = ndc.y;
+            const float px = inv[0] * x + inv[4] * y + inv[8] * z + inv[12];
+            const float py = inv[1] * x + inv[5] * y + inv[9] * z + inv[13];
+            const float pz = inv[2] * x + inv[6] * y + inv[10] * z + inv[14];
+            const float pw = inv[3] * x + inv[7] * y + inv[11] * z + inv[15];
+            return Vec3f { px / pw, py / pw, pz / pw };
+        };
+        const auto a = unproject (-1.0f), b = unproject (1.0f);
+        const float t = (floorPoint.y - a.y) / (b.y - a.y);
+        INFO ("ortho " << ortho);
+        CHECK (a.x + (b.x - a.x) * t == doctest::Approx (floorPoint.x).epsilon (1e-3));
+        CHECK (a.z + (b.z - a.z) * t == doctest::Approx (floorPoint.z).epsilon (1e-3));
+    }
+}
+
 TEST_CASE ("stage camera: yaw 0 looks from the player's side, pitch from above")
 {
     const auto v = StageCamera::view (ep40, 0.0f, 30.0f, 1.0f, 1.5f);

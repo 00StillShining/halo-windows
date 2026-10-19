@@ -25,6 +25,9 @@ namespace halo
 
     using Mat4f = std::array<float, 16>;
 
+    // General 4x4 inverse (column-major). Returns the identity for a singular matrix.
+    Mat4f invert (const Mat4f&);
+
     struct StageView
     {
         Vec3f eye, target;
