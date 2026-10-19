@@ -39,7 +39,7 @@ namespace halo
         const float cs = (float) capSize;
         const auto area = getLocalBounds().toFloat();
         auto cap = juce::Rectangle<float> (cs, cs).withCentre ({ area.getCentreX(), cs * 0.5f });
-        const bool pressed = down || (active && style == Style::mode);
+        const bool pressed = down || (active && style != Style::rec);
         const bool enabled = isEnabled();
 
         if (style == Style::rec)

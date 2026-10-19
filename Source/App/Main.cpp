@@ -2,6 +2,7 @@
 #include "App/DevLog.h"
 #include "App/HaloPaths.h"
 #include "App/MainComponent.h"
+#include "App/WindowsChrome.h"
 #include "Audio/SampleIO.h"
 #include "Core/Ep40MidiMapping.h"
 #include "UI/Design/Fonts.h"
@@ -17,7 +18,7 @@ namespace halo
     {
     public:
         MainWindow (const juce::String& name, AppModel& model, std::unique_ptr<juce::Component> replacement = {})
-            : DocumentWindow (name, legacyColours().paper, DocumentWindow::allButtons)
+            : DocumentWindow (name, theme().deck.top, DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
             if (replacement != nullptr)
@@ -26,6 +27,14 @@ namespace halo
                 setContentOwned (new MainComponent (model), true);
             setResizable (true, true);
             setResizeLimits (HaloMetrics::windowMinimumWidth, HaloMetrics::windowMinimumHeight, 10000, 10000);
+            // The first size never exceeds the display's work area (a 1080p
+            // laptop at 150% has about 1280 x 690 to give).
+            if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+            {
+                const auto area = display->userBounds.toNearestInt();
+                setSize (juce::jlimit (HaloMetrics::windowMinimumWidth, juce::jmax (HaloMetrics::windowMinimumWidth, area.getWidth() - 24), getWidth()),
+                         juce::jlimit (HaloMetrics::windowMinimumHeight, juce::jmax (HaloMetrics::windowMinimumHeight, area.getHeight() - 48), getHeight()));
+            }
            #if JUCE_DEBUG
             // HALO_WINDOW_SIZE=w,h: the client size, for screenshots.
             const auto size = juce::StringArray::fromTokens (juce::SystemStats::getEnvironmentVariable ("HALO_WINDOW_SIZE", {}), ",", {});
@@ -34,6 +43,19 @@ namespace halo
            #endif
             centreWithSize (getWidth(), getHeight());
             setVisible (true);
+            if (auto* peer = getPeer())
+            {
+                // Dark title bar in the graphite skin (a per-window attribute).
+                windowsChrome::useDarkTitleBar (peer->getNativeHandle(), theme().skin == Theme::Skin::graphite);
+                // A bare Alt tap must not swallow the next key (Alt = fine).
+                windowsChrome::installBareAltFilter (peer->getNativeHandle());
+            }
+        }
+
+        ~MainWindow() override
+        {
+            if (auto* peer = getPeer())
+                windowsChrome::removeBareAltFilter (peer->getNativeHandle());
         }
 
         void closeButtonPressed() override
@@ -85,7 +107,7 @@ namespace halo
             // HALO_UI_GALLERY=<page>: the design system's fixture pages instead of the app.
             galleryPage = juce::SystemStats::getEnvironmentVariable ("HALO_UI_GALLERY", "0").getIntValue();
            #endif
-            setTheme (Theme::fromName (juce::SystemStats::getEnvironmentVariable ("HALO_THEME", galleryPage > 0 ? "graphite" : "legacy")));
+            setTheme (Theme::fromName (juce::SystemStats::getEnvironmentVariable ("HALO_THEME", "graphite")));
 
             model = std::make_unique<AppModel> (mock);
             window = std::make_unique<MainWindow> (getApplicationName(), *model,

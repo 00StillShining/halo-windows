@@ -144,7 +144,8 @@ namespace halo
 
         if (! down)
         {
-            g.setColour (c.ink.withAlpha (button.isEnabled() ? 0.30f : 0.12f));
+            // A hard offset shadow on paper; on the glass a black lip instead.
+            g.setColour (c.dark ? juce::Colours::black : c.ink.withAlpha (button.isEnabled() ? 0.30f : 0.12f));
             g.fillRoundedRectangle (bounds.translated (2.0f, 3.0f), HaloMetrics::radiusSmall);
         }
 

@@ -57,7 +57,7 @@ namespace halo
         static constexpr int railSpineWidth = 28;
         static constexpr int railPlayWidth = 300;
         static constexpr int windowDefaultWidth = 1440, windowDefaultHeight = 900;
-        static constexpr int windowMinimumWidth = 1180, windowMinimumHeight = 720;
+        static constexpr int windowMinimumWidth = 1180, windowMinimumHeight = 660; // plan section 3.1
         static constexpr int panelShadowX = 3, panelShadowY = 6;
     };
 
@@ -65,12 +65,21 @@ namespace halo
     // Windows the closest system faces are Segoe UI and Cascadia Mono.
     struct HaloType
     {
+        // On the black glass (legacy-dark) the legacy panels use the embedded
+        // faces (the LookAndFeel maps these family names); on graph paper they
+        // keep today's Segoe UI and Cascadia Mono.
+        static bool embedded() { return legacyColours().dark; }
+
         static juce::Font wordmark (float size = 34.0f) { return juce::FontOptions ("Segoe UI", size, juce::Font::bold); }
-        static juce::Font body (float size = 13.0f)     { return juce::FontOptions ("Segoe UI", size, juce::Font::plain); }
+        static juce::Font body (float size = 13.0f)
+        {
+            return juce::FontOptions (embedded() ? "Inter Tight" : "Segoe UI", size, juce::Font::plain);
+        }
 
         static juce::Font mono (float size = 12.0f, bool bold = false)
         {
-            return juce::Font (juce::FontOptions (monoFace(), size, bold ? juce::Font::bold : juce::Font::plain));
+            return juce::Font (juce::FontOptions (embedded() ? juce::String ("JetBrains Mono") : monoFace(), size,
+                                                  bold && ! embedded() ? juce::Font::bold : juce::Font::plain));
         }
 
         // Uppercase, tracked label style.

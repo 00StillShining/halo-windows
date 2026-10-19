@@ -39,7 +39,6 @@ namespace halo
         void timerCallback() override;
 
         void paintPlay (juce::Graphics&, juce::Rectangle<int>);
-        void paintPlate (juce::Graphics&, juce::Rectangle<int>);
         juce::Rectangle<int> spineArea() const;
         juce::Rectangle<int> contentArea() const;
 

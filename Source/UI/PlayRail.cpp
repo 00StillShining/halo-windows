@@ -2,7 +2,6 @@
 #include "Core/Ep40MidiMapping.h"
 #include "UI/HaloColours.h"
 #include "UI/HaloLookAndFeel.h"
-#include "UI/ModeBar.h"
 
 namespace halo
 {
@@ -53,6 +52,7 @@ namespace halo
         {
             case AppMode::play:    return expanded ? HaloMetrics::railPlayWidth : HaloMetrics::railSpineWidth;
             case AppMode::rack:    return 420;
+            case AppMode::chop:
             case AppMode::load:
             case AppMode::backups:
             case AppMode::capture:
@@ -109,11 +109,6 @@ namespace halo
 
         if (model.mode() != AppMode::play)
             return; // the mode's own panel draws itself
-        if (model.mode() != AppMode::play)
-        {
-            paintPlate (g, getLocalBounds());
-            return;
-        }
 
         // The spine: always present in PLAY, click to expand or collapse.
         const auto spine = spineArea();
@@ -197,29 +192,5 @@ namespace halo
             g.setColour (i == (int) log.size() - 1 ? c.ink : c.inkSoft);
             g.drawText (log[(size_t) i], area.removeFromTop (lineHeight), juce::Justification::centredLeft, true);
         }
-    }
-
-    void PlayRail::paintPlate (juce::Graphics& g, juce::Rectangle<int> area)
-    {
-        // Unified "not here yet" plate (HaloStatePlate.swift vocabulary).
-        auto plate = area.reduced (24).withHeight (220).toFloat();
-        HaloLookAndFeel::drawPanel (g, plate, c.paper);
-
-        auto inner = plate.reduced (20.0f).toNearestInt();
-        g.setFont (HaloType::label (11.0f));
-        g.setColour (c.orange);
-        g.drawText ("NOT PORTED YET", inner.removeFromTop (18), juce::Justification::centredLeft);
-        inner.removeFromTop (8);
-
-        g.setFont (HaloType::label (22.0f));
-        g.setColour (c.ink);
-        g.drawText (ModeBar::title (model.mode()), inner.removeFromTop (30), juce::Justification::centredLeft);
-        inner.removeFromTop (10);
-
-        g.setFont (HaloType::body (14.0f));
-        g.setColour (c.inkSoft);
-        g.drawFittedText ("This mode works in the Mac app and is next in the Windows porting plan "
-                          "(docs/plan.md). PLAY is live now.",
-                          inner, juce::Justification::topLeft, 5);
     }
 }

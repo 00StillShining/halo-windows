@@ -67,8 +67,6 @@ target_sources(Halo PRIVATE
     Source/Stage/DisplayRenderer.cpp
     Source/Stage/StageComponent.cpp
     Source/UI/HaloLookAndFeel.cpp
-    Source/UI/StatusBar.cpp
-    Source/UI/ModeBar.cpp
     Source/UI/PlayRail.cpp
     Source/UI/MonitorPanel.cpp
     Source/UI/RackPanel.cpp
@@ -134,10 +132,13 @@ add_test(NAME HaloTests COMMAND HaloTests)
 # cleanly with the 3D stage work, which keeps its own blocks too.
 # ---------------------------------------------------------------------------
 target_sources(HaloCore PRIVATE
-    Source/Core/HonestState.cpp)
+    Source/Core/HonestState.cpp
+    Source/Core/UiLayout.cpp)
 
 target_sources(HaloTests PRIVATE
-    Tests/HonestStateTests.cpp)
+    Tests/HonestStateTests.cpp
+    Tests/UiLayoutTests.cpp
+    Tests/UiStateTests.cpp)
 
 # H3: no file under Source/UI may call an Ep40Writer write method outside the
 # write gate (tools/dev/check_write_sites.py).
@@ -183,6 +184,10 @@ set(HALO_DESIGN_SOURCES
     Source/UI/Design/WriteGate.cpp
     Source/UI/Design/Primitives/ConfirmCard.cpp)
 target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
+    Source/App/WindowsChrome.cpp
+    Source/UI/Design/Primitives/StatusStrip.cpp
+    Source/UI/Design/Primitives/Deck.cpp
+    Source/UI/Design/Primitives/StageFrame.cpp
     Source/UI/Design/WriteGateDevice.cpp
     Source/UI/Design/Gallery.cpp
     Source/UI/Design/GalleryEncoders.cpp

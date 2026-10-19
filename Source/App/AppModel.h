@@ -7,6 +7,7 @@
 #include "Audio/GrabController.h"
 #include "Audio/MonitorEngine.h"
 #include "Core/DisplayReducer.h"
+#include "Core/Keymap.h"
 #include "Core/PadHoldRegistry.h"
 #include "Core/RingState.h"
 #include "Core/SysEx.h"
@@ -24,8 +25,6 @@
 
 namespace halo
 {
-    enum class AppMode { play, load, edit, capture, rack, backups };
-
     // The app's single source of truth on the message thread. A slimmed port of
     // HaloAppModel.swift: MIDI connection, display reducer, pad holds, and the
     // honest ring / lifecycle state. Audio, GRAB, rack and storage come later.
@@ -111,6 +110,10 @@ namespace halo
         EditSession& editor() noexcept { return editSession; }
         void openInEditor (const Library::Item&, bool chop);
 
+        // The one monitor-level getter (H7): the status strip, encoder 1, the
+        // PLAY rail's numeral and the meters all read this.
+        double monitorGainDb() const noexcept { return engine.gainDb(); }
+
         // Persisted conveniences.
         void setMonitorGainDb (double db);
         void setMonitorOutput (const juce::String& name);
@@ -158,6 +161,7 @@ namespace halo
         RingState ringState;
         LifecyclePhase lifecyclePhase;
         AppMode currentMode = AppMode::play;
+        bool lastChopOpen = false;
 
         bool observerRunning = false;
         bool endpointConnected = false;

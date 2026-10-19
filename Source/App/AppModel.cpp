@@ -67,6 +67,7 @@ namespace halo
         };
         deviceLibrary.addChangeListener (this);
         backupJob.addChangeListener (this); // the backup cache can unlock writes
+        editSession.addChangeListener (this); // CHOP opening and closing moves the mode
 
         if (mock)
         {
@@ -205,6 +206,8 @@ namespace halo
     AppModel::~AppModel()
     {
         stopTimer();
+        editSession.removeChangeListener (this);
+        backupJob.removeChangeListener (this);
         engine.onStateChanged = nullptr;
         engine.onTakeFinished = nullptr;
         engine.stop(); // finalises any take before the model goes
@@ -228,6 +231,9 @@ namespace halo
 
     void AppModel::setMode (AppMode newMode)
     {
+        // Ctrl+7 with a sample open in EDIT chops it, like EDIT's CHOP key.
+        if (newMode == AppMode::chop && ! editSession.chopOpen && editSession.hasSource())
+            editSession.openChop();
         if (newMode == currentMode)
             return;
         currentMode = newMode;
@@ -314,6 +320,21 @@ namespace halo
         if (source == &backupJob)
         {
             listeners.call ([] (Listener& l) { l.statusChanged(); });
+            return;
+        }
+        if (source == &editSession)
+        {
+            // CHOP is a mode (plan U11): opening it switches to CHOP; closing
+            // it (Esc, CLOSE) returns to EDIT.
+            const bool open = editSession.chopOpen;
+            if (open != lastChopOpen)
+            {
+                lastChopOpen = open;
+                if (open)
+                    setMode (AppMode::chop);
+                else if (currentMode == AppMode::chop)
+                    setMode (AppMode::edit);
+            }
             return;
         }
 
