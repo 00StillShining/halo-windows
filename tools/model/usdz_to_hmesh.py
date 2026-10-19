@@ -39,7 +39,8 @@ Format (little endian):
 
 Model space is the Blender one: Z-up, metres, X = width, Y = depth (far = +Y).
 
-Usage: python usdz_to_hmesh.py <EP40.usdz> <out.hmesh>
+Usage: python -I tools/model/usdz_to_hmesh.py <EP40.usdz> assets/stage/EP40.hmesh [--format v3|v2]
+(v3, the default, is described in tools/model/hmesh_io.py; v2 below.)
 """
 
 import math
@@ -367,7 +368,7 @@ def disc(cx, cy, z0, z1, radius, fillet, segments=32, fillet_steps=3):
     return tris
 
 # ------------------------------------------------------------------ conversion
-def convert(usdz_path, out_path):
+def convert(usdz_path, out_path, fmt="v3"):
     with tempfile.TemporaryDirectory() as tmp:
         with zipfile.ZipFile(usdz_path) as archive:
             archive.extractall(tmp)
@@ -420,6 +421,16 @@ def convert(usdz_path, out_path):
             corners = [(p, n, LED_OFF, 0.0, (0.0, 0.0), 0.35, 0.0) for ps, ns in tris for p, n in zip(ps, ns)]
             parts.append(pack_part(name, Gf.Matrix4d(1.0), corners))
 
+    if fmt == "v2":
+        write_v2(parts, out_path)
+    else:
+        data = to_v3(parts, Path(usdz_path).name)
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).write_bytes(data)
+        print(f"wrote {out_path}: v3, {len(parts)} parts, {len(data)} bytes")
+
+
+def write_v2(parts, out_path):
     with open(out_path, "wb") as out:
         out.write(b"HMSH")
         out.write(struct.pack("<II", FORMAT_VERSION, len(parts)))
@@ -459,7 +470,157 @@ def pack_part(name, transposed, corners):
     return name, column_major, pivot, verts, idx
 
 
+# ------------------------------------------------------------------ .hmesh v3
+GRID_PARTS = ["pad_7", "pad_8", "pad_9", "pad_4", "pad_5", "pad_6",
+              "pad_1", "pad_2", "pad_3", "pad_dot", "pad_0", "pad_enter"]   # Ep40MidiMapping.h order
+GROUP_PARTS = ["group_a", "group_b", "group_c", "group_d"]
+SLOTS = {name: i + 1 for i, name in enumerate(GRID_PARTS + GROUP_PARTS)}      # 0 = static
+KEY_TRAVEL = 0.0026  # metres (plan O5 default; the stage's own spring decides the motion)
+
+PALETTE_NAMES = {CREAM: "cream", LABEL: "label", KEY_WHITE: "key white", KEY_BEIGE: "key beige", GREEN: "green",
+                 ORANGE: "orange", INK_GREEN: "ink green", INK_ORANGE: "ink orange", INK_WHITE: "ink white",
+                 INK_CHARCOAL: "ink charcoal", GAP: "gap", FRAME: "frame", LED_OFF: "led off"}
+
+
+def part_kind(name):
+    import hmesh_io
+    k = hmesh_io.KIND
+    if name in GRID_PARTS:
+        return k["pad"]
+    if name in GROUP_PARTS:
+        return k["group"]
+    if name.startswith("button_") or name == "fader_mode_button":
+        return k["button"]
+    if name.startswith("knob_"):
+        return k["knob"]
+    if name.startswith("fader_"):
+        return k["fader"]
+    if name.startswith(LAMP_PREFIX):
+        return k["led"]
+    if name == "display_surface":
+        return k["display"]
+    if name in ANCHOR_PARTS:
+        return k["anchor"]
+    if name in ("chassis_topPlate", "brand_panel"):
+        return k["plate"]
+    return k["static"]
+
+
+def led_for(name):
+    """status_lamp_<row>_<col>: rows sit above 7 8 9 / 4 5 6 / 1 2 3 / . 0 ENTER; column 0
+    is the group column (12 + row), columns 1-3 the pads (grid index). Aux lamps: none."""
+    parts = name[len(LAMP_PREFIX):].split("_")
+    if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+        row, col = int(parts[0]), int(parts[1])
+        return 12 + row if col == 0 else row * 3 + (col - 1)
+    return 0xFFFF
+
+
+def to_v3(parts, source_name):
+    """The v2 part list (local vertices + part-to-model) -> .hmesh v3 bytes: one vertex
+    and index buffer in model space (rest pose), a material table, slots for pads and groups."""
+    import hmesh_io
+    import numpy as np
+
+    materials, material_index = [], {}
+    out_parts, vert_chunks, idx_chunks = [], [], []
+    base = first = 0
+    lo_all, hi_all = np.full(3, 1e9), np.full(3, -1e9)
+
+    for name, matrix, pivot, verts, idx in parts:
+        m = np.array(matrix, dtype=np.float64).reshape(4, 4).T  # column-major -> row-major math
+        v = np.array(verts, dtype=np.float64).reshape(-1, 14)
+        n_vert = len(v)
+        pos = (v[:, 0:3] @ m[:3, :3].T + m[:3, 3]) if n_vert else np.zeros((0, 3))
+        normal_matrix = np.linalg.inv(m[:3, :3]).T
+        nrm = v[:, 3:6] @ normal_matrix.T if n_vert else np.zeros((0, 3))
+        nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-20)
+
+        flags_for_part = 0
+        if name == "display_surface":
+            flags_for_part |= hmesh_io.MATERIAL_FLAGS["lcd"]
+        if name == "chassis_topPlate":
+            flags_for_part |= hmesh_io.MATERIAL_FLAGS["decalTarget"]
+
+        mat_ids = np.zeros(n_vert, dtype=np.uint8)
+        part_area = {}
+        for i in range(n_vert):
+            colour = tuple(round(float(c), 6) for c in v[i, 6:9])
+            key = (colour, round(float(v[i, 9]), 6), round(float(v[i, 12]), 6), round(float(v[i, 13]), 6), flags_for_part)
+            if key not in material_index:
+                material_index[key] = len(materials)
+                label = next((nm for rgb, nm in PALETTE_NAMES.items()
+                              if all(abs(a - b) < 1e-6 for a, b in zip(rgb, colour))), f"m{len(materials)}")
+                if flags_for_part & hmesh_io.MATERIAL_FLAGS["lcd"]:
+                    label = "lcd"
+                elif flags_for_part & hmesh_io.MATERIAL_FLAGS["decalTarget"]:
+                    label = "deck"
+                materials.append(dict(name=label[:16], base=colour, roughness=key[2], metallic=key[3],
+                                      emissive=(key[1] * colour[0], key[1] * colour[1], key[1] * colour[2]),
+                                      flags=flags_for_part))
+            mat_ids[i] = material_index[key]
+        if len(materials) > 255:
+            raise ValueError("more than 255 materials")
+
+        idx = np.asarray(idx, dtype=np.int64)
+        tri_material = mat_ids[idx[0::3]] if len(idx) else np.zeros(0, np.uint8)
+        dominant = int(np.bincount(tri_material).argmax()) if len(tri_material) else 0
+
+        slot = SLOTS.get(name, 0)
+        kind = part_kind(name)
+        flags = 0
+        if len(idx) and name not in ANCHOR_PARTS:
+            flags |= hmesh_io.PART_FLAGS["castsShadow"]
+        if slot:
+            flags |= hmesh_io.PART_FLAGS["moving"]
+        if name == "chassis_topPlate":
+            flags |= hmesh_io.PART_FLAGS["decal"]
+
+        if n_vert:
+            lo, hi = pos.min(axis=0), pos.max(axis=0)
+        else:
+            t = m[:3, 3]
+            lo = hi = t
+        if flags & hmesh_io.PART_FLAGS["castsShadow"]:
+            lo_all, hi_all = np.minimum(lo_all, lo), np.maximum(hi_all, hi)
+
+        uv = np.clip(v[:, 10:12], 0.0, 1.0) if n_vert else np.zeros((0, 2))
+        rec = np.zeros(n_vert, dtype=hmesh_io.VERTEX)
+        rec["pos"] = pos
+        rec["normal"] = hmesh_io.oct_encode(nrm) if n_vert else np.zeros((0, 2), np.int16)
+        rec["uv"] = np.round(uv * 65535).astype(np.uint16)
+        rec["material"] = mat_ids
+        rec["slot"] = slot
+        rec["mask"] = 1 if name == "chassis_topPlate" else 0
+        rec["ao"] = 255
+        vert_chunks.append(rec)
+        idx_chunks.append((idx + base).astype(np.uint32))
+
+        centre = (lo + hi) / 2
+        out_parts.append(dict(name=name, kind=kind, flags=flags, slot=slot, material=dominant,
+                              pivot=tuple(float(c) for c in centre), axis=(0.0, 0.0, -1.0),
+                              travel=KEY_TRAVEL if slot else 0.0,
+                              bounds=tuple(float(c) for c in (*lo, *hi)),
+                              first_index=first, index_count=len(idx), base_vertex=base, vertex_count=n_vert,
+                              led_for=led_for(name) if kind == hmesh_io.KIND["led"] else 0xFFFF))
+        base += n_vert
+        first += len(idx)
+
+    vertices = np.concatenate(vert_chunks) if vert_chunks else np.zeros(0, dtype=hmesh_io.VERTEX)
+    indices = np.concatenate(idx_chunks) if idx_chunks else np.zeros(0, np.uint32)
+    meta = dict(generator="tools/model/usdz_to_hmesh.py", format=3, source=source_name,
+                parts=len(out_parts), materials=len(materials), vertices=int(len(vertices)),
+                triangles=int(len(indices) // 3))
+    return hmesh_io.write_hmesh(materials, out_parts, vertices, indices,
+                                tuple(float(c) for c in lo_all), tuple(float(c) for c in hi_all), meta)
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        sys.exit(__doc__)
-    convert(sys.argv[1], sys.argv[2])
+    import argparse
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("usdz")
+    ap.add_argument("out")
+    ap.add_argument("--format", choices=["v3", "v2"], default="v3")
+    a = ap.parse_args()
+    convert(a.usdz, a.out, a.format)

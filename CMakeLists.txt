@@ -39,6 +39,7 @@ target_include_directories(HaloCore PUBLIC Source)
 target_sources(HaloCore PRIVATE
     Source/Core/ChunkFile.cpp
     Source/Core/HenvFormat.cpp
+    Source/Core/HmeshFormat.cpp
     Source/Core/HtexFormat.cpp
     Source/Core/StageCamera.cpp)
 if(MSVC)
@@ -179,7 +180,8 @@ target_sources(HaloTests PRIVATE
     Tests/StageCameraTests.cpp
     Tests/ToneCurvesTests.cpp
     Tests/HenvFormatTests.cpp
-    Tests/HtexFormatTests.cpp)
+    Tests/HtexFormatTests.cpp
+    Tests/HmeshFormatTests.cpp)
 target_compile_definitions(HaloTests PRIVATE HALO_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 # The Mac app (its own repo) sits beside this one as the reference spec; when it
 # is there, the entity-name test cross-checks the frozen contract against it.
