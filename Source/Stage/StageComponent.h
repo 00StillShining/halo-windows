@@ -9,6 +9,7 @@
 
 #include <array>
 #include <atomic>
+#include <vector>
 
 namespace halo
 {
@@ -68,9 +69,17 @@ namespace halo
             int seenStrikes = 0;
         };
 
+        struct DepthTarget
+        {
+            GLuint fbo = 0, texture = 0, depthBuffer = 0;
+            int width = 0, height = 0;
+        };
+
+        void animatePads (const SharedState&, float dt);
+        void drawDepth (const DepthTarget&, const juce::Matrix3D<float>& viewProj, bool partsInWorld);
         void drawBackground();
-        void drawShadow (const juce::Matrix3D<float>& viewProj);
-        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&, float dt, float time);
+        void drawGround (const juce::Matrix3D<float>& viewProj);
+        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&, float time);
 
         AppModel& model;
         juce::OpenGLContext context;
@@ -78,15 +87,18 @@ namespace halo
 
         // GL-thread state
         HaloMesh mesh;
-        std::unique_ptr<juce::OpenGLShaderProgram> partShader, backgroundShader;
-        juce::OpenGLTexture displayTexture;
-        GLuint emptyVao = 0, shadowVao = 0, shadowVbo = 0;
+        std::unique_ptr<juce::OpenGLShaderProgram> partShader, depthShader, backgroundShader;
+        juce::OpenGLTexture displayTexture, printTexture;
+        DepthTarget shadowTarget, heightTarget;
+        GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
+        std::vector<juce::Matrix3D<float>> partToModel; // this frame, pad travel applied
         std::array<int, 12> padParts {};
         std::array<int, 4> groupParts {};
-        int displayPart = -1, ringPart = -1;
+        int displayPart = -1, ringPart = -1, platePart = -1;
         std::array<PadAnim, 12> padAnim {};
         double lastFrameTime = 0.0, startTime = 0.0;
         bool meshLoaded = false;
+        int debugView = 0; // HALO_STAGE_DEBUG
 
         // Shared between threads
         juce::SpinLock lock;

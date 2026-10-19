@@ -51,6 +51,8 @@ Tools:
 
 Keyboard shortcuts: Ctrl+1..6 switch modes, Ctrl+M toggles the monitor, Ctrl+R toggles recording.
 
+For the 3D stage, `HALO_STAGE_CAMERA=yaw,pitch,radius` (degrees, degrees, metres; the default is `28,42,0.7`) fixes the camera for before/after comparisons, and `HALO_STAGE_DEBUG=1..4` shows the lighting terms: ambient occlusion, key-light shadow, height-map contours, and the floor shadow's components.
+
 ## Layout
 
 ```
@@ -75,6 +77,8 @@ python -m venv tools\.venv
 tools\.venv\Scripts\pip install usd-core
 tools\.venv\Scripts\python tools\model\usdz_to_hmesh.py path\to\EP40.usdz assets\EP40.hmesh
 ```
+
+The bake is more than a format change. It replaces Blender's flat-shaded bevels with area-weighted smooth normals, swaps the bevelled-cube chassis for rounded-corner slabs, adds the top row of pad lamps, and writes physically based colour, roughness and metallic values matched to TE's product photography (`.hmesh` version 2). The renderer still reads version 1 files.
 
 ## Honesty rules (carried over from the Mac app)
 

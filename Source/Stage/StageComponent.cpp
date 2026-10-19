@@ -1,5 +1,7 @@
 #include "Stage/StageComponent.h"
 #include "Core/Ep40MidiMapping.h"
+#include "Stage/FacePrint.h"
+#include "Stage/StageShaders.h"
 #include "UI/HaloColours.h"
 
 #include <HaloAssets.h>
@@ -16,6 +18,16 @@ namespace halo
         constexpr float ledFloor = 0.16f, ledScale = 0.74f, ledDecayTau = 0.09f;
         constexpr float ringDiscoverPeriod = 4.0f;
 
+        // Device and lighting rig (model space is Z-up metres; world is Y-up).
+        constexpr float deviceWidth = 0.176f, deviceDepth = 0.240f;
+        constexpr float groundZ = -0.0096f; // just under the halo ring
+        constexpr int shadowMapSize = 2048;
+        constexpr float shadowExtent = 0.20f; // half-size of the key light's ortho box
+        constexpr float heightHalfX = 0.115f, heightHalfY = 0.145f, heightTop = 0.030f;
+        const juce::Vector3D<float> keyDir  = juce::Vector3D<float> (-0.45f, 1.0f, 0.55f).normalised();
+        const juce::Vector3D<float> topDir  = juce::Vector3D<float> (-0.10f, 1.0f, -0.55f).normalised();
+        const juce::Vector3D<float> fillDir = juce::Vector3D<float> (0.85f, 0.35f, 0.40f).normalised();
+
         using Mat = juce::Matrix3D<float>;
 
         Mat perspective (float fovYDegrees, float aspect, float zNear, float zFar)
@@ -27,6 +39,30 @@ namespace halo
             m[10] = (zFar + zNear) / (zNear - zFar);
             m[11] = -1.0f;
             m[14] = 2.0f * zFar * zNear / (zNear - zFar);
+            return Mat (m);
+        }
+
+        Mat orthographic (float halfWidth, float halfHeight, float zNear, float zFar)
+        {
+            float m[16] {};
+            m[0] = 1.0f / halfWidth;
+            m[5] = 1.0f / halfHeight;
+            m[10] = -2.0f / (zFar - zNear);
+            m[14] = -(zFar + zNear) / (zFar - zNear);
+            m[15] = 1.0f;
+            return Mat (m);
+        }
+
+        // Looks straight down the model's -Z onto the face; depth 0 is
+        // heightTop and depth 1 is the ground.
+        Mat heightProjection()
+        {
+            float m[16] {};
+            m[0] = 1.0f / heightHalfX;
+            m[5] = 1.0f / heightHalfY;
+            m[10] = -2.0f / (heightTop - groundZ);
+            m[14] = (heightTop + groundZ) / (heightTop - groundZ);
+            m[15] = 1.0f;
             return Mat (m);
         }
 
@@ -69,129 +105,11 @@ namespace halo
             return Mat (m);
         }
 
-        const char* partVertexShader = R"(
-            #version 150
-            in vec3 aPos; in vec3 aNormal; in vec3 aColour; in float aEmissive; in vec2 aUV;
-            uniform mat4 uModel;
-            uniform mat4 uViewProj;
-            out vec3 vNormal; out vec3 vColour; out float vEmissive; out vec2 vUV;
-            out vec3 vLocal; out vec3 vWorld;
-            void main()
-            {
-                vec4 world = uModel * vec4 (aPos, 1.0);
-                vWorld = world.xyz;
-                vLocal = aPos;
-                vNormal = normalize (mat3 (uModel) * aNormal);
-                vColour = aColour; vEmissive = aEmissive; vUV = aUV;
-                gl_Position = uViewProj * world;
-            })";
-
-        const char* partFragmentShader = R"(
-            #version 150
-            in vec3 vNormal; in vec3 vColour; in float vEmissive; in vec2 vUV;
-            in vec3 vLocal; in vec3 vWorld;
-            uniform int uKind;            // 0 part, 1 display, 2 halo ring, 3 shadow
-            uniform vec3 uEye;
-            uniform vec3 uGlow;           // linear emissive added to the part
-            uniform sampler2D uTexture;
-            uniform int uRingMode;        // 0 dark, 1 discover sweep, 2 steady, 3 error
-            uniform float uTime;
-            uniform vec3 uRingColour;
-            uniform float uRingLevel;
-            out vec4 fragColour;
-
-            vec3 toSrgb (vec3 c) { return pow (clamp (c, 0.0, 1.0), vec3 (1.0 / 2.2)); }
-            vec3 toLinear (vec3 c) { return pow (c, vec3 (2.2)); }
-
-            void main()
-            {
-                if (uKind == 3)
-                {
-                    // Soft rounded-box contact shadow; vUV spans -1..1.
-                    vec2 q = abs (vUV) - vec2 (0.78, 0.82);
-                    float d = length (max (q, 0.0)) + min (max (q.x, q.y), 0.0);
-                    float a = 1.0 - smoothstep (-0.05, 0.22, d);
-                    fragColour = vec4 (0.10, 0.13, 0.15, a * 0.28);
-                    return;
-                }
-
-                vec3 n = normalize (vNormal);
-                if (! gl_FrontFacing) n = -n;
-                vec3 base = vColour;
-                vec3 emissive = uGlow;
-
-                if (uKind == 1)
-                {
-                    // The display is self-lit: show the texture almost unshaded.
-                    vec3 tex = toLinear (texture (uTexture, vUV).rgb);
-                    fragColour = vec4 (toSrgb (tex * 0.92 + tex * 0.08 * max (n.y, 0.0)), 1.0);
-                    return;
-                }
-
-                float ringMix = 0.0;
-                if (uKind == 2 && uRingMode != 0)
-                {
-                    float angle = atan (vLocal.y, vLocal.x);
-                    float segment = floor ((angle + 3.14159265) / 6.2831853 * 48.0);
-                    float level = uRingLevel;
-                    if (uRingMode == 1)
-                    {
-                        float head = floor (fract (uTime / 4.0) * 48.0);
-                        float d = mod (head - segment + 48.0, 48.0);
-                        float falloff[6] = float[6] (1.0, 0.72, 0.48, 0.28, 0.14, 0.06);
-                        level = d < 6.0 ? falloff[int (d)] * 0.9 : 0.0;
-                    }
-                    // Segment opacity over the dark ring, like the Mac's 48 unlit segments.
-                    ringMix = level;
-                }
-
-                vec3 keyDir = normalize (vec3 (-0.45, 1.0, 0.55));
-                vec3 fillDir = normalize (vec3 (0.8, 0.35, 0.2));
-                float key = max (dot (n, keyDir), 0.0);
-                float fill = max (dot (n, fillDir), 0.0);
-                float hemi = mix (0.32, 0.62, n.y * 0.5 + 0.5);
-                vec3 v = normalize (uEye - vWorld);
-                float spec = pow (max (dot (n, normalize (keyDir + v)), 0.0), 48.0) * 0.12;
-
-                vec3 lit = base * (hemi + key * 0.78 + fill * 0.18) + spec + base * vEmissive * 0.6 + emissive;
-                lit = mix (lit, uRingColour, ringMix);
-                fragColour = vec4 (toSrgb (lit), 1.0);
-            })";
-
-        const char* backgroundVertexShader = R"(
-            #version 150
-            void main()
-            {
-                vec2 p = vec2 ((gl_VertexID << 1) & 2, gl_VertexID & 2);
-                gl_Position = vec4 (p * 2.0 - 1.0, 0.0, 1.0);
-            })";
-
-        // The graph-paper canvas (GridCanvas.swift): 16 pt cells, a major line every 4.
-        const char* backgroundFragmentShader = R"(
-            #version 150
-            uniform float uScale;
-            uniform float uHeight;
-            uniform vec3 uCanvas;
-            uniform vec4 uMinor;
-            uniform vec4 uMajor;
-            out vec4 fragColour;
-            float line (float coord, float spacing, float width)
-            {
-                float d = abs (mod (coord + width * 0.5, spacing) - width * 0.5);
-                return 1.0 - smoothstep (width * 0.5, width * 0.5 + 1.0, d);
-            }
-            void main()
-            {
-                vec2 p = vec2 (gl_FragCoord.x, uHeight - gl_FragCoord.y);
-                float cell = 16.0 * uScale;
-                float w = max (1.0, uScale);
-                float minor = max (line (p.x, cell, w), line (p.y, cell, w));
-                float major = max (line (p.x, cell * 4.0, w), line (p.y, cell * 4.0, w));
-                vec3 c = uCanvas;
-                c = mix (c, uMinor.rgb, minor * uMinor.a);
-                c = mix (c, uMajor.rgb, major * uMajor.a);
-                fragColour = vec4 (c, 1.0);
-            })";
+        Mat keyLightViewProj()
+        {
+            const auto view = lookAt (keyDir * 0.6f, { 0, 0, 0 }, { 0, 1, 0 });
+            return then (view, orthographic (shadowExtent, shadowExtent, 0.05f, 1.2f));
+        }
 
         juce::Vector3D<float> toVec (juce::Colour c) { return { c.getFloatRed(), c.getFloatGreen(), c.getFloatBlue() }; }
 
@@ -199,6 +117,31 @@ namespace halo
         {
             auto f = [] (float v) { return std::pow (v, 2.2f); };
             return { f (c.getFloatRed()), f (c.getFloatGreen()), f (c.getFloatBlue()) };
+        }
+
+        std::unique_ptr<juce::OpenGLShaderProgram> buildProgram (juce::OpenGLContext& context,
+                                                                 const char* vertex, const char* fragment,
+                                                                 std::initializer_list<const char*> attributes)
+        {
+            auto program = std::make_unique<juce::OpenGLShaderProgram> (context);
+            bool ok = program->addVertexShader (vertex) && program->addFragmentShader (fragment);
+            if (ok)
+            {
+                GLuint location = 0;
+                for (auto* name : attributes)
+                    glBindAttribLocation (program->getProgramID(), location++, name);
+                ok = program->link();
+            }
+            if (! ok)
+            {
+                // A failed shader leaves the stage blank, and drivers differ; keep the
+                // compiler's message somewhere findable in release builds too.
+                DBG ("stage shader: " << program->getLastError());
+                juce::File::getSpecialLocation (juce::File::tempDirectory)
+                    .getChildFile ("halo-stage-shader.log").replaceWithText (program->getLastError());
+                return {};
+            }
+            return program;
         }
     }
 
@@ -216,6 +159,18 @@ namespace halo
         context.setComponentPaintingEnabled (false);
         context.setContinuousRepainting (true);
         context.attachTo (*this);
+
+        // Dev hooks for repeatable screenshots: HALO_STAGE_CAMERA=yaw,pitch,radius,
+        // and HALO_STAGE_DEBUG=1..4 to view AO, key shadow, height map or floor terms.
+        debugView = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_DEBUG", "0").getIntValue();
+        const auto camera = juce::StringArray::fromTokens (
+            juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_CAMERA", {}), ",", {});
+        if (camera.size() == 3)
+        {
+            yawDegrees = camera[0].getFloatValue();
+            pitchDegrees = camera[1].getFloatValue();
+            radius = camera[2].getFloatValue();
+        }
 
         model.addListener (this);
         statusChanged();
@@ -303,6 +258,7 @@ namespace halo
         mesh = HaloMesh::parse (HaloAssets::EP40_hmesh, (size_t) HaloAssets::EP40_hmeshSize);
         mesh.upload();
         meshLoaded = ! mesh.parts.empty();
+        partToModel.assign (mesh.parts.size(), Mat());
 
         auto indexOf = [this] (std::string_view name)
         {
@@ -315,46 +271,25 @@ namespace halo
         for (size_t i = 0; i < 4; ++i) groupParts[i] = indexOf (ep40::groupPartNames[i]);
         displayPart = indexOf ("display_surface");
         ringPart = indexOf ("halo_ring");
+        platePart = indexOf ("chassis_topPlate");
 
-        partShader = std::make_unique<juce::OpenGLShaderProgram> (context);
-        const bool partOk = partShader->addVertexShader (partVertexShader)
-                         && partShader->addFragmentShader (partFragmentShader);
-        if (partOk)
-        {
-            const auto id = partShader->getProgramID();
-            glBindAttribLocation (id, 0, "aPos");
-            glBindAttribLocation (id, 1, "aNormal");
-            glBindAttribLocation (id, 2, "aColour");
-            glBindAttribLocation (id, 3, "aEmissive");
-            glBindAttribLocation (id, 4, "aUV");
-        }
-        if (! partOk || ! partShader->link())
-        {
-            DBG ("part shader: " << partShader->getLastError());
-            partShader.reset();
-        }
-
-        backgroundShader = std::make_unique<juce::OpenGLShaderProgram> (context);
-        if (! backgroundShader->addVertexShader (backgroundVertexShader)
-            || ! backgroundShader->addFragmentShader (backgroundFragmentShader)
-            || ! backgroundShader->link())
-        {
-            DBG ("background shader: " << backgroundShader->getLastError());
-            backgroundShader.reset();
-        }
+        using namespace stage_shaders;
+        partShader = buildProgram (context, partVertex, partFragment,
+                                   { "aPos", "aNormal", "aColour", "aEmissive", "aUV", "aMaterial" });
+        depthShader = buildProgram (context, depthVertex, depthFragment, { "aPos" });
+        backgroundShader = buildProgram (context, backgroundVertex, backgroundFragment, {});
 
         glGenVertexArrays (1, &emptyVao);
 
-        // Shadow quad in model space, under the chassis, nudged away from the key light.
-        const float w = 0.105f, h = 0.138f, z = -0.0105f, dx = 0.010f, dy = -0.012f;
-        const float quad[] {
-            -w + dx, -h + dy, z, -1, -1,   w + dx, -h + dy, z, 1, -1,
-            -w + dx,  h + dy, z, -1,  1,   w + dx,  h + dy, z, 1,  1,
-        };
-        glGenVertexArrays (1, &shadowVao);
-        glBindVertexArray (shadowVao);
-        glGenBuffers (1, &shadowVbo);
-        glBindBuffer (GL_ARRAY_BUFFER, shadowVbo);
+        // Ground quad in model space under the chassis; it only ever darkens.
+        // Only as large as the shadow fade (see the shader), so no pixel is wasted.
+        const float gx = 0.26f, gy = 0.34f;
+        const float quad[] { -gx, -gy, groundZ, 0, 0,   gx, -gy, groundZ, 1, 0,
+                             -gx,  gy, groundZ, 0, 1,   gx,  gy, groundZ, 1, 1 };
+        glGenVertexArrays (1, &groundVao);
+        glBindVertexArray (groundVao);
+        glGenBuffers (1, &groundVbo);
+        glBindBuffer (GL_ARRAY_BUFFER, groundVbo);
         glBufferData (GL_ARRAY_BUFFER, sizeof (quad), quad, GL_STATIC_DRAW);
         glEnableVertexAttribArray (0);
         glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof (float), nullptr);
@@ -363,7 +298,68 @@ namespace halo
         glDisableVertexAttribArray (1); glVertexAttrib3f (1, 0, 0, 1);
         glDisableVertexAttribArray (2); glVertexAttrib3f (2, 0, 0, 0);
         glDisableVertexAttribArray (3); glVertexAttrib1f (3, 0);
+        glDisableVertexAttribArray (5); glVertexAttrib2f (5, 1, 0);
         glBindVertexArray (0);
+
+        // The shadow map samples its depth texture with hardware comparison. The
+        // height map keeps model z in a half-float colour texture, which (unlike
+        // a depth texture) filters smoothly everywhere.
+        auto makeTarget = [] (DepthTarget& target, int width, int height, bool shadow)
+        {
+            target.width = width;
+            target.height = height;
+            auto texture = [&] (GLint internalFormat, GLenum format, GLenum type)
+            {
+                GLuint id = 0;
+                glGenTextures (1, &id);
+                glBindTexture (GL_TEXTURE_2D, id);
+                glTexImage2D (GL_TEXTURE_2D, 0, internalFormat, width, height, 0, format, type, nullptr);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                return id;
+            };
+
+            GLint previous = 0;
+            glGetIntegerv (GL_FRAMEBUFFER_BINDING, &previous);
+            glGenFramebuffers (1, &target.fbo);
+            glBindFramebuffer (GL_FRAMEBUFFER, target.fbo);
+            if (shadow)
+            {
+                target.texture = texture (GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
+                glFramebufferTexture2D (GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, target.texture, 0);
+                glDrawBuffer (GL_NONE);
+                glReadBuffer (GL_NONE);
+            }
+            else
+            {
+                target.texture = texture (GL_R16F, GL_RED, GL_FLOAT);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glGenerateMipmap (GL_TEXTURE_2D);
+                glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.texture, 0);
+                glGenRenderbuffers (1, &target.depthBuffer);
+                glBindRenderbuffer (GL_RENDERBUFFER, target.depthBuffer);
+                glRenderbufferStorage (GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+                glFramebufferRenderbuffer (GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, target.depthBuffer);
+                glDrawBuffer (GL_COLOR_ATTACHMENT0);
+            }
+            if (glCheckFramebufferStatus (GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+                DBG ("stage: map target incomplete");
+            glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) previous);
+        };
+        makeTarget (shadowTarget, shadowMapSize, shadowMapSize, true);
+        makeTarget (heightTarget, 1024, juce::roundToInt (1024.0f * heightHalfY / heightHalfX), false);
+
+        // The face silkscreen, mipmapped so small print stays clean at a distance.
+        printTexture.loadImage (FacePrint::render());
+        printTexture.bind();
+        glGenerateMipmap (GL_TEXTURE_2D);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        printTexture.unbind();
 
         startTime = lastFrameTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
     }
@@ -372,12 +368,79 @@ namespace halo
     {
         mesh.release();
         displayTexture.release();
+        printTexture.release();
         partShader.reset();
+        depthShader.reset();
         backgroundShader.reset();
+        for (auto* target : { &shadowTarget, &heightTarget })
+        {
+            if (target->fbo != 0) glDeleteFramebuffers (1, &target->fbo);
+            if (target->texture != 0) glDeleteTextures (1, &target->texture);
+            if (target->depthBuffer != 0) glDeleteRenderbuffers (1, &target->depthBuffer);
+            *target = {};
+        }
         if (emptyVao != 0) glDeleteVertexArrays (1, &emptyVao);
-        if (shadowVao != 0) glDeleteVertexArrays (1, &shadowVao);
-        if (shadowVbo != 0) glDeleteBuffers (1, &shadowVbo);
-        emptyVao = shadowVao = shadowVbo = 0;
+        if (groundVao != 0) glDeleteVertexArrays (1, &groundVao);
+        if (groundVbo != 0) glDeleteBuffers (1, &groundVbo);
+        emptyVao = groundVao = groundVbo = 0;
+    }
+
+    //==============================================================================
+    void StageComponent::animatePads (const SharedState& state, float dt)
+    {
+        for (size_t i = 0; i < 12; ++i)
+        {
+            auto& anim = padAnim[i];
+            const auto& target = state.pads[i];
+            if (target.strikeCount != anim.seenStrikes)
+            {
+                anim.seenStrikes = target.strikeCount;
+                anim.led = ledFloor + ledScale * target.velocity * target.velocity;
+            }
+            const float depth = target.held ? travelMin + (travelMax - travelMin) * target.velocity : 0.0f;
+            const float tau = depth > anim.depth ? pressTau : releaseTau;
+            anim.depth += (depth - anim.depth) * (1.0f - std::exp (-dt / tau));
+            if (! target.held)
+                anim.led *= std::exp (-dt / ledDecayTau);
+        }
+
+        for (size_t p = 0; p < mesh.parts.size(); ++p)
+            partToModel[p] = mesh.parts[p].partToModel;
+        for (size_t i = 0; i < 12; ++i)
+            if (padParts[i] >= 0)
+                partToModel[(size_t) padParts[i]] = then (mesh.parts[(size_t) padParts[i]].partToModel,
+                                                          translation (0, 0, -padAnim[i].depth));
+    }
+
+    // Depth-only pass of the whole device into `target`. The key light's map works
+    // in world space; the top-down height map works directly in model space.
+    void StageComponent::drawDepth (const DepthTarget& target, const Mat& viewProj, bool partsInWorld)
+    {
+        glBindFramebuffer (GL_FRAMEBUFFER, target.fbo);
+        glViewport (0, 0, target.width, target.height);
+        glDepthMask (GL_TRUE);
+        glClearDepth (1.0);
+        glClearColor (groundZ, groundZ, groundZ, groundZ); // height map: bare floor
+        glClear (GL_DEPTH_BUFFER_BIT | (target.depthBuffer != 0 ? GL_COLOR_BUFFER_BIT : 0));
+        glEnable (GL_DEPTH_TEST);
+        glDepthFunc (GL_LESS);
+        glEnable (GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset (1.1f, 2.0f);
+
+        depthShader->use();
+        depthShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
+        const auto toWorld = modelToWorld();
+        for (size_t p = 0; p < mesh.parts.size(); ++p)
+        {
+            if ((int) p == ringPart) // lies on the floor; never casts
+                continue;
+            const auto m = partsInWorld ? then (partToModel[p], toWorld) : partToModel[p];
+            depthShader->setUniformMat4 ("uModel", m.mat, 1, false);
+            glBindVertexArray (mesh.parts[p].vao);
+            glDrawElements (GL_TRIANGLES, (GLsizei) mesh.parts[p].indices.size(), GL_UNSIGNED_INT, nullptr);
+        }
+        glBindVertexArray (0);
+        glDisable (GL_POLYGON_OFFSET_FILL);
     }
 
     void StageComponent::drawBackground()
@@ -400,22 +463,24 @@ namespace halo
         glDrawArrays (GL_TRIANGLES, 0, 3);
     }
 
-    void StageComponent::drawShadow (const Mat& viewProj)
+    void StageComponent::drawGround (const Mat& viewProj)
     {
+        Mat identity;
         partShader->setUniformMat4 ("uModel", modelToWorld().mat, 1, false);
+        partShader->setUniformMat4 ("uPartToModel", identity.mat, 1, false);
         partShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
         partShader->setUniform ("uKind", 3);
 
         glEnable (GL_BLEND);
         glBlendFunc (GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask (GL_FALSE);
-        glBindVertexArray (shadowVao);
+        glBindVertexArray (groundVao);
         glDrawArrays (GL_TRIANGLE_STRIP, 0, 4);
         glDepthMask (GL_TRUE);
         glDisable (GL_BLEND);
     }
 
-    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state, float dt, float time)
+    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state, float time)
     {
         const auto toWorld = modelToWorld();
         const auto orange = linear (HaloColours::graphPaper.orange);
@@ -441,36 +506,16 @@ namespace halo
         partShader->setUniform ("uTime", time);
         partShader->setUniformMat4 ("uViewProj", viewProj.mat, 1, false);
 
-        // Animate pads toward their targets.
-        for (size_t i = 0; i < 12; ++i)
-        {
-            auto& anim = padAnim[i];
-            const auto& target = state.pads[i];
-            if (target.strikeCount != anim.seenStrikes)
-            {
-                anim.seenStrikes = target.strikeCount;
-                anim.led = ledFloor + ledScale * target.velocity * target.velocity;
-            }
-            const float depth = target.held ? travelMin + (travelMax - travelMin) * target.velocity : 0.0f;
-            const float tau = depth > anim.depth ? pressTau : releaseTau;
-            anim.depth += (depth - anim.depth) * (1.0f - std::exp (-dt / tau));
-            if (! target.held)
-                anim.led *= std::exp (-dt / ledDecayTau);
-        }
-
         for (int p = 0; p < (int) mesh.parts.size(); ++p)
         {
             const auto& part = mesh.parts[(size_t) p];
-            Mat local = part.partToModel;
+            const auto& local = partToModel[(size_t) p];
             juce::Vector3D<float> glow;
             int kind = 0;
 
             for (size_t i = 0; i < 12; ++i)
                 if (padParts[i] == p)
-                {
-                    local = then (local, translation (0, 0, -padAnim[i].depth));
                     glow = orange * (padAnim[i].led * 0.9f);
-                }
 
             for (size_t g = 0; g < 4; ++g)
                 if (groupParts[g] == p && state.displayLive && state.activeGroup && (size_t) *state.activeGroup == g)
@@ -479,13 +524,16 @@ namespace halo
             if (p == displayPart && displayTexture.getTextureID() != 0)
             {
                 kind = 1;
+                glActiveTexture (GL_TEXTURE0);
                 displayTexture.bind();
-                partShader->setUniform ("uTexture", 0);
             }
             if (p == ringPart)
                 kind = 2;
+            if (p == platePart)
+                kind = 4;
 
             partShader->setUniformMat4 ("uModel", then (local, toWorld).mat, 1, false);
+            partShader->setUniformMat4 ("uPartToModel", local.mat, 1, false);
             partShader->setUniform ("uKind", kind);
             partShader->setUniform ("uGlow", glow.x, glow.y, glow.z);
 
@@ -513,12 +561,30 @@ namespace halo
         const auto scale = (float) context.getRenderingScale();
         const int w = juce::roundToInt (scale * (float) getWidth());
         const int h = juce::roundToInt (scale * (float) getHeight());
+        const bool ready = meshLoaded && partShader != nullptr && depthShader != nullptr && w > 0 && h > 0;
+
+        GLint mainFramebuffer = 0;
+        glGetIntegerv (GL_FRAMEBUFFER_BINDING, &mainFramebuffer);
+
+        // Shadow and height maps first: both follow the pads as they travel.
+        const auto lightViewProj = keyLightViewProj();
+        if (ready)
+        {
+            animatePads (state, dt);
+            glDisable (GL_BLEND);
+            drawDepth (shadowTarget, lightViewProj, true);
+            drawDepth (heightTarget, heightProjection(), false);
+            glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
+            glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
+            glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer);
+        }
+
         glViewport (0, 0, w, h);
         glClearColor (0, 0, 0, 1);
         glClear (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         drawBackground();
-        if (! meshLoaded || partShader == nullptr || w == 0 || h == 0)
+        if (! ready)
             return;
 
         const float yaw = juce::degreesToRadians (yawDegrees.load());
@@ -533,11 +599,35 @@ namespace halo
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LEQUAL);
         glEnable (GL_MULTISAMPLE);
+
+        glActiveTexture (GL_TEXTURE1);
+        glBindTexture (GL_TEXTURE_2D, shadowTarget.texture);
+        glActiveTexture (GL_TEXTURE2);
+        glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
+        glActiveTexture (GL_TEXTURE3);
+        glBindTexture (GL_TEXTURE_2D, printTexture.getTextureID());
         glActiveTexture (GL_TEXTURE0);
 
+        const auto shadowTint = toVec (HaloColours::graphPaper.ink);
         partShader->use();
+        partShader->setUniform ("uTexture", 0);
+        partShader->setUniform ("uShadowMap", 1);
+        partShader->setUniform ("uHeightMap", 2);
+        partShader->setUniform ("uPrint", 3);
         partShader->setUniform ("uEye", eye.x, eye.y, eye.z);
-        drawShadow (viewProj);
-        drawModel (viewProj, state, dt, (float) (nowSeconds - startTime));
+        partShader->setUniformMat4 ("uLightViewProj", lightViewProj.mat, 1, false);
+        partShader->setUniform ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));
+        partShader->setUniform ("uHeightRect", 0.0f, 0.0f, heightHalfX, heightHalfY);
+        partShader->setUniform ("uHeightTexel", 2.0f * heightHalfX / (float) heightTarget.width);
+        partShader->setUniform ("uDeviceSize", deviceWidth, deviceDepth);
+        partShader->setUniform ("uKeyDir", keyDir.x, keyDir.y, keyDir.z);
+        partShader->setUniform ("uTopDir", topDir.x, topDir.y, topDir.z);
+        partShader->setUniform ("uFillDir", fillDir.x, fillDir.y, fillDir.z);
+        partShader->setUniform ("uShadowTint", shadowTint.x, shadowTint.y, shadowTint.z);
+        partShader->setUniform ("uExposure", 1.0f);
+        partShader->setUniform ("uDebug", debugView);
+
+        drawModel (viewProj, state, (float) (nowSeconds - startTime));
+        drawGround (viewProj); // after the device: the floor beneath it fails the depth test
     }
 }
