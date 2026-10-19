@@ -1,4 +1,4 @@
-# UI screenshot harness (docs/redesign/plan.md section 6.1).
+﻿# UI screenshot harness (docs/redesign/plan.md section 6.1).
 #
 # For every shot in the matrix it starts its OWN MOCK instance of the branch
 # build inside a sandboxed data root, waits for HALO_UI_READY in that
@@ -8,16 +8,18 @@
 #
 # Examples:
 #   powershell -File tools\dev\ui_shots.ps1 -Milestone r0
-#   powershell -File tools\dev\ui_shots.ps1 -Milestone r5 -Modes 1 -Sizes 1440,900 -Env @{HALO_RAIL='closed'} -Suffix closed
-#   powershell -File tools\dev\ui_shots.ps1 -Milestone r2a -Gallery -Scales 1,1.25,1.5
+#   powershell -File tools\dev\ui_shots.ps1 -Milestone r5 -Modes 1 -Sizes "1440,900;1180,720" -EnvList "HALO_RAIL=closed" -Suffix closed
+#   powershell -File tools\dev\ui_shots.ps1 -Milestone r2a -Gallery -Scales "1,1.25,1.5"
 param(
     [string]   $Milestone = "dev",
     [string[]] $Sizes = @("1440,900", "1180,720", "1180,660"),
-    [int[]]    $Modes = @(1, 2, 3, 4, 5, 6),
+    [string[]] $Modes = @("1", "2", "3", "4", "5", "6"),
     [string[]] $Scales = @("1"),
     [hashtable]$Env = @{},
+    [string]   $EnvList = "",
     [string]   $Suffix = "",
     [switch]   $Gallery,
+    [string[]] $GalleryPages = @("1", "2"),
     [string]   $Exe = "build\Redesign\Halo_artefacts\Debug\Halo.exe",
     [int]      $TimeoutSec = 40,
     [int]      $SettleMs = 900,
@@ -25,6 +27,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# "powershell -File" hands lists over as one string: accept "1,2,3" and
+# "1440,900;1180,720" as well as real arrays. EnvList is "K=V;K2=V2".
+$Sizes = @($Sizes | ForEach-Object { $_ -split ";" } | Where-Object { $_ })
+$Scales = @($Scales | ForEach-Object { $_ -split "[,;]" } | Where-Object { $_ })
+$Modes = @($Modes | ForEach-Object { $_ -split "[,;]" } | Where-Object { $_ })
+$GalleryPages = @($GalleryPages | ForEach-Object { $_ -split "[,;]" } | Where-Object { $_ })
+foreach ($pair in ($EnvList -split ";" | Where-Object { $_ })) {
+    $k, $v = $pair -split "=", 2
+    $Env[$k.Trim()] = $v
+}
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 Set-Location $root
 
@@ -57,13 +70,13 @@ function Snapshot {
 }
 $before = Snapshot
 
-if ($Gallery) { $Modes = @(0) }
+if ($Gallery) { $Modes = $GalleryPages }
 $shots = 0
 foreach ($size in $Sizes) {
     foreach ($scale in $Scales) {
         foreach ($mode in $Modes) {
             $w, $h = $size.Split(",")
-            $name = if ($Gallery) { "gallery" } else { "m$mode" }
+            $name = if ($Gallery) { "gallery$mode" } else { "m$mode" }
             $name += "-${w}x$h"
             if ($scale -ne "1") { $name += "-s" + ($scale -replace "\.", "") }
             if ($Suffix) { $name += "-$Suffix" }
@@ -80,7 +93,7 @@ foreach ($size in $Sizes) {
             $psi.EnvironmentVariables["HALO_UI_LOG"] = $log
             $psi.EnvironmentVariables["HALO_WINDOW_SIZE"] = "$w,$h"
             if ($scale -ne "1") { $psi.EnvironmentVariables["HALO_UI_SCALE"] = $scale }
-            if ($Gallery) { $psi.EnvironmentVariables["HALO_UI_GALLERY"] = "1" }
+            if ($Gallery) { $psi.EnvironmentVariables["HALO_UI_GALLERY"] = "$mode" }
             else { $psi.EnvironmentVariables["HALO_MODE"] = "$mode" }
             foreach ($k in $Env.Keys) { $psi.EnvironmentVariables[$k] = [string]$Env[$k] }
 
@@ -93,7 +106,7 @@ foreach ($size in $Sizes) {
                     Start-Sleep -Milliseconds 200
                 }
                 # The stage needs a few frames (HALO_STAGE_READY arrives with the 3D work).
-                $settle = if ($mode -eq 1 -and -not $Gallery) { $StageSettleMs } else { $SettleMs }
+                $settle = if ($mode -eq "1" -and -not $Gallery) { $StageSettleMs } else { $SettleMs }
                 Start-Sleep -Milliseconds $settle
                 $p.Refresh()
                 $out = Join-Path $outDir "$name.png"

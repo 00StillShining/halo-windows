@@ -165,8 +165,16 @@ juce_add_binary_data(HaloFontAssets
 # The redesign's design system, shared by the app and the UI test runner.
 set(HALO_DESIGN_SOURCES
     Source/UI/Design/Theme.cpp
-    Source/UI/Design/Fonts.cpp)
-target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES})
+    Source/UI/Design/Fonts.cpp
+    Source/UI/Design/Paint.cpp
+    Source/UI/Design/Numerals.cpp
+    Source/UI/Design/Pictograms.cpp
+    Source/UI/Design/Primitives/Notice.cpp
+    Source/UI/Design/Primitives/ActionKey.cpp
+    Source/UI/Design/Primitives/StepKeyRow.cpp
+    Source/UI/Design/Primitives/NameCells.cpp)
+target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
+    Source/UI/Design/Gallery.cpp)
 target_link_libraries(Halo PRIVATE HaloFontAssets)
 
 target_sources(HaloTests PRIVATE

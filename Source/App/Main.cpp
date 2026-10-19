@@ -5,6 +5,7 @@
 #include "Audio/SampleIO.h"
 #include "Core/Ep40MidiMapping.h"
 #include "UI/Design/Fonts.h"
+#include "UI/Design/Gallery.h"
 #include "UI/Design/Theme.h"
 #include "UI/HaloColours.h"
 
@@ -15,11 +16,14 @@ namespace halo
     class MainWindow : public juce::DocumentWindow
     {
     public:
-        MainWindow (const juce::String& name, AppModel& model)
+        MainWindow (const juce::String& name, AppModel& model, std::unique_ptr<juce::Component> replacement = {})
             : DocumentWindow (name, legacyColours().paper, DocumentWindow::allButtons)
         {
             setUsingNativeTitleBar (true);
-            setContentOwned (new MainComponent (model), true);
+            if (replacement != nullptr)
+                setContentOwned (replacement.release(), true); // the Debug gallery
+            else
+                setContentOwned (new MainComponent (model), true);
             setResizable (true, true);
             setResizeLimits (HaloMetrics::windowMinimumWidth, HaloMetrics::windowMinimumHeight, 10000, 10000);
            #if JUCE_DEBUG
@@ -76,10 +80,16 @@ namespace halo
             // The embedded faces live as long as the app; then the theme
             // (HALO_THEME=graphite|field|legacy; R1 keeps today's look by default).
             fonts = std::make_unique<HaloFonts>();
-            setTheme (Theme::fromName (juce::SystemStats::getEnvironmentVariable ("HALO_THEME", "legacy")));
+            int galleryPage = 0;
+           #if JUCE_DEBUG
+            // HALO_UI_GALLERY=<page>: the design system's fixture pages instead of the app.
+            galleryPage = juce::SystemStats::getEnvironmentVariable ("HALO_UI_GALLERY", "0").getIntValue();
+           #endif
+            setTheme (Theme::fromName (juce::SystemStats::getEnvironmentVariable ("HALO_THEME", galleryPage > 0 ? "graphite" : "legacy")));
 
             model = std::make_unique<AppModel> (mock);
-            window = std::make_unique<MainWindow> (getApplicationName(), *model);
+            window = std::make_unique<MainWindow> (getApplicationName(), *model,
+                                                   galleryPage > 0 ? createGallery (galleryPage) : nullptr);
             model->start();
 
            #if JUCE_DEBUG
