@@ -1,5 +1,6 @@
 #include "App/AppModel.h"
 #include "App/MainComponent.h"
+#include "Audio/SampleIO.h"
 #include "UI/HaloColours.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -65,6 +66,22 @@ namespace halo
                         if (what == "slices") model->editor().exportSlices();
                         else model->editor().exportEdit();
                     });
+            }
+            // HALO_DEVTEST=download:<slot>: once the EP-40 library is synced, download
+            // one sound into build\devtest-<slot>.wav (never into the library).
+            if (const auto test = env ("HALO_DEVTEST"); test.startsWith ("download:"))
+            {
+                const int slot = test.fromFirstOccurrenceOf (":", false, false).getIntValue();
+                juce::Timer::callAfterDelay (15000, [this, slot]
+                {
+                    model->device().download (slot, [slot] (std::optional<AudioData> audio, juce::String error)
+                    {
+                        const auto out = juce::File::getCurrentWorkingDirectory().getChildFile ("build").getChildFile ("devtest-" + juce::String (slot) + ".wav");
+                        if (audio)
+                            SampleIO::writeWav16 (*audio, out);
+                        out.withFileExtension ("txt").replaceWithText (audio ? "ok " + juce::String (audio->frameCount()) + " frames" : "error " + error);
+                    });
+                });
             }
             if (env ("HALO_MONITOR_DB").isNotEmpty())
                 model->monitor().setGainDb (env ("HALO_MONITOR_DB").getDoubleValue());

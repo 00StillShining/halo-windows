@@ -179,6 +179,15 @@ namespace halo
                         const auto meta = parseJson (*json);
                         if (meta.hasProperty ("free_space_in_bytes")) deviceInfo.freeBytes = (juce::int64) meta["free_space_in_bytes"];
                         if (meta.hasProperty ("max_capacity")) deviceInfo.capacityBytes = (juce::int64) meta["max_capacity"];
+                        deviceInfo.categories.clear();
+                        if (const auto* tabs = meta["tabs"].getArray())
+                            for (const auto& tab : *tabs)
+                                if (const auto* range = tab["range"].getArray(); range != nullptr && range->size() == 2)
+                                    deviceInfo.categories.push_back ({ tab["name"].toString(), (int) (*range)[0], (int) (*range)[1] });
+                        if (const auto* formats = meta["formats"].getArray(); formats != nullptr && ! formats->isEmpty())
+                            if (const auto* inner = (*formats)[0]["formats"].getArray(); inner != nullptr && ! inner->isEmpty())
+                                if ((*inner)[0].hasProperty ("samplerate.native"))
+                                    deviceInfo.nativeRate = (double) (*inner)[0]["samplerate.native"];
                     }
 
                     // 4. Every sound slot.
@@ -297,10 +306,15 @@ namespace halo
             pcm->reserve (info->size);
             auto size = std::make_shared<std::uint32_t> (info->size);
 
-            // Read pages until exactly `size` bytes (never past EOF).
+            // Read pages until exactly `size` bytes (never past EOF). The step
+            // function holds only a weak reference to itself; each in-flight
+            // request holds the strong one, so the chain frees itself when done
+            // (it used to clear itself while still running, which crashed).
             auto next = std::make_shared<std::function<void (int)>>();
-            *next = [this, gen, pcm, size, channels, rate, done, next] (int page)
+            std::weak_ptr<std::function<void (int)>> weakNext = next;
+            *next = [this, gen, pcm, size, channels, rate, done, weakNext] (int page)
             {
+                auto next = weakNext.lock();
                 if (pcm->size() >= *size)
                 {
                     AudioData a;
@@ -314,18 +328,15 @@ namespace halo
                             const auto v = (std::int16_t) ((*pcm)[at] | ((*pcm)[at + 1] << 8)); // s16 little-endian
                             a.channels[(size_t) c][(size_t) i] = (float) v / 32768.0f;
                         }
-                    *next = nullptr; // break the self-reference
                     return done (std::move (a), {});
                 }
                 client.request (te::file, te::getData ((std::uint16_t) page), [this, gen, pcm, size, done, next, page] (const std::optional<te::Frame>& d)
                 {
-                    if (stale (gen)) { *next = nullptr; return done (std::nullopt, "Disconnected"); }
+                    if (stale (gen))
+                        return done (std::nullopt, "Disconnected");
                     const auto p = d && d->status == te::ok ? te::parseDataPage (d->body) : std::nullopt;
                     if (! p || p->page != (std::uint16_t) page)
-                    {
-                        *next = nullptr;
                         return done (std::nullopt, "Download failed at page " + juce::String (page));
-                    }
                     if (p->data.empty())
                         *size = (std::uint32_t) pcm->size(); // an empty page ends the stream: keep what arrived
                     const auto take = std::min<size_t> (p->data.size(), *size - pcm->size());

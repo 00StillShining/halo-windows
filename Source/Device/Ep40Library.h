@@ -28,11 +28,19 @@ namespace halo
             double seconds() const { return sampleRate > 0.0 && channels > 0 ? bytes / (2.0 * channels * sampleRate) : 0.0; }
         };
 
+        struct Category
+        {
+            juce::String name;
+            int firstSlot = 0, lastSlot = 0;
+        };
+
         struct Info
         {
             juce::String product, sku, os, serial, mode;
             std::uint32_t chunkSize = 0;
             juce::int64 freeBytes = -1, capacityBytes = -1;
+            double nativeRate = 46875.0;
+            std::vector<Category> categories; // the device's own slot ranges (KICKS 1-99 ...)
         };
 
         enum class State { idle, syncing, ready, failed };

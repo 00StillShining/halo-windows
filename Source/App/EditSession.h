@@ -72,6 +72,8 @@ namespace halo
 
         // ---- Shared -------------------------------------------------------
         AuditionPlayer& player() noexcept { return audition_; }
+        // Plays audio that isn't the open sample (e.g. a sound from the EP-40).
+        void playOther (std::shared_ptr<const AudioData> data, int token) { play (std::move (data), token); }
         // Short status line ("Exported 8 slices to ...") for the UI.
         const juce::String& status() const noexcept { return statusLine; }
         const juce::File& lastExport() const noexcept { return exported; }
