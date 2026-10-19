@@ -33,7 +33,12 @@ namespace halo
     public:
         const juce::String getApplicationName() override { return JUCE_APPLICATION_NAME_STRING; }
         const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
-        bool moreThanOneInstanceAllowed() override { return false; }
+        // A MOCK instance never opens the EP-40's (single-client) MIDI ports, so
+        // it may run beside the real one, e.g. a branch build under test.
+        bool moreThanOneInstanceAllowed() override
+        {
+            return juce::SystemStats::getEnvironmentVariable ("HALO_MOCK_MIDI", {}) == "1";
+        }
 
         void initialise (const juce::String& commandLine) override
         {

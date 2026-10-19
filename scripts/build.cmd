@@ -10,6 +10,12 @@ if "%CONFIG%"=="" set "CONFIG=Debug"
 
 set "ROOT=%~dp0.."
 set "BUILD=%ROOT%\build\%CONFIG%"
+rem HALO_BUILD_DIR builds elsewhere (e.g. a branch build beside the daily one).
+if defined HALO_BUILD_DIR set "BUILD=%HALO_BUILD_DIR%"
+
+rem Reuse the already-downloaded JUCE/doctest sources in extra build folders.
+set "DEPS="
+if exist "%ROOT%\build\Debug\_deps\juce-src\CMakeLists.txt" set "DEPS=-DFETCHCONTENT_SOURCE_DIR_JUCE=%ROOT%\build\Debug\_deps\juce-src -DFETCHCONTENT_SOURCE_DIR_DOCTEST=%ROOT%\build\Debug\_deps\doctest-src"
 
 for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
 if not defined VSPATH (
@@ -24,7 +30,7 @@ if /i "%ACTION%"=="clean" (
 )
 
 if not exist "%BUILD%\build.ninja" (
-    cmake -S "%ROOT%" -B "%BUILD%" -G Ninja -DCMAKE_BUILD_TYPE=%CONFIG% || exit /b 1
+    cmake -S "%ROOT%" -B "%BUILD%" -G Ninja -DCMAKE_BUILD_TYPE=%CONFIG% %DEPS% || exit /b 1
 )
 
 if /i "%ACTION%"=="build" (
