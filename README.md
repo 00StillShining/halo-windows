@@ -32,6 +32,8 @@ Set `HALO_MOCK_MIDI=1`, or pass `--mock-midi`. A synthetic EP-40 then plays a pa
 
 Debug builds also read `HALO_RAIL=open` and `HALO_MODE=1..6`, so screenshots can be taken of each state. `tools\dev\screenshot.ps1` captures just the Halo window.
 
+For the 3D stage, `HALO_STAGE_CAMERA=yaw,pitch,radius` (degrees, degrees, metres; the default is `28,42,0.7`) fixes the camera for before/after comparisons, and `HALO_STAGE_DEBUG=1..4` shows the lighting terms: ambient occlusion, key-light shadow, height-map contours, and the floor shadow's components.
+
 ## Layout
 
 ```
@@ -56,6 +58,8 @@ python -m venv tools\.venv
 tools\.venv\Scripts\pip install usd-core
 tools\.venv\Scripts\python tools\model\usdz_to_hmesh.py path\to\EP40.usdz assets\EP40.hmesh
 ```
+
+The bake is more than a format change. It replaces Blender's flat-shaded bevels with area-weighted smooth normals, swaps the bevelled-cube chassis for rounded-corner slabs, adds the top row of pad lamps, and writes physically based colour, roughness and metallic values matched to TE's product photography (`.hmesh` version 2). The renderer still reads version 1 files.
 
 ## Honesty rules (carried over from the Mac app)
 

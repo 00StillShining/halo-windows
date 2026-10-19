@@ -10,11 +10,14 @@ namespace halo
         HaloMesh mesh;
 
         char magic[4] {};
-        if (in.read (magic, 4) != 4 || std::memcmp (magic, "HMSH", 4) != 0 || in.readInt() != 1)
+        const bool magicOk = in.read (magic, 4) == 4 && std::memcmp (magic, "HMSH", 4) == 0;
+        const int version = magicOk ? in.readInt() : 0;
+        if (version != 1 && version != 2)
         {
             DBG ("EP40.hmesh: bad header");
             return {};
         }
+        const int fileFloats = version == 1 ? 12 : 14;
 
         const int partCount = in.readInt();
         for (int p = 0; p < partCount && ! in.isExhausted(); ++p)
@@ -36,7 +39,20 @@ namespace halo
 
             const auto vertexCount = (size_t) in.readInt();
             part.vertices.resize (vertexCount * MeshPart::floatsPerVertex);
-            in.read (part.vertices.data(), (int) (part.vertices.size() * sizeof (float)));
+            if (fileFloats == MeshPart::floatsPerVertex)
+            {
+                in.read (part.vertices.data(), (int) (part.vertices.size() * sizeof (float)));
+            }
+            else
+            {
+                for (size_t v = 0; v < vertexCount; ++v)
+                {
+                    auto* dst = part.vertices.data() + v * MeshPart::floatsPerVertex;
+                    in.read (dst, fileFloats * (int) sizeof (float));
+                    dst[12] = 0.5f; // roughness
+                    dst[13] = 0.0f; // metallic
+                }
+            }
 
             const auto indexCount = (size_t) in.readInt();
             part.indices.resize (indexCount);
@@ -86,6 +102,7 @@ namespace halo
             glEnableVertexAttribArray (2); glVertexAttribPointer (2, 3, GL_FLOAT, GL_FALSE, stride, offset (6));  // colour
             glEnableVertexAttribArray (3); glVertexAttribPointer (3, 1, GL_FLOAT, GL_FALSE, stride, offset (9));  // emissive
             glEnableVertexAttribArray (4); glVertexAttribPointer (4, 2, GL_FLOAT, GL_FALSE, stride, offset (10)); // uv
+            glEnableVertexAttribArray (5); glVertexAttribPointer (5, 2, GL_FLOAT, GL_FALSE, stride, offset (12)); // roughness, metallic
         }
         glBindVertexArray (0);
     }

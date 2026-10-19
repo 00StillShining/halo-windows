@@ -11,7 +11,9 @@ namespace halo
     // loaded from the .hmesh file baked by tools/model/usdz_to_hmesh.py.
     struct MeshPart
     {
-        static constexpr int floatsPerVertex = 12; // pos3 normal3 colour3 emissive uv2
+        // pos3 normal3 colour3 emissive uv2 roughness metallic (.hmesh v2). Version 1
+        // files carry only the first 12 and load with neutral plastic values.
+        static constexpr int floatsPerVertex = 14;
 
         std::string name;
         juce::Matrix3D<float> partToModel;
