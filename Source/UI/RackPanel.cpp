@@ -39,7 +39,12 @@ namespace halo
         m.knobs = std::move (knobs);
         m.onButton.onClick = [this, &m]
         {
-            m.flag->store (! m.flag->load());
+            const bool on = ! m.flag->load();
+            m.flag->store (on);
+            // Switching a module on means you want to hear it: engage the rack too
+            // (a bypassed master with modules on silently did nothing).
+            if (on)
+                model.monitor().rackParameters().engaged.store (true);
             refresh();
         };
         addAndMakeVisible (m.onButton);
@@ -187,9 +192,11 @@ namespace halo
         g.drawText ("DUB RACK", headerArea, juce::Justification::centredLeft);
 
         g.setFont (HaloType::mono (11.5f));
-        g.setColour (running ? c.inkSoft : c.orange);
-        g.drawText (running ? "on the monitor route, before the -1 dBFS limiter"
-                            : "start MONITOR to hear the rack (Ctrl+M)",
+        const bool engaged = model.monitor().rackParameters().engaged.load();
+        g.setColour (running && engaged ? c.inkSoft : c.orange);
+        g.drawText (! running  ? "start MONITOR to hear the rack (Ctrl+M)"
+                    : ! engaged ? "BYPASSED: click ENGAGE to hear the rack"
+                                : "on the monitor route, before the -1 dBFS limiter",
                     noteArea, juce::Justification::centredLeft, true);
 
         for (auto* m : { &echo, &spring, &sweep, &lowEnd })
