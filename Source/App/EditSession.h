@@ -42,6 +42,10 @@ namespace halo
         SizeEstimate estimate() const;
         void audition();
         void exportEdit();
+        // Renders what EXPORT would write (prep + treatment), off the UI thread.
+        void renderEdit (std::function<void (std::shared_ptr<const AudioData>)>);
+        // Renders every slice placed on a pad by the plan, in pad order.
+        void renderPlacedSlices (std::function<void (std::shared_ptr<std::vector<AudioData>>)>);
 
         // ---- CHOP ---------------------------------------------------------
         bool chopOpen = false;
@@ -76,6 +80,7 @@ namespace halo
         void playOther (std::shared_ptr<const AudioData> data, int token) { play (std::move (data), token); }
         // Short status line ("Exported 8 slices to ...") for the UI.
         const juce::String& status() const noexcept { return statusLine; }
+        void report (const juce::String& line) { setStatus (line); }
         const juce::File& lastExport() const noexcept { return exported; }
 
     private:

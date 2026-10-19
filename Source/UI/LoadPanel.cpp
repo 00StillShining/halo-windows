@@ -24,7 +24,13 @@ namespace halo
         refreshButton.onClick = [this] { cache.clear(); lib.sync(); };
         auditionButton.onClick = [this] { audition (list.getSelectedRow()); };
         saveButton.onClick = [this] { saveToLibrary (list.getSelectedRow()); };
-        for (auto* b : { &refreshButton, &auditionButton, &saveButton })
+        assignButton.onClick = [this]
+        {
+            assignMode = ! assignMode && selectedSound() != nullptr && model.writesUnlocked();
+            status = assignMode ? "Click a pad to put \"" + selectedSound()->name + "\" on it (project " + juce::String (lib.activeProject()) + ")" : juce::String();
+            refresh();
+        };
+        for (auto* b : { &refreshButton, &auditionButton, &saveButton, &assignButton })
             addAndMakeVisible (b);
 
         for (size_t i = 0; i < projectButtons.size(); ++i)
@@ -41,12 +47,14 @@ namespace halo
         }
 
         lib.addChangeListener (this);
+        model.backup().addChangeListener (this);
         refresh();
     }
 
     LoadPanel::~LoadPanel()
     {
         lib.removeChangeListener (this);
+        model.backup().removeChangeListener (this);
     }
 
     bool LoadPanel::deviceAvailable() const
@@ -91,8 +99,11 @@ namespace halo
             groupButtons[i].setToggleState (group == (int) i, juce::dontSendNotification);
 
         const bool available = deviceAvailable();
-        for (auto* comp : std::initializer_list<juce::Component*> { &list, &refreshButton, &auditionButton, &saveButton })
+        for (auto* comp : std::initializer_list<juce::Component*> { &list, &refreshButton, &auditionButton, &saveButton, &assignButton })
             comp->setVisible (available || comp == &refreshButton);
+        assignButton.setEnabled (model.writesUnlocked());
+        assignButton.setToggleState (assignMode, juce::dontSendNotification);
+        assignButton.setTooltip (model.writesUnlocked() ? juce::String() : juce::String ("Back up the EP-40 in BACKUPS to unlock"));
         refreshButton.setEnabled (model.canTalkToDevice() && lib.state() != Ep40Library::State::syncing);
         for (auto& b : projectButtons) b.setVisible (available);
         for (auto& b : groupButtons) b.setVisible (available);
@@ -182,6 +193,23 @@ namespace halo
         for (int i = 0; i < 12; ++i)
             if (padCell (i).contains (e.position))
             {
+                if (assignMode)
+                {
+                    assignMode = false;
+                    if (const auto* s = selectedSound(); s != nullptr && model.writesUnlocked())
+                    {
+                        status = "Assigning...";
+                        model.deviceWriter().assignPad (lib.activeProject(), group, i, s->slot, [this, i, name = s->name] (Ep40Writer::Result r)
+                        {
+                            status = r.ok ? "\"" + name + "\" is now on pad " + juce::String (ep40::groupLabels[(size_t) group].data())
+                                                + " " + juce::String (ep40::gridLabels[(size_t) i].data())
+                                          : "Assign failed: " + r.message;
+                            refresh();
+                        });
+                    }
+                    refresh();
+                    return;
+                }
                 const int slot = lib.padSound (group, i);
                 if (slot <= 0)
                     return;
@@ -237,6 +265,7 @@ namespace halo
         auto actions = area.removeFromBottom (38);
         auditionButton.setBounds (actions.removeFromLeft (120).reduced (2, 3));
         saveButton.setBounds (actions.removeFromLeft (170).reduced (2, 3));
+        assignButton.setBounds (actions.removeFromLeft (150).reduced (2, 3));
         area.removeFromBottom (4);
         list.setBounds (area);
     }

@@ -92,7 +92,34 @@ namespace halo
             const auto f = session.lastExport();
             (f.exists() ? f : SampleIO::exportFolder()).revealToUser();
         };
-        sendButton.setEnabled (false); // needs the transfer protocol (Phase 0B)
+        sendButton.onClick = [this]
+        {
+            if (! model.writesUnlocked() || session.slices.sliceCount() == 0)
+                return;
+            const auto plan = session.plan();
+            const int project = model.device().activeProject();
+            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Send to pads",
+                "Upload " + juce::String ((int) plan.writes.size()) + " slices (" + juce::String (formatBytes (plan.totalBytes))
+                    + ") into empty USER slots, and assign them to group " + ep40::groupLabels[(size_t) plan.group].data()
+                    + " pads in project " + juce::String (project) + "?" + juce::newLine + juce::newLine
+                    + "No sound is overwritten. The pads' old sounds stay in the library.",
+                "Send", "Cancel", this,
+                juce::ModalCallbackFunction::create ([this, plan, project] (int result)
+                {
+                    if (result == 0)
+                        return;
+                    session.report ("Preparing slices...");
+                    session.renderPlacedSlices ([this, plan, project] (std::shared_ptr<std::vector<AudioData>> audio)
+                    {
+                        std::vector<Ep40Writer::PadJob> jobs;
+                        for (size_t i = 0; i < plan.writes.size() && i < audio->size(); ++i)
+                            jobs.push_back ({ std::move ((*audio)[i]), juce::String (plan.writes[i].name), plan.writes[i].group, plan.writes[i].gridIndex });
+                        model.deviceWriter().uploadToPads (std::move (jobs), project,
+                            [this] (const juce::String& progress) { session.report (progress); },
+                            [this] (Ep40Writer::Result r) { session.report (r.ok ? r.message + ". Play them on the EP-40!" : "Send failed: " + r.message); });
+                    });
+                }));
+        };
 
         const char* sliceNames[] { "FIT", "4", "8", "16", "ALL" };
         for (size_t i = 0; i < sliceButtons.size(); ++i)
@@ -130,12 +157,16 @@ namespace halo
             addAndMakeVisible (b);
 
         session.addChangeListener (this);
+        model.device().addChangeListener (this);
+        model.backup().addChangeListener (this);
         refresh();
     }
 
     ChopSurface::~ChopSurface()
     {
         session.removeChangeListener (this);
+        model.device().removeChangeListener (this);
+        model.backup().removeChangeListener (this);
     }
 
     void ChopSurface::refresh()
@@ -154,6 +185,7 @@ namespace halo
             nameEditor.setText (session.baseName, false);
         showButton.setVisible (session.lastExport().exists());
         exportButton.setEnabled (session.slices.sliceCount() > 0);
+        sendButton.setEnabled (session.slices.sliceCount() > 0 && model.writesUnlocked() && ! model.deviceWriter().isBusy());
         pads.repaint();
         repaint();
     }
@@ -297,7 +329,12 @@ namespace halo
                         + juce::String (resolvedSampleRate (session.treatment, session.audio() != nullptr ? session.audio()->sampleRate : 0.0) / 1000.0, 3) + " kHz",
                     totalsArea.withTrimmedTop (20), juce::Justification::centredLeft);
 
-        g.drawFittedText ("SEND TO PADS needs the EP-40's transfer protocol. EXPORT writes the slices plus a pads.txt for TE's EP Sample Tool.",
+        const auto sendNote = model.writesUnlocked()
+            ? "SEND TO PADS uploads the slices into empty USER slots and assigns them to these pads in project "
+                  + juce::String (model.device().activeProject()) + " (the EP-40's active project)."
+            : model.device().state() == Ep40Library::State::ready ? juce::String ("Back up the EP-40 in BACKUPS (Ctrl+6) to unlock SEND TO PADS. EXPORT works now.")
+                                                                   : juce::String ("Connect the EP-40 to send slices to its pads. EXPORT works now.");
+        g.drawFittedText (sendNote,
                           noteArea, juce::Justification::centredLeft, 2, 1.0f);
         g.setFont (HaloType::mono (11.5f));
         g.setColour (session.status().startsWith ("Export failed") ? c.warning : c.ink);

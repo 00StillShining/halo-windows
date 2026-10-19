@@ -1,6 +1,7 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "UI/BackupsPanel.h"
 #include "UI/EditPanel.h"
 #include "UI/LibraryPanel.h"
 #include "UI/LoadPanel.h"
@@ -50,6 +51,7 @@ namespace halo
         LibraryPanel libraryPanel { model };
         EditPanel editPanel { model };
         LoadPanel loadPanel { model };
+        BackupsPanel backupsPanel { model };
         bool expanded = false;
         bool dirty = true;
     };

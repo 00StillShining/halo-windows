@@ -41,7 +41,8 @@ namespace halo
         AppModel& model;
         Ep40Library& lib;
         juce::ListBox list { "ep40 sounds", this };
-        juce::TextButton refreshButton { "REFRESH" }, auditionButton { "AUDITION" }, saveButton { "SAVE TO LIBRARY" };
+        juce::TextButton refreshButton { "REFRESH" }, auditionButton { "AUDITION" }, saveButton { "SAVE TO LIBRARY" }, assignButton { "ASSIGN TO PAD" };
+        bool assignMode = false;
         std::array<juce::TextButton, 9> projectButtons;
         std::array<juce::TextButton, 4> groupButtons;
         juce::OwnedArray<juce::TextButton> categoryButtons;

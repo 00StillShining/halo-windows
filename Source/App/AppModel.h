@@ -11,6 +11,8 @@
 #include "Core/RingState.h"
 #include "Core/SysEx.h"
 #include "Device/DeviceClient.h"
+#include "Device/Ep40Backup.h"
+#include "Device/Ep40Writer.h"
 #include "Device/Ep40Library.h"
 #include "Device/Ep40MidiConnection.h"
 #include "Device/ProtocolTrace.h"
@@ -79,6 +81,10 @@ namespace halo
         // The EP-40's own sounds, pads and storage (TE protocol).
         Ep40Library& device() noexcept { return deviceLibrary; }
         DeviceClient& client() noexcept { return deviceClient; }
+        Ep40Backup& backup() noexcept { return backupJob; }
+        Ep40Writer& deviceWriter() noexcept { return writer; }
+        // Writes to the EP-40 need a connected, synced device with a complete backup.
+        bool writesUnlocked() const { return deviceLibrary.state() == Ep40Library::State::ready && Ep40Backup::hasCompleteBackup (deviceLibrary.info().serial); }
 
         // Audio monitor + recorder. Starts only on explicit action.
         MonitorEngine& monitor() noexcept { return engine; }
@@ -129,6 +135,8 @@ namespace halo
         DeviceClient deviceClient { [this] (const te::Bytes& b, const juce::String& note) { return sendToDevice (b, note); } };
         Ep40Library deviceLibrary { deviceClient };
         Ep40Library::State lastLibraryState = Ep40Library::State::idle;
+        Ep40Backup backupJob { deviceLibrary };
+        Ep40Writer writer { deviceLibrary };
         std::optional<sysex::Identity> identity;
         juce::String deviceOs; // from TE's own GREET reply, once that's implemented
         Settings settings;

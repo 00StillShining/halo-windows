@@ -80,21 +80,47 @@ namespace halo
             (f.exists() ? f : SampleIO::exportFolder()).revealToUser();
         };
         libraryButton.onClick = [this] { model.setMode (AppMode::capture); };
-        // Direct device writes need the EP-40's transfer protocol (Phase 0B).
-        // Shown, but never enabled: nothing here pretends to send.
-        sendButton.setEnabled (false);
+        sendButton.onClick = [this]
+        {
+            if (! model.writesUnlocked() || ! session.hasSource())
+                return;
+            const auto e = session.estimate();
+            const int slot = model.device().firstFreeSlot (Ep40Writer::userFirstSlot, Ep40Writer::userLastSlot);
+            juce::AlertWindow::showOkCancelBox (juce::MessageBoxIconType::QuestionIcon, "Send to EP-40",
+                "Upload \"" + session.item().title + "\" (" + juce::String (formatBytes (e.payloadBytes))
+                    + ") to empty slot " + juce::String (slot) + " in USER?" + juce::newLine + juce::newLine
+                    + "Nothing on the EP-40 is overwritten.",
+                "Send", "Cancel", this,
+                juce::ModalCallbackFunction::create ([this] (int result)
+                {
+                    if (result == 0)
+                        return;
+                    session.report ("Sending to the EP-40...");
+                    session.renderEdit ([this] (std::shared_ptr<const AudioData> audio)
+                    {
+                        model.deviceWriter().upload (*audio, session.item().title, 0, [this] (Ep40Writer::Result r)
+                        {
+                            session.report (r.ok ? r.message + ". Assign it to a pad in LOAD." : "Send failed: " + r.message);
+                        });
+                    });
+                }));
+        };
 
         for (auto* b : { &normalizeButton, &resetTrimButton, &auditionButton, &exportButton, &chopButton,
                          &sendButton, &showButton, &libraryButton })
             addAndMakeVisible (b);
 
         session.addChangeListener (this);
+        model.device().addChangeListener (this);
+        model.backup().addChangeListener (this);
         refresh();
     }
 
     EditPanel::~EditPanel()
     {
         session.removeChangeListener (this);
+        model.device().removeChangeListener (this);
+        model.backup().removeChangeListener (this);
     }
 
     void EditPanel::refresh()
@@ -125,6 +151,7 @@ namespace halo
         auditionButton.setButtonText (auditioning ? "STOP" : "AUDITION");
         auditionButton.setToggleState (auditioning, juce::dontSendNotification);
         showButton.setVisible (session.lastExport().exists());
+        sendButton.setEnabled (has && model.writesUnlocked() && ! model.deviceWriter().isBusy());
         repaint();
     }
 
@@ -236,7 +263,10 @@ namespace halo
 
         g.setFont (HaloType::mono (11.0f));
         g.setColour (c.inkSoft);
-        g.drawFittedText ("SEND needs the EP-40's transfer protocol, which isn't known yet. For now, EXPORT and load the file with TE's EP Sample Tool.",
+        const auto sendNote = model.writesUnlocked() ? juce::String ("SEND TO EP-40 uploads into the first empty USER slot (900-999). It never overwrites a sound.")
+                            : model.device().state() == Ep40Library::State::ready ? juce::String ("Back up the EP-40 in BACKUPS (Ctrl+6) to unlock SEND. Until then, EXPORT works.")
+                            : juce::String ("Connect the EP-40 to send directly. Until then, EXPORT works.");
+        g.drawFittedText (sendNote,
                           sendNoteArea, juce::Justification::centredLeft, 2, 1.0f);
 
         g.setFont (HaloType::mono (11.5f));

@@ -36,7 +36,7 @@ namespace halo
 
     PlayRail::PlayRail (AppModel& m) : model (m)
     {
-        for (auto* panel : std::initializer_list<juce::Component*> { &monitorPanel, &rackPanel, &libraryPanel, &editPanel, &loadPanel })
+        for (auto* panel : std::initializer_list<juce::Component*> { &monitorPanel, &rackPanel, &libraryPanel, &editPanel, &loadPanel, &backupsPanel })
             addChildComponent (panel);
         model.addListener (this);
         startTimerHz (20); // coalesce bursty MIDI into at most 20 repaints a second
@@ -53,8 +53,8 @@ namespace halo
         {
             case AppMode::play:    return expanded ? HaloMetrics::railPlayWidth : HaloMetrics::railSpineWidth;
             case AppMode::rack:    return 420;
-            case AppMode::backups: return 360;
             case AppMode::load:
+            case AppMode::backups:
             case AppMode::capture:
             case AppMode::edit:    break;
         }
@@ -107,7 +107,7 @@ namespace halo
         g.setColour (c.ink.withAlpha (0.16f));
         g.fillRect (getLocalBounds().removeFromLeft (1));
 
-        if (model.mode() != AppMode::play && model.mode() != AppMode::backups)
+        if (model.mode() != AppMode::play)
             return; // the mode's own panel draws itself
         if (model.mode() != AppMode::play)
         {
@@ -154,6 +154,7 @@ namespace halo
         showFor (libraryPanel, AppMode::capture);
         showFor (editPanel, AppMode::edit);
         showFor (loadPanel, AppMode::load);
+        showFor (backupsPanel, AppMode::backups);
     }
 
     void PlayRail::paintPlay (juce::Graphics& g, juce::Rectangle<int> area)

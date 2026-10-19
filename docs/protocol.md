@@ -16,6 +16,18 @@ RX F0 7E 3C 06 02 00 20 76 20 00 06 00 00 00 00 00 F7
 - **devId = 0x3C.** It goes in byte 4 of every TE frame (the EP-133's is 0x33); always take it from the identity reply.
 - Version bytes are zero on OS 2.5.x. The OS version comes from GREET.
 
+## Verified by Halo on the owner's EP-40 (OS 2.5.0, 2026-10-19)
+
+- **GREET:** `product:EP-40;mode:normal;sku:TE032AS006;os_version:2.5.0;sw_version:2.5.0;bl_version:1000.0.0;serial:…`
+- **FILE INIT:** chunkSize 512.
+- **META GET 1000:** `max_capacity` 127801344, `free_space_in_bytes`, `formats` (s16, 1-2 channels, `samplerate.range` [1, 65535], native 46875), and `tabs` with the device's own categories: KICKS 1-99, SNARES 100-199, CYMBALS 200-299, PERC 300-399, BASS 400-499, LEADS 500-599, SKANKS 600-699, VOX & FX 700-799, LOOPS 800-899, USER 900-999.
+- **LIST 1000:** 477 sounds over 24 pages, each named `NNN.pcm` with flags 0x1D. Slot metadata uses `samplerate` (OS 2.x).
+- **META GET 2000:** `{"active": <project fid>}` (project 6 here).
+- **Pad metadata:** `{"sym":747,"sound.playmode":"oneshot","sample.start":0,"sample.end":…,"envelope.attack":0,"envelope.release":255,"sound.pitch":0.00,"sound.amplitude":88,"sound.pan":0,"sound.mutegroup":false,"time.mode":"off","midi.channel":0,"sound.rootnote":60}`
+- **GET:** pages of 324 data bytes. Slot 54 is 13372 bytes, mono 44.1 kHz s16 LE, 42 pages in about 170 ms.
+- **GET on a project fid** returns the project as a TAR (55-75 KB): `live`, `pads/a/p01…`, and so on.
+- **Throughput:** about 80 KB/s for reads, so a full backup takes around 20-25 minutes.
+
 ## Framing (C)
 
 ```

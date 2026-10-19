@@ -59,8 +59,10 @@ target_sources(Halo PRIVATE
     Source/Audio/SampleIO.cpp
     Source/Audio/SessionRecorder.cpp
     Source/Device/DeviceClient.cpp
+    Source/Device/Ep40Backup.cpp
     Source/Device/Ep40Library.cpp
     Source/Device/Ep40MidiConnection.cpp
+    Source/Device/Ep40Writer.cpp
     Source/Stage/HaloMesh.cpp
     Source/Stage/DisplayRenderer.cpp
     Source/Stage/StageComponent.cpp
@@ -74,7 +76,8 @@ target_sources(Halo PRIVATE
     Source/UI/LibraryPanel.cpp
     Source/UI/EditPanel.cpp
     Source/UI/ChopSurface.cpp
-    Source/UI/LoadPanel.cpp)
+    Source/UI/LoadPanel.cpp
+    Source/UI/BackupsPanel.cpp)
 
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0

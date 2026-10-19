@@ -284,6 +284,63 @@ namespace halo
     }
 
     //==============================================================================
+    int Ep40Library::firstFreeSlot (int first, int last) const
+    {
+        for (int slot = juce::jmax (1, first); slot <= juce::jmin (999, last); ++slot)
+            if (sound (slot) == nullptr)
+                return slot;
+        return 0;
+    }
+
+    void Ep40Library::notePadAssignment (int projectNumber, int group, int gridIndex, int slot)
+    {
+        if (projectNumber == project && group >= 0 && group < 4 && gridIndex >= 0 && gridIndex < 12)
+            pads[(size_t) group][(size_t) gridIndex] = slot;
+        sendChangeMessage();
+    }
+
+    void Ep40Library::refreshSound (int slot, std::function<void (bool)> done)
+    {
+        const int gen = generation;
+        client.request (te::file, te::stat ((std::uint16_t) slot), [this, gen, slot, done] (const std::optional<te::Frame>& f)
+        {
+            if (stale (gen)) return done (false);
+            auto existing = std::find_if (soundList.begin(), soundList.end(), [slot] (const Sound& s) { return s.slot == slot; });
+            if (! okFrame (f) || f->body.size() < 9)
+            {
+                // Gone (or unreadable): drop it from the list.
+                if (existing != soundList.end())
+                    soundList.erase (existing);
+                sendChangeMessage();
+                return done (false);
+            }
+            const auto& b = f->body;
+            const std::uint32_t size = ((std::uint32_t) b[5] << 24) | ((std::uint32_t) b[6] << 16) | ((std::uint32_t) b[7] << 8) | b[8];
+            if (existing == soundList.end())
+            {
+                Sound s;
+                s.slot = slot;
+                const auto at = std::upper_bound (soundList.begin(), soundList.end(), slot, [] (int v, const Sound& x) { return v < x.slot; });
+                existing = soundList.insert (at, s);
+            }
+            existing->bytes = size;
+            metaGetAll ((std::uint16_t) slot, [this, gen, slot, done] (std::optional<juce::String> json)
+            {
+                if (stale (gen)) return done (false);
+                for (auto& s : soundList)
+                    if (s.slot == slot && json)
+                    {
+                        s.meta = parseJson (*json);
+                        if (s.meta.hasProperty ("name")) s.name = s.meta["name"].toString();
+                        if (s.meta.hasProperty ("channels")) s.channels = juce::jmax (1, (int) s.meta["channels"]);
+                        s.sampleRate = sampleRateOf (s.meta);
+                    }
+                sendChangeMessage();
+                done (true);
+            });
+        }, 2000, "STAT " + juce::String (slot));
+    }
+
     void Ep40Library::download (int slot, std::function<void (std::optional<AudioData>, juce::String)> done)
     {
         const auto* s = sound (slot);
@@ -291,9 +348,30 @@ namespace halo
             return done (std::nullopt, "No sound in slot " + juce::String (slot));
         const int channels = s->channels;
         const double rate = s->sampleRate;
-        const int gen = generation;
 
-        client.request (te::file, te::getInit ((std::uint16_t) slot), [this, gen, channels, rate, done] (const std::optional<te::Frame>& f)
+        downloadRaw ((std::uint16_t) slot, [channels, rate, done] (std::optional<te::Bytes> pcm, juce::String error)
+        {
+            if (! pcm)
+                return done (std::nullopt, error);
+            AudioData a;
+            a.sampleRate = rate;
+            const int frames = (int) (pcm->size() / (2u * (size_t) channels));
+            a.channels.assign ((size_t) channels, std::vector<float> ((size_t) frames));
+            for (int i = 0; i < frames; ++i)
+                for (int c = 0; c < channels; ++c)
+                {
+                    const size_t at = ((size_t) i * (size_t) channels + (size_t) c) * 2;
+                    const auto v = (std::int16_t) ((*pcm)[at] | ((*pcm)[at + 1] << 8)); // s16 little-endian
+                    a.channels[(size_t) c][(size_t) i] = (float) v / 32768.0f;
+                }
+            done (std::move (a), {});
+        });
+    }
+
+    void Ep40Library::downloadRaw (std::uint16_t fid, std::function<void (std::optional<te::Bytes>, juce::String)> done, int timeoutMs)
+    {
+        const int gen = generation;
+        client.request (te::file, te::getInit (fid), [this, gen, done, timeoutMs] (const std::optional<te::Frame>& f)
         {
             if (stale (gen)) return done (std::nullopt, "Disconnected");
             if (! okFrame (f))
@@ -302,8 +380,8 @@ namespace halo
             if (! info)
                 return done (std::nullopt, "Download failed (bad reply)");
 
-            auto pcm = std::make_shared<te::Bytes>();
-            pcm->reserve (info->size);
+            auto data = std::make_shared<te::Bytes>();
+            data->reserve (info->size);
             auto size = std::make_shared<std::uint32_t> (info->size);
 
             // Read pages until exactly `size` bytes (never past EOF). The step
@@ -312,25 +390,12 @@ namespace halo
             // (it used to clear itself while still running, which crashed).
             auto next = std::make_shared<std::function<void (int)>>();
             std::weak_ptr<std::function<void (int)>> weakNext = next;
-            *next = [this, gen, pcm, size, channels, rate, done, weakNext] (int page)
+            *next = [this, gen, data, size, done, weakNext, timeoutMs] (int page)
             {
-                auto next = weakNext.lock();
-                if (pcm->size() >= *size)
-                {
-                    AudioData a;
-                    a.sampleRate = rate;
-                    const int frames = (int) (*size / (2u * (std::uint32_t) channels));
-                    a.channels.assign ((size_t) channels, std::vector<float> ((size_t) frames));
-                    for (int i = 0; i < frames; ++i)
-                        for (int c = 0; c < channels; ++c)
-                        {
-                            const size_t at = ((size_t) i * (size_t) channels + (size_t) c) * 2;
-                            const auto v = (std::int16_t) ((*pcm)[at] | ((*pcm)[at + 1] << 8)); // s16 little-endian
-                            a.channels[(size_t) c][(size_t) i] = (float) v / 32768.0f;
-                        }
-                    return done (std::move (a), {});
-                }
-                client.request (te::file, te::getData ((std::uint16_t) page), [this, gen, pcm, size, done, next, page] (const std::optional<te::Frame>& d)
+                auto self = weakNext.lock();
+                if (data->size() >= *size)
+                    return done (std::move (*data), {});
+                client.request (te::file, te::getData ((std::uint16_t) page), [this, gen, data, size, done, self, page] (const std::optional<te::Frame>& d)
                 {
                     if (stale (gen))
                         return done (std::nullopt, "Disconnected");
@@ -338,13 +403,13 @@ namespace halo
                     if (! p || p->page != (std::uint16_t) page)
                         return done (std::nullopt, "Download failed at page " + juce::String (page));
                     if (p->data.empty())
-                        *size = (std::uint32_t) pcm->size(); // an empty page ends the stream: keep what arrived
-                    const auto take = std::min<size_t> (p->data.size(), *size - pcm->size());
-                    pcm->insert (pcm->end(), p->data.begin(), p->data.begin() + (long) take);
-                    (*next) (page + 1);
-                }, 2000, "GET DATA p" + juce::String (page));
+                        *size = (std::uint32_t) data->size(); // an empty page ends the stream: keep what arrived
+                    const auto take = std::min<size_t> (p->data.size(), *size - data->size());
+                    data->insert (data->end(), p->data.begin(), p->data.begin() + (long) take);
+                    (*self) (page + 1);
+                }, timeoutMs, "GET DATA p" + juce::String (page));
             };
             (*next) (0);
-        }, 2000, "GET INIT " + juce::String (slot));
+        }, timeoutMs, "GET INIT " + juce::String (fid));
     }
 }

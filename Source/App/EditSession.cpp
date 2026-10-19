@@ -137,6 +137,35 @@ namespace halo
                          [this] (std::shared_ptr<const AudioData> data) { play (std::move (data), -1); });
     }
 
+    void EditSession::renderEdit (std::function<void (std::shared_ptr<const AudioData>)> done)
+    {
+        if (source == nullptr)
+            return;
+        runInBackground ([src = source, p = prep, t = treatment] { return std::make_shared<const AudioData> (render (*src, p, t)); },
+                         std::move (done));
+    }
+
+    void EditSession::renderPlacedSlices (std::function<void (std::shared_ptr<std::vector<AudioData>>)> done)
+    {
+        if (source == nullptr)
+            return;
+        const auto padPlan = plan();
+        const auto all = slices.slices();
+        runInBackground ([src = source, padPlan, all, mode = prep.channelMode, t = treatment]
+        {
+            auto out = std::make_shared<std::vector<AudioData>>();
+            for (const auto& w : padPlan.writes)
+            {
+                auto p = chop::microFadePrep (src->sampleRate);
+                p.trimStartFrame = all[(size_t) w.sliceIndex].startFrame;
+                p.trimEndFrame = all[(size_t) w.sliceIndex].endFrame;
+                p.channelMode = mode;
+                out->push_back (render (*src, p, t));
+            }
+            return out;
+        }, std::move (done));
+    }
+
     void EditSession::exportEdit()
     {
         if (source == nullptr)

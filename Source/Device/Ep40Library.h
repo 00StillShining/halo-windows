@@ -63,6 +63,20 @@ namespace halo
 
         // Downloads a sound's PCM (s16 LE) and converts it to float audio.
         void download (int slot, std::function<void (std::optional<AudioData>, juce::String error)>);
+        // Downloads any file's raw bytes (sounds, or a project as the device's TAR).
+        void downloadRaw (std::uint16_t fid, std::function<void (std::optional<te::Bytes>, juce::String error)>, int timeoutMs = 2000);
+
+        // Lowest empty slot in [first, last], or 0 if none.
+        int firstFreeSlot (int first, int last) const;
+        // Re-read one slot after a write (adds, updates or removes it).
+        void refreshSound (int slot, std::function<void (bool)> done);
+        // Record a pad assignment Halo just wrote (no device read needed).
+        void notePadAssignment (int projectNumber, int group, int gridIndex, int slot);
+        void noteFreeBytes (juce::int64 bytes) { deviceInfo.freeBytes = bytes; sendChangeMessage(); }
+
+        // Low-level access for guarded operations (backup, upload).
+        DeviceClient& deviceClient() noexcept { return client; }
+        int currentGeneration() const noexcept { return generation; }
 
         // Firmware error text seen on the wire: all FILE traffic stops.
         void deviceReportedError (const std::string& text);
