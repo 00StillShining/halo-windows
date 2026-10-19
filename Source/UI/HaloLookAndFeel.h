@@ -19,6 +19,11 @@ namespace halo
         void drawButtonText (juce::Graphics&, juce::TextButton&, bool highlighted, bool down) override;
         juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override;
 
+        // Mechanical knob (HaloKnob.swift): a paper cap with a hard offset
+        // shadow, an ink indicator and an orange value arc.
+        void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height, float sliderPos,
+                               float startAngle, float endAngle, juce::Slider&) override;
+
         // Draws the utility-panel look: paper slab with a hard offset shadow.
         static void drawPanel (juce::Graphics&, juce::Rectangle<float> bounds, juce::Colour fill);
     };

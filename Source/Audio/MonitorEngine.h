@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Audio/SessionRecorder.h"
+#include "Core/DubRack.h"
 #include "Core/MonitorDsp.h"
 #include "Core/RollingCaptureBuffer.h"
 
@@ -62,6 +63,13 @@ namespace halo
 
         StereoLevels levels() { return meter.snapshot(); }
 
+        // The dub rack's parameters (written by the UI, read by the audio thread).
+        RackParameters& rackParameters() noexcept { return rackParams; }
+
+        // PRINT FX: takes record post-rack instead of raw. Only changes between takes.
+        void setPrintFx (bool shouldPrint) noexcept { if (! isRecording()) printFx = shouldPrint; }
+        bool isPrintingFx() const noexcept { return printFx.load(); }
+
         // The always-on raw history for GRAB (60 s+), only while the route runs.
         std::shared_ptr<RollingCaptureBuffer> history() const { return isRunning() ? historyBuffer : nullptr; }
 
@@ -98,6 +106,9 @@ namespace halo
 
         // Audio-thread state; prepared in audioDeviceAboutToStart.
         MonitorGain gain;
+        DubRack rack;
+        RackParameters rackParams;
+        std::atomic<bool> printFx { false };
         SafetyLimiter limiter;
         AudioMeter meter;
         juce::AudioBuffer<float> scratch;

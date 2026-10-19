@@ -2,6 +2,7 @@
 
 #include "App/AppModel.h"
 #include "UI/MonitorPanel.h"
+#include "UI/RackPanel.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -42,6 +43,7 @@ namespace halo
 
         AppModel& model;
         MonitorPanel monitorPanel { model };
+        RackPanel rackPanel { model };
         bool expanded = false;
         bool dirty = true;
     };

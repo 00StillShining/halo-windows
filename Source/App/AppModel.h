@@ -1,5 +1,6 @@
 #pragma once
 
+#include "App/RackModel.h"
 #include "App/Settings.h"
 #include "Audio/GrabController.h"
 #include "Audio/MonitorEngine.h"
@@ -72,6 +73,9 @@ namespace halo
         // A short outcome line for the UI, cleared after a few seconds.
         const juce::String& grabMessage() const noexcept { return grabStatus; }
 
+        // The dub rack (runs on the monitor route).
+        RackModel& rack() noexcept { return rackModel; }
+
         // Persisted conveniences.
         void setMonitorGainDb (double db);
         void setMonitorOutput (const juce::String& name);
@@ -94,6 +98,7 @@ namespace halo
         Ep40MidiConnection connection;
         Settings settings;
         MonitorEngine engine;
+        RackModel rackModel { engine.rackParameters() };
         GrabController grab;
         juce::String grabStatus;
         double grabStatusUntil = 0.0;

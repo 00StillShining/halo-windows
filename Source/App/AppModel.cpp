@@ -265,6 +265,10 @@ namespace halo
         if (reducer.apply (event, now()))
             listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
 
+        // Echo sync follows the observed clock (never an invented tempo).
+        if (event.kind == MidiKind::timingClock || event.kind == MidiKind::stop)
+            rackModel.updateClockBpm (reducer.clock().bpm (event.timeSeconds));
+
         // GRAB's bar grid: transport state, and downbeats stamped as the exact
         // audio frame captured when the clock tick arrived.
         if (event.kind == MidiKind::start || event.kind == MidiKind::continuePlaying)
@@ -337,6 +341,7 @@ namespace halo
         if (reducer.expire (t))
         {
             grab.clockLost();
+            rackModel.updateClockBpm (std::nullopt);
             listeners.call ([this] (Listener& l) { l.displayChanged (reducer.state()); });
             listeners.call ([] (Listener& l) { l.statusChanged(); });
         }

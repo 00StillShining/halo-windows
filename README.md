@@ -12,8 +12,9 @@ A native Windows companion app for the Teenage Engineering **EP-40 Riddim**: a t
 | Audio monitor: EP-40 USB input to any PC output, gain (default -12 dB), -1 dBFS safety limiter, meters with clip | Working (WASAPI shared mode). It refuses EP-40-to-EP-40 feedback and stops on unplug |
 | Recorder: raw pre-monitor takes, 24-bit WAV, in `Music\Halo\Recordings` | Working; the file is fully finalised before it's read back |
 | GRAB: the last 4/8/16 bars (clock + transport playing) or 5/10/30 s, zero-cross trimmed | Working; downbeats are exact audio frames from MIDI timestamps |
-| LOAD, EDIT, CAPTURE, RACK, BACKUPS | Not ported yet; each shows a "not ported yet" plate |
-| Dub rack, CHOP | Not ported yet (see `docs/plan.md`) |
+| LOAD, EDIT, CAPTURE, BACKUPS modes | Not ported yet; each shows a "not ported yet" plate |
+| Dub RACK: TAPE ECHO (tempo-sync / tap), SPRING, SWEEP, LOW END; PRINT FX records post-rack | Working; bit-transparent when bypassed |
+| CHOP | Not ported yet (see `docs/plan.md`) |
 | Sending samples to the EP-40 | Not possible yet anywhere: needs TE's private protocol (plan §5) |
 
 ## Build

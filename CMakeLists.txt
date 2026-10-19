@@ -27,6 +27,7 @@ FetchContent_MakeAvailable(doctest)
 # ---------------------------------------------------------------------------
 add_library(HaloCore STATIC
     Source/Core/DisplayReducer.cpp
+    Source/Core/DubRack.cpp
     Source/Core/GrabMath.cpp
     Source/Core/MidiEvent.cpp)
 target_include_directories(HaloCore PUBLIC Source)
@@ -57,7 +58,8 @@ target_sources(Halo PRIVATE
     Source/UI/StatusBar.cpp
     Source/UI/ModeBar.cpp
     Source/UI/PlayRail.cpp
-    Source/UI/MonitorPanel.cpp)
+    Source/UI/MonitorPanel.cpp
+    Source/UI/RackPanel.cpp)
 
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0
@@ -97,7 +99,8 @@ add_executable(HaloTests
     Tests/RingAndLifecycleTests.cpp
     Tests/DisplayReducerTests.cpp
     Tests/MonitorDspTests.cpp
-    Tests/GrabTests.cpp)
+    Tests/GrabTests.cpp
+    Tests/DubRackTests.cpp)
 target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)

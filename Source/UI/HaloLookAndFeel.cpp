@@ -88,4 +88,39 @@ namespace halo
     {
         return HaloType::label (13.0f);
     }
+
+    void HaloLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int width, int height, float pos,
+                                            float startAngle, float endAngle, juce::Slider& slider)
+    {
+        const auto bounds = juce::Rectangle<int> (x, y, width, height).toFloat().reduced (4.0f);
+        const float size = juce::jmin (bounds.getWidth(), bounds.getHeight());
+        const auto centre = bounds.getCentre();
+        const float radius = size * 0.5f;
+        const float angle = startAngle + pos * (endAngle - startAngle);
+        const bool enabled = slider.isEnabled();
+
+        // Value arc track + fill.
+        juce::Path track, fill;
+        track.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, startAngle, endAngle, true);
+        fill.addCentredArc (centre.x, centre.y, radius, radius, 0.0f, startAngle, angle, true);
+        g.setColour (c.ink.withAlpha (0.12f));
+        g.strokePath (track, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (enabled ? c.orange : c.inkSoft.withAlpha (0.4f));
+        g.strokePath (fill, juce::PathStrokeType (2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        // Cap with a hard offset shadow (key light upper-left, no blur).
+        const float capR = radius * 0.72f;
+        g.setColour (c.ink.withAlpha (0.25f));
+        g.fillEllipse (centre.x - capR + 2.0f, centre.y - capR + 3.0f, capR * 2.0f, capR * 2.0f);
+        g.setColour (c.paperHigh);
+        g.fillEllipse (centre.x - capR, centre.y - capR, capR * 2.0f, capR * 2.0f);
+        g.setColour (c.ink.withAlpha (0.25f));
+        g.drawEllipse (centre.x - capR, centre.y - capR, capR * 2.0f, capR * 2.0f, 1.0f);
+
+        // Indicator line.
+        const auto tip = centre.getPointOnCircumference (capR * 0.82f, angle);
+        const auto base = centre.getPointOnCircumference (capR * 0.30f, angle);
+        g.setColour (enabled ? c.ink : c.inkSoft);
+        g.drawLine ({ base, tip }, 2.5f);
+    }
 }

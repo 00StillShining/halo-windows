@@ -37,6 +37,7 @@ namespace halo
     PlayRail::PlayRail (AppModel& m) : model (m)
     {
         addChildComponent (monitorPanel);
+        addChildComponent (rackPanel);
         model.addListener (this);
         startTimerHz (20); // coalesce bursty MIDI into at most 20 repaints a second
     }
@@ -48,6 +49,8 @@ namespace halo
 
     int PlayRail::preferredWidth() const
     {
+        if (model.mode() == AppMode::rack)
+            return 420;
         if (model.mode() != AppMode::play)
             return 360;
         return expanded ? HaloMetrics::railPlayWidth : HaloMetrics::railSpineWidth;
@@ -98,6 +101,8 @@ namespace halo
         g.setColour (c.ink.withAlpha (0.16f));
         g.fillRect (getLocalBounds().removeFromLeft (1));
 
+        if (model.mode() == AppMode::rack)
+            return; // the rack panel draws itself
         if (model.mode() != AppMode::play)
         {
             paintPlate (g, getLocalBounds());
@@ -131,6 +136,11 @@ namespace halo
         monitorPanel.setVisible (show);
         if (show)
             monitorPanel.setBounds (contentArea().withTrimmedTop (infoHeight).withHeight (MonitorPanel::preferredHeight));
+
+        const bool showRack = model.mode() == AppMode::rack;
+        rackPanel.setVisible (showRack);
+        if (showRack)
+            rackPanel.setBounds (getLocalBounds().withTrimmedLeft (1));
     }
 
     void PlayRail::paintPlay (juce::Graphics& g, juce::Rectangle<int> area)

@@ -236,6 +236,7 @@ namespace halo
         meter.prepare (sr);
         meter.reset();
         scratch.setSize (2, juce::jmax (maxBlock, d->getCurrentBufferSizeSamples()), false, true, false);
+        rack.prepare (sr, scratch.getNumSamples()); // a prior tail never leaks across a restart
     }
 
     void MonitorEngine::audioDeviceIOCallbackWithContext (const float* const* inputs, int numInputs,
@@ -257,13 +258,19 @@ namespace halo
             if (inL != nullptr) std::copy (inL, inL + n, l); else std::fill (l, l + n, 0.0f);
             if (inR != nullptr) std::copy (inR, inR + n, r); else std::fill (r, r + n, 0.0f);
 
-            // Raw, pre-monitor taps: the recorder and the GRAB history.
-            recorder.write (l, r, n);
+            // Raw, pre-monitor taps: the recorder (unless printing FX) and GRAB history.
+            const bool print = printFx.load (std::memory_order_relaxed);
+            if (! print)
+                recorder.write (l, r, n);
             if (history != nullptr)
                 history->write (l, r, n, blockTime, inputLatencyFrames + (numSamples - offset - n));
 
-            const float rawPeakL = MeterMath::peak (l, n), rawPeakR = MeterMath::peak (r, n);
+            // gain -> dub rack -> -1 dBFS limiter (the Mac's chain order).
             gain.process (l, r, n);
+            rack.process (l, r, n, rackParams);
+            if (print)
+                recorder.write (l, r, n); // PRINT FX: post-rack, pre-limiter
+            const float rawPeakL = MeterMath::peak (l, n), rawPeakR = MeterMath::peak (r, n);
             limiter.process (l, r, n);
             meter.publish (l, r, n, rawPeakL, rawPeakR);
 
