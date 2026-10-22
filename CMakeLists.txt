@@ -254,6 +254,7 @@ target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
     Source/UI/Design/Primitives/StageFrame.cpp
     Source/UI/Pages/PlayEncoders.cpp
     Source/UI/Pages/PlayPage.cpp
+    Source/UI/Design/Primitives/Waveform/Slicer.cpp
     Source/UI/Design/WriteGateDevice.cpp
     Source/UI/Design/Gallery.cpp
     Source/UI/Design/GalleryEncoders.cpp
