@@ -66,9 +66,7 @@ namespace halo
                     text (juce::String::fromUTF8 (names[row][col]), ledX[col] + 2.4f, ledY[row], left, green, small);
 
             // Bracket row at y 108, just under the display.
-            // TE prints this row at y 108.0; the carried-over display band reaches
-            // y 107.4, so until the stepped chassis (M5a) it sits 0.6 mm lower.
-            constexpr float rowY = 108.6f, tick = 2.6f;
+            constexpr float rowY = 108.0f, tick = 2.6f; // just in front of the step (y 104.4)
             text ("VOLUME", 16.2f, rowY, centred, green, small);
 
             // LIVE over SOUND and MAIN.

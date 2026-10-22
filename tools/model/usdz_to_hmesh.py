@@ -369,6 +369,19 @@ def disc(cx, cy, z0, z1, radius, fillet, segments=32, fillet_steps=3):
 
 # ------------------------------------------------------------------ conversion
 def convert(usdz_path, out_path, fmt="v3"):
+    parts = extract_parts(usdz_path)
+    if fmt == "v2":
+        write_v2(parts, out_path)
+    else:
+        data = to_v3(parts, Path(usdz_path).name)
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).write_bytes(data)
+        print(f"wrote {out_path}: v3, {len(parts)} parts, {len(data)} bytes")
+
+
+def extract_parts(usdz_path):
+    """The Blender model as a list of (name, part-to-model column-major matrix, pivot,
+    vertices of 14 floats, indices), with this script's materials and fixes applied."""
     with tempfile.TemporaryDirectory() as tmp:
         with zipfile.ZipFile(usdz_path) as archive:
             archive.extractall(tmp)
@@ -420,14 +433,7 @@ def convert(usdz_path, out_path, fmt="v3"):
         for name, tris in led_parts():
             corners = [(p, n, LED_OFF, 0.0, (0.0, 0.0), 0.35, 0.0) for ps, ns in tris for p, n in zip(ps, ns)]
             parts.append(pack_part(name, Gf.Matrix4d(1.0), corners))
-
-    if fmt == "v2":
-        write_v2(parts, out_path)
-    else:
-        data = to_v3(parts, Path(usdz_path).name)
-        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(out_path).write_bytes(data)
-        print(f"wrote {out_path}: v3, {len(parts)} parts, {len(data)} bytes")
+    return parts
 
 
 def write_v2(parts, out_path):

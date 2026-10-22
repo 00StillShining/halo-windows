@@ -1,0 +1,329 @@
+"""The EP-40 model compiler (docs/redesign/riddim-3d-plan.md section 4), first
+stage: the stepped chassis, the keys and their apertures, and the knobs are
+built from ep40/spec.py; every other part is carried over from the Blender
+model (usdz_to_hmesh.py) onto the surface it sits on (spec.CARRY_OVER). The
+key legends are carried over too, re-seated on the new caps, until the keys'
+decal atlas replaces them.
+
+    python -I tools/model/build_ep40.py <EP40.usdz> --out assets/stage/EP40.hmesh
+
+Model space: Z up, metres, origin at the footprint centre, ports at +Y.
+"""
+
+import argparse
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE / "ep40"))
+import spec  # noqa: E402
+import usdz_to_hmesh as legacy  # noqa: E402
+
+
+# ------------------------------------------------------------------ frames
+def X(x_mm): return (x_mm - 88.0) / 1000.0
+def Y(y_mm): return (120.0 - y_mm) / 1000.0
+def Z(z_mm): return (z_mm - 8.0) / 1000.0
+
+
+DECK = Z(spec.DECK_TOP.mm)
+UPPER = Z(spec.UPPER_TOP.mm)
+
+
+# ------------------------------------------------------------------ geometry
+def rounded_outline(hx, hy, r, steps=8):
+    """Points and outward normals round a rounded rectangle (corner centres at
+    +-(hx - r), +-(hy - r)), counter-clockwise."""
+    out = []
+    for cx, cy, start in ((hx - r, hy - r, 0.0), (-hx + r, hy - r, 90.0), (-hx + r, -hy + r, 180.0), (hx - r, -hy + r, 270.0)):
+        for i in range(steps + 1):
+            a = math.radians(start + 90.0 * i / steps)
+            out.append((cx, cy, math.cos(a), math.sin(a)))
+    return out
+
+
+def keycap(cx, cy, w, h, z0, z1, w_top, h_top, corner, fillet, steps=8, fillet_steps=8):
+    """A moulded key: walls tapering from (w, h) at z0 to (w_top, h_top), a
+    quarter-round top fillet, a flat top. Triangles with analytic normals."""
+    hx, hy = w / 2, h / 2
+    inset = ((w - w_top) / 2 + (h - h_top) / 2) / 2      # the taper, per side
+    outline = rounded_outline(hx, hy, corner, steps)
+    wall_top = z1 - fillet
+    slope = math.atan2(inset, wall_top - z0)              # walls lean in
+    rings = [(0.0, z0, math.cos(slope), math.sin(slope)), (inset, wall_top, math.cos(slope), math.sin(slope))]
+    for i in range(1, fillet_steps + 1):
+        t = math.radians(90.0 * i / fillet_steps)
+        a = slope + (math.pi / 2 - slope) * i / fillet_steps
+        rings.append((inset + fillet * (1 - math.cos(t)), wall_top + fillet * math.sin(t), math.cos(a), math.sin(a)))
+
+    def point(o, d, z):
+        cxo, cyo, nx, ny = o
+        r = max(corner - d, 0.0002)
+        return (cx + cxo + nx * r, cy + cyo + ny * r, z)
+
+    tris = []
+    n = len(outline)
+    for k in range(len(rings) - 1):
+        d0, z0_, no0, nz0 = rings[k]
+        d1, z1_, no1, nz1 = rings[k + 1]
+        for i in range(n):
+            j = (i + 1) % n
+            a0, b0 = point(outline[i], d0, z0_), point(outline[j], d0, z0_)
+            a1, b1 = point(outline[i], d1, z1_), point(outline[j], d1, z1_)
+            na0 = (outline[i][2] * no0, outline[i][3] * no0, nz0)
+            nb0 = (outline[j][2] * no0, outline[j][3] * no0, nz0)
+            na1 = (outline[i][2] * no1, outline[i][3] * no1, nz1)
+            nb1 = (outline[j][2] * no1, outline[j][3] * no1, nz1)
+            tris.append(((a0, b0, b1), (na0, nb0, nb1)))
+            tris.append(((a0, b1, a1), (na0, nb1, na1)))
+    d_top, z_top = rings[-1][0], rings[-1][1]
+    centre = (cx, cy, z_top)
+    up = (0.0, 0.0, 1.0)
+    for i in range(n):
+        j = (i + 1) % n
+        tris.append(((centre, point(outline[i], d_top, z_top), point(outline[j], d_top, z_top)), (up, up, up)))
+    return tris
+
+
+def frame(cx, cy, w_in, h_in, gap, z, corner_in, steps=8):
+    """A flat dark ring round an aperture: the visible gap between key and deck."""
+    inner = rounded_outline(w_in / 2, h_in / 2, corner_in, steps)
+    tris = []
+    up = (0.0, 0.0, 1.0)
+    n = len(inner)
+    for i in range(n):
+        j = (i + 1) % n
+
+        def p(o, r):
+            return (cx + o[0] + o[2] * r, cy + o[1] + o[3] * r, z)
+
+        a0, b0 = p(inner[i], corner_in), p(inner[j], corner_in)
+        a1, b1 = p(inner[i], corner_in + gap), p(inner[j], corner_in + gap)
+        tris.append(((a0, b0, b1), (up, up, up)))
+        tris.append(((a0, b1, a1), (up, up, up)))
+    return tris
+
+
+def cylinder(cx, cy, z0, z1, radius, fillet):
+    return [((tuple(p) for p in ps), (tuple(n) for n in ns)) for ps, ns in
+            legacy.disc(cx, cy, z0, z1, radius, fillet, segments=48, fillet_steps=4)]
+
+
+def slab(x0, x1, y0, y1, z0, z1, corner, top_fillet, bottom_fillet):
+    hx, hy = (x1 - x0) / 2, (y1 - y0) / 2
+    return legacy.rounded_slab(hx, hy, corner, z0, z1, top_fillet, bottom_fillet, (x0 + x1) / 2, (y0 + y1) / 2)
+
+
+# ------------------------------------------------------------------ parts
+class Builder:
+    def __init__(self):
+        self.parts = {}  # name -> list of corners (p, n, colour, emissive, uv, roughness, metallic)
+
+    def add(self, name, tris, colour, roughness, metallic=0.0):
+        corners = self.parts.setdefault(name, [])
+        for ps, ns in tris:
+            for p, n in zip(ps, ns):
+                corners.append((tuple(float(c) for c in p), tuple(float(c) for c in n), tuple(colour), 0.0, (0.0, 0.0),
+                                roughness, metallic))
+
+    def add_corners(self, name, corners):
+        self.parts.setdefault(name, []).extend(corners)
+
+
+def model_space(parts):
+    """The legacy (name, matrix, pivot, verts, idx) list in model space, per triangle corner."""
+    out = {}
+    for name, matrix, pivot, verts, idx in parts:
+        m = np.array(matrix, dtype=np.float64).reshape(4, 4).T
+        v = np.array(verts, dtype=np.float64).reshape(-1, 14)
+        if len(v) == 0:
+            out[name] = []
+            continue
+        pos = v[:, 0:3] @ m[:3, :3].T + m[:3, 3]
+        nrm = v[:, 3:6] @ np.linalg.inv(m[:3, :3])
+        nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-20)
+        corners = []
+        for i in idx:
+            corners.append((tuple(pos[i]), tuple(nrm[i]), tuple(v[i, 6:9]), float(v[i, 9]), tuple(v[i, 10:12]),
+                            float(v[i, 12]), float(v[i, 13])))
+        out[name] = corners
+    return out
+
+
+def triangles(corners):
+    return [corners[i:i + 3] for i in range(0, len(corners), 3)]
+
+
+def split_body_and_legend(corners):
+    """The cap body is the colour of its walls; anything else on the part is legend."""
+    area = {}
+    for tri in triangles(corners):
+        p = np.array([c[0] for c in tri])
+        n = np.cross(p[1] - p[0], p[2] - p[0])
+        a = np.linalg.norm(n) / 2
+        if a > 0 and abs(n[2]) / (2 * a) < 0.5:  # a wall
+            area[tri[0][2]] = area.get(tri[0][2], 0.0) + a
+    body_colour = max(area, key=area.get)
+    body = [t for t in triangles(corners) if t[0][2] == body_colour]
+    legend = [t for t in triangles(corners) if t[0][2] != body_colour]
+    return body, legend, body_colour
+
+
+def reseat(legend, body, cx, cy, top_z, top_w, top_h):
+    """Move a legend from its old cap onto the new one: same place relative to
+    the cap centre, scaled to the new top, printed on the new top face."""
+    pts = np.array([c[0] for t in body for c in t])
+    old_cx, old_cy = (pts[:, 0].min() + pts[:, 0].max()) / 2, (pts[:, 1].min() + pts[:, 1].max()) / 2
+    old_top = pts[:, 2].max()
+    old_w, old_h = pts[:, 0].max() - pts[:, 0].min(), pts[:, 1].max() - pts[:, 1].min()
+    s = min(top_w / old_w, top_h / old_h, 1.0) * 0.96
+    out = []
+    for t in legend:
+        for p, n, *rest in t:
+            # Flattened to a 0.05 mm print: the Blender legends were 0.6 mm blocks.
+            q = (cx + (p[0] - old_cx) * s, cy + (p[1] - old_cy) * s, top_z + max(p[2] - old_top, -0.0005) * 0.08)
+            out.append((q, n, *rest))
+    return out
+
+
+def carry(corners, mode, scale, y_remap=None):
+    base = {"upper": UPPER, "deck": DECK}.get(mode)
+    out = []
+    for p, n, *rest in corners:
+        x, y, z = p
+        if base is not None:
+            z = base + (z - legacy.TOP_FACE) * scale
+        if y_remap is not None:
+            y = y_remap(y)
+        out.append(((x, y, z), n, *rest))
+    return out
+
+
+def build(usdz):
+    old = model_space(legacy.extract_parts(usdz))
+    b = Builder()
+    cream, green, gap = legacy.CREAM, legacy.GREEN, legacy.GAP
+
+    # Chassis: the dark-green shell, then the cream body in two steps: the
+    # upper section (ports, label plate, speaker, screen) and the lower deck.
+    x0, x1 = X(0.0), X(spec.WIDTH.mm)
+    r = spec.CORNER_RADIUS.mm / 1000
+    groove = spec.SHELL_GROOVE.mm / 1000
+    b.add("chassis_base", slab(x0, x1, Y(spec.DEPTH.mm), Y(0.0), Z(0.0), Z(spec.SHELL_TOP.mm), r, groove, 0.0005), green, 0.45)
+    upper = slab(x0, x1, Y(spec.STEP_Y.mm), Y(0.0), Z(spec.SHELL_TOP.mm), UPPER, r, spec.TOP_FILLET.mm / 1000, groove)
+    inset = 0.00002  # the deck's walls just inside the upper section's where they overlap
+    lower = slab(x0 + inset, x1 - inset, Y(spec.DEPTH.mm), Y(spec.STEP_Y.mm - 1.0), Z(spec.SHELL_TOP.mm), DECK, r,
+                 spec.TOP_FILLET.mm / 1000, groove)
+    for ps, ns in upper + lower:
+        target = "chassis_topPlate" if np.mean([n[2] for n in ns]) > 0.5 else "chassis_edgeBand"
+        b.add(target, [(ps, ns)], cream, 0.62)
+
+    cell = spec.CELL.mm
+    def cell_centre(col, row):
+        return X(spec.COLUMN_LEFT[col] + cell / 2), Y(spec.ROW_TOP[row] + cell / 2)
+
+    key_h = spec.KEY_HEIGHT.mm / 1000
+    taper = (cell - spec.KEY_TOP.mm) / 1000
+    fillet = spec.KEY_FILLET.mm / 1000
+    corner = spec.KEY_CORNER.mm / 1000
+    g = spec.GAP.mm / 1000
+
+    def rebuild_key(name, cx, cy, w, h, height, well=True, well_size=None):
+        body, legend, colour = split_body_and_legend(old[name])
+        roughness = body[0][0][5]
+        top_w, top_h = w - taper, h - taper
+        b.add(name, keycap(cx, cy, w, h, DECK, DECK + height, top_w, top_h, corner, fillet), colour, roughness)
+        b.add_corners(name, reseat(legend, body, cx, cy, DECK + height, top_w - 2 * fillet, top_h - 2 * fillet))
+        if well:
+            ww, wh = well_size or (w, h)
+            b.add(name + "_well", frame(cx, cy, ww, wh, g, DECK + 0.00002, corner), gap, 0.7)
+
+    for name, col, row in spec.FULL_KEYS:
+        cx, cy = cell_centre(col, row)
+        rebuild_key(name, cx, cy, cell / 1000, cell / 1000, key_h)
+
+    for cap, plate, col, row in spec.FUNCTION_CELLS:
+        cx, cy = cell_centre(col, row)
+        top = spec.ROW_TOP[row]
+        cw, ch = spec.SHORT_CAP
+        rebuild_key(cap, cx, Y(top + 0.5 + ch / 2), cw / 1000, ch / 1000, key_h, well=False)
+        pw, ph = spec.PLATE
+        body, legend, colour = split_body_and_legend(old[plate])
+        pz = DECK + spec.PLATE_HEIGHT.mm / 1000
+        pcy = Y(top + cell - ph / 2)
+        b.add(plate, keycap(cx, pcy, pw / 1000, ph / 1000, DECK, pz, pw / 1000 - 0.0002, ph / 1000 - 0.0002,
+                            corner, 0.00015, fillet_steps=3), colour, body[0][0][5])
+        b.add_corners(plate, reseat(legend, body, cx, pcy, pz, pw / 1000 - 0.001, ph / 1000 - 0.001))
+        b.add(cap + "_well", frame(cx, cy, cell / 1000, cell / 1000, g, DECK + 0.00002, corner), gap, 0.7)
+
+    sx0, sx1 = spec.SMALL_KEY_X
+    for name, (y0, y1) in spec.SMALL_KEY_Y.items():
+        w, h = (sx1 - sx0) / 1000, (y1 - y0) / 1000
+        rebuild_key(name, X((sx0 + sx1) / 2), Y((y0 + y1) / 2), w, h, spec.SMALL_KEY_HEIGHT.mm / 1000)
+
+    # Knobs: a coloured disc, a frosted stem, a flat coloured cap; X has a dark collar.
+    stem_colour = legacy.srgb("#EDEBE3")
+    knob_colours = {"knob_volume": legacy.KEY_WHITE, "knob_x": legacy.ORANGE, "knob_y": legacy.GREEN}
+    disc_d, disc_h = spec.KNOB_DISC
+    stem_d, stem_from, stem_to = spec.KNOB_STEM
+    cap_d, cap_top = spec.KNOB_CAP
+    for name, (kx, ky) in spec.KNOBS.items():
+        cx, cy = X(kx), Y(ky)
+        colour = knob_colours[name]
+        b.add(name, cylinder(cx, cy, DECK, DECK + disc_h / 1000, disc_d / 2000, 0.0006), colour, 0.45)
+        b.add(name, cylinder(cx, cy, DECK + stem_from / 1000, DECK + stem_to / 1000, stem_d / 2000, 0.0002), stem_colour, 0.3)
+        b.add(name, cylinder(cx, cy, DECK + stem_to / 1000, DECK + cap_top / 1000, cap_d / 2000, 0.0008), colour, 0.42)
+        if name == "knob_x":
+            b.add(name, cylinder(cx, cy, DECK + disc_h / 1000, DECK + disc_h / 1000 + 0.0008, stem_d / 2000 + 0.0006, 0.0002),
+                  gap, 0.6)
+
+    # Everything else is carried over, row by row.
+    rebuilt = set(b.parts) | {n for n in old if n.endswith("_well")} | {"halo_ring"}
+    screen_front, screen_back = Y(spec.SCREEN_FRONT_Y), None
+    for name, corners in old.items():
+        if name in rebuilt:
+            continue
+        if name.startswith(legacy.LAMP_PREFIX):
+            b.add_corners(name, carry(corners, "deck", 1.0))
+            continue
+        if name not in spec.CARRY_OVER:
+            raise SystemExit(f"{name}: not rebuilt and not in spec.CARRY_OVER")
+        mode, scale = spec.CARRY_OVER[name]
+        remap = None
+        if name in ("display_bezel", "display_surface"):
+            ys = [c[0][1] for c in old["display_bezel"]]
+            lo, hi = min(ys), max(ys)
+            remap = lambda y, lo=lo, hi=hi: hi - (hi - y) * (hi - screen_front) / (hi - lo)
+        b.add_corners(name, carry(corners, mode, scale, remap))
+
+    identity = [1.0 if r == c else 0.0 for c in range(4) for r in range(4)]
+    parts = [("halo_ring", identity, [0.0, 0.0, 0.0], [], [])]
+    for name, corners in b.parts.items():
+        parts.append(legacy.pack_part(name, IdentityMatrix(), corners))
+    return parts
+
+
+class IdentityMatrix:
+    """What pack_part reads from a Gf.Matrix4d: m[r][c]."""
+    def __getitem__(self, r):
+        return [1.0 if r == c else 0.0 for c in range(4)]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("usdz")
+    ap.add_argument("--out", default="assets/stage/EP40.hmesh")
+    a = ap.parse_args()
+    parts = build(a.usdz)
+    data = legacy.to_v3(parts, Path(a.usdz).name)
+    Path(a.out).write_bytes(data)
+    tris = sum(len(p[4]) for p in parts) // 3
+    print(f"wrote {a.out}: {len(parts)} parts, {tris} triangles, {len(data)} bytes")
+
+
+if __name__ == "__main__":
+    main()
