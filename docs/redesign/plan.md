@@ -1,6 +1,6 @@
 # Halo redesign plan: one big TE screen
 
-**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** in progress (R0-R4a landed; revised after critic review; §8 lists where each issue was resolved)
+**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** in progress (R0-R5 landed; revised after critic review; §8 lists where each issue was resolved)
 **Companion plan:** `docs/redesign/riddim-3d-plan.md`. It owns everything inside the 3D stage: `Source/Stage/*`, the model pipeline and the stage's look tokens. The two plans meet at only three points:
 - `StageLook` (3D plan §3.1)
 - the overlay rule (3D plan §3.9): nothing JUCE draws can sit on top of the stage
@@ -1789,3 +1789,8 @@ R6 and R7 may land in either order; both depend only on R2b's WaveCache.
 - Encoders follow the mockup's graphite knurled skirt with a coloured cap (cap about 0.77 of the diameter); the plan's skirt colour is used for the dimmed cap of an unavailable binding.
 - Fixed before closing the gate: popup-card header too narrow for SENSITIVITY (now sized to its label); the "1 enc" footer replaced by the press action; compact card drops the cylinder so its hint fits; tick dial reshaped to a semicircle above its caption; the SHIFT key's legend said "fine / alt" (contradicts U19), now "shift".
 - Greyscale: every honest state survives by form (hazard stub, hollow lamp, filled triangle box vs outlined i box).
+
+**U2 (after R5): PLAY.** Reviewed against hybrid-play.png at 1440x900, 1180x720 and 1180x660 (rail open and closed, transport running and stopped) and at 150%. The stage now sits on the black glass (3D merge + dark StageLook).
+- Fixed: level arcs were cramped (scale labels, the 40 mark and the limit lamp collided): labels 24/12/6/0 only, limit lamp and tap name under the arc; "limiter -1 dbfs" moved into the MONITOR header facts; the tape lane got its "history 30 s" / "now" captions; the deck nameplate was clipped (moved to the deck's caption row); compact LAST PAD values overlapped their labels (smaller numerals); the lane said "no clock" twice.
+- Kept from the plan over the mockup: the clock moved from the stage corner into the lane; the parameter strip at the bottom over its encoders (the mockup put no strip in PLAY).
+- Known gaps: compact arcs are small (about 20 px radius); the return poster waits on the 3D plan's lastFrameImage().

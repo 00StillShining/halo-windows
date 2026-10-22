@@ -350,7 +350,8 @@ namespace halo
         {
             const auto cell = juce::Rectangle<float> (r.getX() + (float) i * (w + gap), r.getY(), w, r.getHeight());
             const bool digits = i == 1 || i == 2;
-            readout::paint (g, cell, 1 + i * 2, labels[i], values[i], digits && held, regular ? 26.0f : 20.0f);
+            // Compact cells are 44 px: a smaller value keeps clear of the label.
+            readout::paint (g, cell, 1 + i * 2, labels[i], values[i], digits && held, regular ? 26.0f : 16.0f);
         }
     }
 
@@ -360,12 +361,12 @@ namespace halo
         auto& engine = model.monitor();
         const bool running = engine.isRunning();
         auto head = r.removeFromTop (18.0f);
-        juce::String facts;
+        juce::String facts = "limiter " + minus + "1 dbfs";
         if (running)
         {
             const auto& route = engine.route();
             facts = juce::String (route.sampleRate / 1000.0, 1) + " khz" + dot + juce::String (route.bufferSize) + " fr" + dot + "~"
-                  + juce::String (juce::roundToInt (route.latencyMs)) + " ms";
+                  + juce::String (juce::roundToInt (route.latencyMs)) + " ms" + dot + facts;
         }
         title (g, head, "MONITOR", t.scr.dim, facts);
         if (running)
@@ -389,10 +390,8 @@ namespace halo
         const float cap = regular ? numerals::L : numerals::M;
         const double db = model.monitorGainDb();
         numerals::drawWithUnit (g, signedDb (db), "db", level.getX(), level.getY() + 6.0f + cap, cap, blue, blue);
-        gauges::ladder (g, { level.getX(), level.getY() + cap + 14.0f, level.getWidth() - 4.0f, 8.0f }, 20,
+        gauges::ladder (g, { level.getX(), juce::jmin (level.getBottom() - 8.0f, level.getY() + cap + 14.0f), level.getWidth() - 4.0f, 8.0f }, 20,
                         juce::roundToInt ((db + 60.0) / 60.0 * 20.0), blue);
-        paint::text (g, "limiter " + minus + "1 dbfs", { level.getX(), level.getBottom() - 13.0f, level.getWidth(), 13.0f },
-                     HaloFonts::font (Role::print, 10.5f), t.scr.dim);
 
         // Info line, in priority order (plan section 3.5).
         const auto font = HaloFonts::font (Role::ui, 12.0f);
@@ -480,7 +479,15 @@ namespace halo
         double buffered = 0.0;
         if (const auto history = engine.history(); history != nullptr && engine.route().sampleRate > 0.0)
             buffered = juce::jmin (30.0, (double) (history->nowFrame() - history->oldestResidentFrame()) / engine.route().sampleRate);
-        gauges::tapeLane (g, r.withSizeKeepingCentre (r.getWidth(), juce::jmin (24.0f, r.getHeight())).withTrimmedTop (4.0f), 30.0,
+        auto laneArea = r.withTrimmedTop (2.0f);
+        if (laneArea.getHeight() >= 30.0f)
+        {
+            const auto print = HaloFonts::font (Role::print, 10.5f);
+            auto captions = laneArea.removeFromBottom (12.0f);
+            paint::text (g, "history 30 s", captions, print, t.scr.dim);
+            paint::text (g, "now", captions, print, t.scr.dim, juce::Justification::centredRight);
+        }
+        gauges::tapeLane (g, laneArea.withTrimmedTop (2.0f).withTrimmedRight (2.0f), 30.0,
                           buffered, engine.isRunning() ? juce::jmin (30.0, windowSeconds) : 0.0, ochre);
 
         const auto font = HaloFonts::font (Role::ui, 12.0f);
@@ -682,7 +689,7 @@ namespace halo
         if (bpm)
             numerals::drawWithUnit (g, juce::String (*bpm, 1), "bpm", left.getX(), base, cap, t.scr.ink, t.scr.dim);
         else
-            numerals::drawWithUnit (g, enDash, "no clock", left.getX(), base, cap, t.scr.dim, t.scr.dim);
+            numerals::drawWithUnit (g, enDash, "bpm", left.getX(), base, cap, t.scr.dim, t.scr.dim);
 
         const int ticks = model.clockTicks();
         const int bar = ticks > 0 ? (ticks - 1) / 96 + 1 : 0;
