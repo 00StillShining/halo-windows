@@ -55,7 +55,13 @@ def main(path):
     check(abs(ref_z(lo[2])) <= 0.05, f"ground contact at reference z {ref_z(lo[2]):.2f} (feet flush; plan allows -0.3)")
 
     body_top = ref_z(parts["chassis_topPlate"]["bounds"][5])
-    check(abs(body_top - spec.UPPER_TOP.mm) <= 0.1, f"upper section top z {body_top:.2f} (16.0)")
+    check(abs(body_top - spec.UPPER_TOP.mm) <= 0.1, f"upper section top z {body_top:.2f} ({spec.UPPER_TOP.mm})")
+    plate = parts["chassis_topPlate"]
+    shell_top = ref_z(parts["chassis_base"]["bounds"][5])
+    check(abs(shell_top - spec.SHELL_TOP.mm) <= 0.1, f"shell top z {shell_top:.2f} ({spec.SHELL_TOP.mm})")
+    unmeasured = [k for k in ("SHELL_TOP", "DECK_TOP", "UPPER_TOP", "KEY_HEIGHT", "SMALL_KEY_HEIGHT")
+                  if getattr(spec, k).source not in ("svg-path", "owner")]
+    check(not unmeasured, "every height measured from TE's paths" + (f" (not yet: {unmeasured})" if unmeasured else ""))
     for name, _, _ in spec.FULL_KEYS:
         b = parts[name]["bounds"]
         base, top = ref_z(b[2]), ref_z(b[5])
@@ -70,7 +76,7 @@ def main(path):
         knob_front = 120.0 - b[1] * 1000  # reference y of the knob's front edge
         check(knob_front <= 129.0, f"{name} ends at y {knob_front:.1f}, clear of the X / Y legends (129.3)")
         top = ref_z(b[5]) - spec.DECK_TOP.mm
-        check(abs(top - spec.KNOB_CAP[1]) <= 0.3, f"{name} top {top:.2f} above the deck (11.45)")
+        check(abs(top - spec.KNOB_CAP[1]) <= 0.1, f"{name} top {top:.2f} above the deck ({spec.KNOB_CAP[1]})")
 
     for p in h["parts"]:
         if p["name"].startswith("status_lamp_"):

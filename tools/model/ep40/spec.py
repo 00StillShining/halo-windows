@@ -25,17 +25,22 @@ WIDTH = Value(176.0, "svg-path")          # 289.0 units x 0.6091 mm
 DEPTH = Value(240.0, "svg-path")          # 394.0 units x 0.6091 mm
 CORNER_RADIUS = Value(1.0, "plan")        # vertical edges, nearly sharp in plan
 TOP_FILLET = Value(0.5, "plan")
-SHELL_TOP = Value(3.8, "plan")            # dark-green bottom shell, z 0 .. 3.8
+# Heights below: measured from the left side drawing's path bounding boxes
+# (6903405a..., 0.600 mm per unit; the device is drawn on its side, thickness
+# along svg x from 124.0): shell 124.0-127.17, deck 136.83, upper 139.96,
+# keys to 140.04 (3.21-3.24 above the deck, small keys included), the step
+# at svg y 164.1 (device front edge at 60.1).
+SHELL_TOP = Value(3.17, "svg-path")       # dark-green bottom shell (the plan's 3.8 was read off pixels)
 SHELL_GROOVE = Value(0.2, "plan")         # V parting groove at its top
-DECK_TOP = Value(12.9, "plan")            # key deck; step 2.9-3.2 in the side view, 3.1 used
-UPPER_TOP = Value(16.0, "plan")           # port strip, label plate, speaker, screen
-STEP_Y = Value(104.4, "plan")             # the step wall between screen band and deck
+DECK_TOP = Value(12.83, "svg-path")       # key deck: a 3.13 mm step below the upper section
+UPPER_TOP = Value(15.96, "svg-path")      # port strip, label plate, speaker, screen
+STEP_Y = Value(104.0, "svg-path")         # the step wall between screen band and deck
 
 # ------------------------------------------------------------------ keys
 CELL = Value(16.0, "plan")                # 16 x 16 apertures at a 23.94 pitch
 COLUMN_LEFT = (7.9, 31.7, 55.7, 79.7, 103.6, 127.6, 151.5)   # plan (svg-px)
 ROW_TOP = (112.2, 136.3, 160.3, 184.2, 208.2)                # plan (svg-px)
-KEY_HEIGHT = Value(3.2, "plan")           # above the deck; official travel 3.20 mm
+KEY_HEIGHT = Value(3.21, "svg-path")      # above the deck; official travel 3.20 mm
 KEY_TOP = Value(15.1, "plan")             # 16.0 base tapering to about 15.1
 KEY_CORNER = Value(1.5, "plan")
 KEY_FILLET = Value(0.7, "plan")
@@ -46,7 +51,7 @@ PLATE_HEIGHT = Value(0.2, "plan")
 SMALL_KEY = (15.6, 7.9)                   # plan
 SMALL_KEY_X = (8.1, 23.7)                 # plan
 SMALL_KEY_Y = {"button_keys": (136.6, 144.5), "fader_mode_button": (152.4, 160.3), "button_shift": (216.4, 224.3)}
-SMALL_KEY_HEIGHT = Value(2.2, "estimate")  # visibly lower than the pads in TE's renders
+SMALL_KEY_HEIGHT = Value(3.21, "svg-path")  # the side view draws them as tall as the pads
 
 # (part, column, row) for full keys, then function cells (cap part, plate part, column, row).
 FULL_KEYS = [
@@ -65,8 +70,8 @@ FUNCTION_CELLS = [
 # ------------------------------------------------------------------ knobs
 KNOBS = {"knob_volume": (15.8, 120.4), "knob_x": (135.6, 120.4), "knob_y": (159.6, 120.4)}  # plan
 KNOB_DISC = (16.0, 2.4)                   # plan: diameter, height
-KNOB_STEM = (8.2, 1.8, 9.4)               # plan: diameter, from, to (above the deck)
-KNOB_CAP = (10.0, 11.45)                  # cap diameter (estimate), top above the deck (plan, spread 11.0-11.9)
+KNOB_STEM = (8.07, 1.8, 9.4)              # svg-path (left view, VOLUME): diameter, from, to above the deck
+KNOB_CAP = (8.07, 11.2)                   # svg-path: cap diameter, top above the deck (plan said 11.45)
 
 # ------------------------------------------------------------------ carried over
 # Parts not rebuilt yet keep their Blender geometry, moved onto the surface they
