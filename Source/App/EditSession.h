@@ -98,6 +98,7 @@ namespace halo
         void detect();
         int minGap() const;
         chop::PadPlan plan() const;
+        int detectedCuts() const noexcept { return (int) detected.size(); } // every onset found, before SLICES
         void auditionSlice (int index);
         void exportSlices();
 

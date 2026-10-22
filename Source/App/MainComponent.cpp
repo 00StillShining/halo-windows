@@ -55,6 +55,8 @@ namespace halo
         {
             if (model.mode() == AppMode::play)
                 playPage.paintLane (g, r, frame.density != layout::Density::regular);
+            else if (model.mode() == AppMode::chop)
+                chopPage.paintLane (g, r, frame.density != layout::Density::regular);
         });
         playPage.onLaneChanged = [this] { lane.repaint(); };
         // One camera, one readout: drags on the stage move the ORBIT cell too.
@@ -62,7 +64,7 @@ namespace halo
         for (int i = 0; i < 4; ++i)
             addAndMakeVisible (cells.add (new ParamCell (bus, i)));
         deck.onHint = [this] (const juce::String& h) { deckHint = h; updateHint(); };
-        addChildComponent (chopSurface);
+        addChildComponent (chopPage);
         model.addListener (this);
         setWantsKeyboardFocus (true);
        #if HALO_HAS_STAGE_LOOK
@@ -118,15 +120,15 @@ namespace halo
         // and hides under a confirm card (H6: nothing JUCE paints sits over it).
         stage.setVisible (play && ! cardOpen);
         playPage.setVisible (play);
-        chopSurface.setVisible (chop);
+        chopPage.setVisible (chop);
         for (auto m : { AppMode::rack, AppMode::capture, AppMode::edit, AppMode::load, AppMode::backups })
             legacyPanel (m)->setVisible (m == mode);
         plate.setVisible (! play && ! chop);
         plate.setMode (mode);
         statusStrip.setMonitorOwnedByEncoder (play);
         updateBindings();
-        if (chop && ! chopSurface.hasKeyboardFocus (true) && ! cardOpen)
-            chopSurface.grabKeyboardFocus();
+        if (chop && ! chopPage.hasKeyboardFocus (true) && ! cardOpen)
+            chopPage.grabKeyboardFocus();
         if (mode != shownMode)
         {
             shownMode = mode;
@@ -145,6 +147,8 @@ namespace halo
         // controls are the docked panel's, unchanged).
         if (mode == AppMode::play)
             bus.setBindings (playBindings (model, stage));
+        else if (mode == AppMode::chop)
+            bus.setBindings (chopPage.bindings());
         else
             bus.setBindings ({});
         updateHint();
@@ -157,6 +161,8 @@ namespace halo
             hint = deckHint;
         else if (model.mode() == AppMode::play)
             hint = "drag: orbit" + dot + "wheel on stage: zoom" + dot + "double-click: reset";
+        else if (model.mode() == AppMode::chop)
+            hint = "shift + slice: nudge its cut" + dot + "shift + sensitivity press: clear cuts";
         else
             hint = "encoders arrive with this page" + dot + "use the panel on the right";
         softKeys.setHint (hint);
@@ -192,7 +198,8 @@ namespace halo
         dock = {};
         if (keymap::showsChop (mode))
         {
-            chopSurface.setBounds (body);
+            chopPage.setBounds (body);
+            chopPage.setFrame (frame);
             return;
         }
         if (keymap::showsStage (mode))

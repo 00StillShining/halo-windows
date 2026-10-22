@@ -19,6 +19,8 @@ namespace halo
         std::function<void (double)> setNorm;
         std::function<void()> reset;                // double-click: the binding's default
         int steps = 0;
+        // Optional: handle the detents itself (e.g. a list whose length changes).
+        std::function<void (int detents, encoder::Speed)> turn;
         double step = 0.01, fine = 0.0, coarse = 0.0; // per detent, in normalised units
         std::function<juce::String()> format;       // "4.0" (Halo Numerals)
         std::function<juce::String()> unit;         // "s"

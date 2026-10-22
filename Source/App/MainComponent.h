@@ -3,7 +3,6 @@
 #include "App/AppModel.h"
 #include "Core/UiLayout.h"
 #include "Stage/StageComponent.h"
-#include "UI/ChopSurface.h"
 #include "UI/Design/EncoderBus.h"
 #include "UI/Design/Motion.h"
 #include "UI/Design/Primitives/Deck.h"
@@ -16,6 +15,7 @@
 #include "UI/EditPanel.h"
 #include "UI/LibraryPanel.h"
 #include "UI/LoadPanel.h"
+#include "UI/Pages/ChopPage.h"
 #include "UI/Pages/PlayPage.h"
 #include "UI/RackPanel.h"
 
@@ -81,7 +81,7 @@ namespace halo
         LoadPanel loadPanel { model, writeGate };
         BackupsPanel backupsPanel { model };
         juce::Rectangle<int> dock;
-        ChopSurface chopSurface { model, writeGate };
+        ChopPage chopPage { model, writeGate };
         LegacyPlate plate;
         Deck deck { model, bus };
         Lane lane { bus };
