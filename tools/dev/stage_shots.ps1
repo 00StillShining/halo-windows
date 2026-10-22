@@ -142,6 +142,10 @@ foreach ($look in $Looks) {
                 ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $outDir "$name.json")
             "saved $png"
         }
+        catch {
+            # One failed shot (e.g. a mode that hides the stage) must not stop the set.
+            "FAILED $name : $_"
+        }
         finally {
             if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
             foreach ($k in $managed) { Remove-Item "Env:$k" -ErrorAction SilentlyContinue }

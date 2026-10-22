@@ -4,117 +4,74 @@ using namespace juce::gl;
 
 namespace halo
 {
-    HaloMesh HaloMesh::parse (const void* data, size_t size)
+    bool HaloMesh::parse (const void* data, size_t size, std::string& error)
     {
-        juce::MemoryInputStream in (data, size, false);
-        HaloMesh mesh;
-
-        char magic[4] {};
-        const bool magicOk = in.read (magic, 4) == 4 && std::memcmp (magic, "HMSH", 4) == 0;
-        const int version = magicOk ? in.readInt() : 0;
-        if (version != 1 && version != 2)
-        {
-            DBG ("EP40.hmesh: bad header");
-            return {};
-        }
-        const int fileFloats = version == 1 ? 12 : 14;
-
-        const int partCount = in.readInt();
-        for (int p = 0; p < partCount && ! in.isExhausted(); ++p)
-        {
-            MeshPart part;
-            const auto nameLength = (int) (juce::uint16) in.readShort();
-            juce::MemoryBlock nameBytes;
-            in.readIntoMemoryBlock (nameBytes, nameLength);
-            part.name = nameBytes.toString().toStdString();
-
-            float m[16];
-            for (auto& v : m)
-                v = in.readFloat();
-            part.partToModel = juce::Matrix3D<float> (m);
-
-            part.pivot.x = in.readFloat();
-            part.pivot.y = in.readFloat();
-            part.pivot.z = in.readFloat();
-
-            const auto vertexCount = (size_t) in.readInt();
-            part.vertices.resize (vertexCount * MeshPart::floatsPerVertex);
-            if (fileFloats == MeshPart::floatsPerVertex)
-            {
-                in.read (part.vertices.data(), (int) (part.vertices.size() * sizeof (float)));
-            }
-            else
-            {
-                for (size_t v = 0; v < vertexCount; ++v)
-                {
-                    auto* dst = part.vertices.data() + v * MeshPart::floatsPerVertex;
-                    in.read (dst, fileFloats * (int) sizeof (float));
-                    dst[12] = 0.5f; // roughness
-                    dst[13] = 0.0f; // metallic
-                }
-            }
-
-            const auto indexCount = (size_t) in.readInt();
-            part.indices.resize (indexCount);
-            in.read (part.indices.data(), (int) (part.indices.size() * sizeof (juce::uint32)));
-
-            mesh.parts.push_back (std::move (part));
-        }
-
-        if ((int) mesh.parts.size() != partCount)
-        {
-            DBG ("EP40.hmesh: truncated");
-            return {};
-        }
-        return mesh;
-    }
-
-    MeshPart* HaloMesh::find (std::string_view name)
-    {
-        for (auto& part : parts)
-            if (part.name == name)
-                return &part;
-        return nullptr;
+        auto parsed = Hmesh::parse (std::span<const std::byte> (static_cast<const std::byte*> (data), size), error);
+        if (! parsed)
+            return false;
+        model = std::move (*parsed);
+        return true;
     }
 
     void HaloMesh::upload()
     {
-        constexpr auto stride = (GLsizei) (MeshPart::floatsPerVertex * sizeof (float));
-        auto offset = [] (int floats) { return (const void*) (size_t) (floats * sizeof (float)); };
+        release();
+        glGenVertexArrays (1, &vao);
+        glBindVertexArray (vao);
 
-        for (auto& part : parts)
-        {
-            glGenVertexArrays (1, &part.vao);
-            glBindVertexArray (part.vao);
+        glGenBuffers (1, &vbo);
+        glBindBuffer (GL_ARRAY_BUFFER, vbo);
+        glBufferData (GL_ARRAY_BUFFER, (GLsizeiptr) (model.vertices.size() * sizeof (HmeshVertex)),
+                      model.vertices.data(), GL_STATIC_DRAW);
+        glGenBuffers (1, &ebo);
+        glBindBuffer (GL_ELEMENT_ARRAY_BUFFER, ebo);
+        glBufferData (GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) (model.indices.size() * sizeof (std::uint32_t)),
+                      model.indices.data(), GL_STATIC_DRAW);
 
-            glGenBuffers (1, &part.vbo);
-            glBindBuffer (GL_ARRAY_BUFFER, part.vbo);
-            glBufferData (GL_ARRAY_BUFFER, (GLsizeiptr) (part.vertices.size() * sizeof (float)),
-                          part.vertices.data(), GL_STATIC_DRAW);
-
-            glGenBuffers (1, &part.ebo);
-            glBindBuffer (GL_ELEMENT_ARRAY_BUFFER, part.ebo);
-            glBufferData (GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr) (part.indices.size() * sizeof (juce::uint32)),
-                          part.indices.data(), GL_STATIC_DRAW);
-
-            glEnableVertexAttribArray (0); glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, stride, offset (0));  // position
-            glEnableVertexAttribArray (1); glVertexAttribPointer (1, 3, GL_FLOAT, GL_FALSE, stride, offset (3));  // normal
-            glEnableVertexAttribArray (2); glVertexAttribPointer (2, 3, GL_FLOAT, GL_FALSE, stride, offset (6));  // colour
-            glEnableVertexAttribArray (3); glVertexAttribPointer (3, 1, GL_FLOAT, GL_FALSE, stride, offset (9));  // emissive
-            glEnableVertexAttribArray (4); glVertexAttribPointer (4, 2, GL_FLOAT, GL_FALSE, stride, offset (10)); // uv
-            glEnableVertexAttribArray (5); glVertexAttribPointer (5, 2, GL_FLOAT, GL_FALSE, stride, offset (12)); // roughness, metallic
-        }
+        constexpr auto stride = (GLsizei) sizeof (HmeshVertex);
+        auto at = [] (size_t offset) { return (const void*) offset; };
+        glEnableVertexAttribArray (0);
+        glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, stride, at (offsetof (HmeshVertex, position)));
+        glEnableVertexAttribArray (1);
+        glVertexAttribPointer (1, 2, GL_SHORT, GL_TRUE, stride, at (offsetof (HmeshVertex, normal)));
+        glEnableVertexAttribArray (2);
+        glVertexAttribPointer (2, 2, GL_UNSIGNED_SHORT, GL_TRUE, stride, at (offsetof (HmeshVertex, uv)));
+        // Bytes as plain floats (no integer attributes; the shader rounds).
+        glEnableVertexAttribArray (3);
+        glVertexAttribPointer (3, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, at (offsetof (HmeshVertex, material)));
         glBindVertexArray (0);
+
+        std::vector<float> table (model.materials.size() * 16, 0.0f);
+        for (size_t i = 0; i < model.materials.size(); ++i)
+        {
+            const auto& m = model.materials[i];
+            float* t = table.data() + i * 16;
+            t[0] = m.base[0]; t[1] = m.base[1]; t[2] = m.base[2]; t[3] = m.roughness;
+            t[4] = m.emissive[0]; t[5] = m.emissive[1]; t[6] = m.emissive[2]; t[7] = m.metallic;
+            t[8] = (float) m.flags; t[9] = m.grain; t[10] = m.clearcoat; t[11] = m.transmission;
+        }
+        glGenTextures (1, &materials);
+        glBindTexture (GL_TEXTURE_2D, materials);
+        glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA32F, 4, (GLsizei) juce::jmax ((size_t) 1, model.materials.size()), 0,
+                      GL_RGBA, GL_FLOAT, table.data());
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindTexture (GL_TEXTURE_2D, 0);
     }
 
     void HaloMesh::release()
     {
-        for (auto& part : parts)
-        {
-            if (part.ebo != 0) glDeleteBuffers (1, &part.ebo);
-            if (part.vbo != 0) glDeleteBuffers (1, &part.vbo);
-            if (part.vao != 0) glDeleteVertexArrays (1, &part.vao);
-            part.vao = part.vbo = part.ebo = 0;
-        }
+        if (ebo != 0) glDeleteBuffers (1, &ebo);
+        if (vbo != 0) glDeleteBuffers (1, &vbo);
+        if (vao != 0) glDeleteVertexArrays (1, &vao);
+        if (materials != 0) glDeleteTextures (1, &materials);
+        vao = vbo = ebo = materials = 0;
+    }
+
+    void HaloMesh::draw() const
+    {
+        glBindVertexArray (vao);
+        glDrawElements (GL_TRIANGLES, (GLsizei) model.indices.size(), GL_UNSIGNED_INT, nullptr);
+        glBindVertexArray (0);
     }
 }

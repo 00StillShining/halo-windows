@@ -8,12 +8,17 @@
 #include "common.glsl"
 #include "floor.glsl"
 
-in vec3 vNormal; in vec3 vColour; in float vEmissive; in vec2 vUV; in vec2 vMaterial;
+in vec3 vNormal; in vec3 vColour; in vec3 vEmissive; in vec2 vUV; in vec2 vMaterial;
 in vec3 vWorld; in vec3 vModel; in vec3 vModelNormal;
+flat in int vFlags; flat in int vSlot; in float vAO;
 
-uniform int uKind;            // 0 part, 1 display, 3 ground, 4 face plate
+// Material flags (Core/HmeshFormat.h).
+const int FLAG_LCD = 2;
+const int FLAG_DECAL_TARGET = 16;
+
+uniform int uKind;            // 0 the device (one draw; materials say LCD or printed deck), 3 ground
 uniform vec3 uEye;
-uniform vec3 uGlow;           // linear emissive added to the part
+uniform vec3 uSlotGlow[32];   // linear emissive per slot (pad strike, active group)
 uniform sampler2D uTexture;   // LCD (sRGB image)
 uniform sampler2D uPrint;     // face silkscreen, linear premultiplied, model XY
 uniform vec2 uDeviceSize;     // model width, depth (m)
@@ -265,7 +270,7 @@ void main()
     // Faces near the floor see less of the room.
     ao *= mix (0.72, 1.0, clamp (smoothstep (-0.0095, -0.002, vModel.z) + max (mn.z, 0.0), 0.0, 1.0));
 
-    if (uKind == 1)
+    if ((vFlags & FLAG_LCD) != 0)
     {
         // The LCD is self-lit under a glossy window: nearly unshaded, plus
         // the studio's reflection in the glass.
@@ -287,7 +292,7 @@ void main()
     vec3 albedo = vColour;
     float roughness = clamp (vMaterial.x, 0.04, 1.0);
 
-    if (uKind == 4 && mn.z > 0.5)
+    if ((vFlags & FLAG_DECAL_TARGET) != 0 && mn.z > 0.5)
     {
         vec2 uv = vModel.xy / uDeviceSize + 0.5;
         vec4 ink = texture (uPrint, uv);  // premultiplied
@@ -297,13 +302,13 @@ void main()
 
     // 7: unlit albedo (print included); 8: emissive only.
     if (uDebug == 7) { fragColour = displayValue (srgbEncode (albedo)); return; }
-    if (uDebug == 8) { fragColour = displayValue (srgbEncode (albedo * vEmissive * 0.6 + uGlow)); return; }
+    if (uDebug == 8) { fragColour = displayValue (srgbEncode (vEmissive * 0.6 + uSlotGlow[vSlot])); return; }
     if (uDebug == 9) { fragColour = displayValue (n * 0.5 + 0.5); return; }
     if (uDebug == 1) { fragColour = displayValue (vec3 (ao)); return; }
     if (uDebug == 2) { fragColour = displayValue (vec3 (shadow)); return; }
     if (uDebug == 3) { fragColour = displayValue (vec3 (fract (heightAt (vModel.xy, 0.0) * 100.0))); return; }
 
     vec3 lit = shade (albedo, roughness, n, v, shadow, ao);
-    lit += albedo * vEmissive * 0.6 + uGlow;
+    lit += vEmissive * 0.6 + uSlotGlow[vSlot];
     fragColour = radiance (lit);
 }

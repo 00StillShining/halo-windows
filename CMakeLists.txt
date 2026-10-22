@@ -114,7 +114,8 @@ juce_add_binary_data(HaloShaders
         Source/Stage/Shaders/part.frag
         Source/Stage/Shaders/part.vert
         Source/Stage/Shaders/resolve.frag
-        Source/Stage/Shaders/selftest.frag)
+        Source/Stage/Shaders/selftest.frag
+        Source/Stage/Shaders/slots.glsl)
 target_link_libraries(Halo PRIVATE HaloShaders)
 
 # The stage's own assets (assets/stage), apart from HaloAssets so stage and UI
@@ -123,6 +124,7 @@ juce_add_binary_data(HaloStageAssets
     HEADER_NAME HaloStageAssets.h
     NAMESPACE HaloStageAssets
     SOURCES
+        assets/stage/EP40.hmesh
         assets/stage/studio.henv)
 target_link_libraries(Halo PRIVATE HaloStageAssets)
 
@@ -139,7 +141,6 @@ juce_add_binary_data(HaloAssets
     HEADER_NAME HaloAssets.h
     NAMESPACE HaloAssets
     SOURCES
-        assets/EP40.hmesh
         assets/halo_screen_indicators.png)
 
 target_link_libraries(Halo

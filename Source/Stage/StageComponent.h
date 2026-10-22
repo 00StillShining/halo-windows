@@ -120,6 +120,7 @@ namespace halo
         void setPartUniforms (const StageView&, const juce::Matrix3D<float>& lightViewProj);
         void drawGround (const juce::Matrix3D<float>& viewProj, const SharedState&, float time, int viewportWidth, int viewportHeight);
         void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&);
+        void setSlotUniforms (GlProgram&);
         RingLight ringLight (const SharedState&, float time) const;
 
         AppModel& model;
@@ -143,10 +144,8 @@ namespace halo
         juce::OpenGLTexture displayTexture, printTexture;
         DepthTarget shadowTarget, heightTarget;
         GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
-        std::vector<juce::Matrix3D<float>> partToModel; // this frame, pad travel applied
-        std::array<int, 12> padParts {};
-        std::array<int, 4> groupParts {};
-        int displayPart = -1, ringPart = -1, platePart = -1;
+        // Per-slot motion (slot 0 static, 1-12 pads, 13-16 groups), this frame.
+        std::array<juce::Vector3D<float>, Hmesh::maxSlots> slotOffsets {}, slotPivots {};
         StageLook look = StageLook::paper();   // GL thread's copy
         float groundZ = -0.008f;               // model z of the floor: lowest shadow-casting point
         StageBox deviceBox;                    // world-space bounds of the shadow-casting parts

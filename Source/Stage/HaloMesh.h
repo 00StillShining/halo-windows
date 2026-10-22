@@ -1,40 +1,35 @@
 #pragma once
 
+#include "Core/HmeshFormat.h"
+
 #include <juce_opengl/juce_opengl.h>
 
 #include <string>
-#include <vector>
 
 namespace halo
 {
-    // One named part of the EP-40 model (pad_7, group_a, display_surface ...),
-    // loaded from the .hmesh file baked by tools/model/usdz_to_hmesh.py.
-    struct MeshPart
-    {
-        // pos3 normal3 colour3 emissive uv2 roughness metallic (.hmesh v2). Version 1
-        // files carry only the first 12 and load with neutral plastic values.
-        static constexpr int floatsPerVertex = 14;
-
-        std::string name;
-        juce::Matrix3D<float> partToModel;
-        juce::Vector3D<float> pivot;
-        std::vector<float> vertices;
-        std::vector<juce::uint32> indices;
-
-        // GPU objects, created on the GL thread.
-        GLuint vao = 0, vbo = 0, ebo = 0;
-    };
-
+    // The EP-40 model on the GPU (plan D8): the parsed .hmesh (Core/HmeshFormat)
+    // as one vertex buffer, one index buffer and one VAO, so the whole device is
+    // a single draw; moving parts follow per-slot transforms in the vertex
+    // shader. Materials live in a small RGBA32F texture, four texels per row:
+    //   0: base colour (linear), roughness
+    //   1: emissive (linear), metallic
+    //   2: flags, grain, clearcoat, transmission
+    //   3: reserved
+    // Vertex attributes (bind in this order): aPos, aNormal (octahedral,
+    // snorm16), aUV (unorm16), aBytes (material, slot, mask, ao as floats).
     struct HaloMesh
     {
-        std::vector<MeshPart> parts;
+        Hmesh model;
+        GLuint vao = 0, vbo = 0, ebo = 0, materials = 0;
 
-        // Returns an empty mesh (and logs) if the data is malformed.
-        static HaloMesh parse (const void* data, size_t size);
+        static constexpr const char* attributes[] { "aPos", "aNormal", "aUV", "aBytes" };
 
-        MeshPart* find (std::string_view name);
+        bool parse (const void* data, size_t size, std::string& error);
+        bool empty() const noexcept { return model.indices.empty(); }
 
         void upload();  // GL thread
         void release(); // GL thread
+        void draw() const; // every part, one call
     };
 }
