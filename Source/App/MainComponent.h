@@ -9,11 +9,15 @@
 #include "UI/Design/Primitives/Deck.h"
 #include "UI/Design/Primitives/Lane.h"
 #include "UI/Design/Primitives/ParamStrip.h"
-#include "UI/Design/Primitives/StageFrame.h"
 #include "UI/Design/Primitives/StatusStrip.h"
 #include "UI/Design/WriteGate.h"
 #include "UI/HaloLookAndFeel.h"
-#include "UI/PlayRail.h"
+#include "UI/BackupsPanel.h"
+#include "UI/EditPanel.h"
+#include "UI/LibraryPanel.h"
+#include "UI/LoadPanel.h"
+#include "UI/Pages/PlayPage.h"
+#include "UI/RackPanel.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -44,6 +48,7 @@ namespace halo
         void updateBindings();
         void updateHint();
         void layoutBody();
+        juce::Component* legacyPanel (AppMode) noexcept;
         float physicalScale() const;
 
         // A dim plate where a page that hasn't been rebuilt yet will go.
@@ -68,8 +73,14 @@ namespace halo
 
         StatusStrip statusStrip { model };
         StageComponent stage { model };
-        StageFrame stageFrame { model, stage };
-        PlayRail rail;
+        PlayPage playPage { model, stage };
+        // Pages not rebuilt yet: today's panels, docked at the right of the body.
+        RackPanel rackPanel { model };
+        LibraryPanel libraryPanel { model };
+        EditPanel editPanel { model, writeGate };
+        LoadPanel loadPanel { model, writeGate };
+        BackupsPanel backupsPanel { model };
+        juce::Rectangle<int> dock;
         ChopSurface chopSurface { model, writeGate };
         LegacyPlate plate;
         Deck deck { model, bus };

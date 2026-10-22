@@ -36,6 +36,7 @@ namespace halo
         void paintLane (juce::Graphics&, juce::Rectangle<float>, bool compact) const;
 
         StageFrame& stageFrame() noexcept { return frameView; }
+        std::function<void()> onLaneChanged; // the clock moved a step
 
         void paint (juce::Graphics&) override;
         void resized() override;

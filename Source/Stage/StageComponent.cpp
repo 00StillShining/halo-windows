@@ -346,6 +346,7 @@ namespace halo
         pitchDegrees = juce::jlimit (StageCamera::minPitch, StageCamera::maxPitch,
                                      dragStartPitch + (float) e.getDistanceFromDragStartY() * 0.3f);
         orthoView = false;
+        if (onCameraChanged) onCameraChanged(); // UI redesign camera API
     }
 
     void StageComponent::mouseDoubleClick (const juce::MouseEvent&)
@@ -355,6 +356,7 @@ namespace halo
         zoom = 1.0f;
         orthoView = false;
         presetOffsetActive = false;
+        if (onCameraChanged) onCameraChanged(); // UI redesign camera API
     }
 
     void StageComponent::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)

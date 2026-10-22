@@ -1,6 +1,7 @@
 #pragma once
 
 #include "App/AppModel.h"
+#include "Stage/StageComponent.h"
 #include "UI/Design/EncoderBus.h"
 
 namespace halo
@@ -10,7 +11,7 @@ namespace halo
     //   2 ochre  GRAB length (3 steps: bars with a clock, else seconds)   press: grab now
     //   3 grey   ORBIT yaw (shift: tilt)   press: reset view
     //   4 orange ECHO MIX   press: engage / bypass the rack
-    // ORBIT needs the stage's camera setters (3D plan section 4.4 item 4);
-    // until they exist it is a dead cell that says how to orbit instead.
-    std::array<std::optional<EncoderBinding>, 4> playBindings (AppModel&);
+    // ORBIT drives the stage's camera through its small UI camera API; its
+    // readout follows drags on the stage too (one camera, one readout).
+    std::array<std::optional<EncoderBinding>, 4> playBindings (AppModel&, StageComponent&);
 }
