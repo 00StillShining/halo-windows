@@ -160,6 +160,152 @@ namespace halo::layout
         return p;
     }
 
+    // ---- Wrapping -------------------------------------------------------------------
+    float wrappedHeight (const fontmetrics::Role& role, std::string_view text, float width, float lineHeight)
+    {
+        int lines = 1;
+        float x = 0.0f;
+        const float space = measure (role, " ");
+        size_t i = 0;
+        while (i < text.size())
+        {
+            if (text[i] == '\n')
+            {
+                ++lines;
+                x = 0.0f;
+                ++i;
+                continue;
+            }
+            size_t j = i;
+            while (j < text.size() && text[j] != ' ' && text[j] != '\n')
+                ++j;
+            const float w = measure (role, text.substr (i, j - i));
+            if (x > 0.0f && x + space + w > width)
+            {
+                ++lines;
+                x = w;
+            }
+            else
+            {
+                x += (x > 0.0f ? space : 0.0f) + w;
+            }
+            i = j;
+            while (i < text.size() && text[i] == ' ')
+                ++i;
+        }
+        return (float) lines * lineHeight;
+    }
+
+    float noticeHeight (std::string_view text, float width, bool boxed)
+    {
+        // Notice.cpp: 12 px side padding, a 16 px icon and a 10 px gap, 9 px
+        // top and bottom; body 13 px with 3 px line spacing (19 px lines).
+        // Widths carry 2% slack against the renderer's own kerning.
+        constexpr float line = 19.0f;
+        if (! boxed)
+            return wrappedHeight (fontmetrics::kBody, text, width * 0.98f, line);
+        return std::max (16.0f, wrappedHeight (fontmetrics::kBodyStrong, text, (width - 24.0f - 26.0f) * 0.98f, line)) + 18.0f;
+    }
+
+    // ---- CHOP -----------------------------------------------------------------------
+    ChopLayout chopLayout (const Frame& f, std::string_view noticeText, bool boxed)
+    {
+        ChopLayout c;
+        const auto& b = f.body;
+        const bool regular = f.density == Density::regular;
+        const bool ultra = f.density == Density::ultra;
+        c.stacked = f.narrow || ! regular;
+
+        const float headerH = regular ? 44.0f : 40.0f;
+        const float overviewH = regular ? 14.0f : 10.0f, rulerH = regular ? 16.0f : 14.0f;
+        const float bracketH = regular ? 16.0f : 14.0f, statusH = regular ? 18.0f : 16.0f;
+        const float gap = regular ? 4.0f : 2.0f;
+
+        const float keyRow = 30.0f, actionRow = ultra ? 30.0f : 36.0f;
+        const float padsW = f.narrow ? 396.0f : 446.0f;
+        float lower = 0.0f;
+        float sendW = 0.0f;
+        if (! c.stacked)
+        {
+            lower = 250.0f;
+            const float colW = (b.w - padsW - 32.0f) / 2.0f;
+            c.pads = { b.x, 0, padsW, lower };
+            c.output = { c.pads.right() + 16.0f, 0, colW, lower };
+            c.send = { c.output.right() + 16.0f, 0, b.right() - (c.output.right() + 16.0f), lower };
+            sendW = c.send.w;
+        }
+        const float colX = b.x + padsW + 12.0f, colW = b.right() - colX;
+        if (c.stacked)
+            sendW = colW;
+        const float noticeH = noticeText.empty() ? 0.0f : noticeHeight (noticeText, sendW, boxed);
+        if (c.stacked)
+            // quality | channels, name | totals, memory, notice, backup line, actions
+            lower = keyRow + 6.0f + 36.0f + 6.0f + 12.0f + 6.0f + noticeH + 6.0f + 18.0f + 6.0f + actionRow;
+
+        // Pads: the GROUP / PROJECT row + 4 rows; rows shrink before the canvas does.
+        auto padsNeed = [] (float row) { return 30.0f + 8.0f + 4.0f * row + 3.0f * 6.0f; };
+        float fixedTop = headerH + gap + overviewH + gap + rulerH + 2.0f;
+        float fixedUnder = 2.0f + bracketH + statusH + 6.0f;
+        bool sharedRow = false; // the bracket and the status line share one row
+        float row = 48.0f;
+        float band = std::max (lower, padsNeed (row));
+        auto canvasH = [&] { return b.h - fixedTop - fixedUnder - band; };
+        if (canvasH() < ChopLayout::minCanvas)
+        {
+            c.showOverview = false; // the ruler carries the position
+            fixedTop = headerH + gap + rulerH + 2.0f;
+        }
+        if (canvasH() < ChopLayout::minCanvas)
+        {
+            sharedRow = true;
+            fixedUnder = 2.0f + std::max (bracketH, statusH) + 6.0f;
+        }
+        while (canvasH() < ChopLayout::minCanvas && row > 38.0f)
+        {
+            row -= 1.0f;
+            band = std::max (lower, padsNeed (row));
+        }
+        c.padRow = std::clamp (std::floor ((band - 38.0f - 18.0f) / 4.0f), 38.0f, 100.0f);
+
+        float y = b.y;
+        c.header = { b.x, y, b.w, headerH };
+        y += headerH + gap;
+        if (c.showOverview)
+        {
+            c.overview = { b.x, y, b.w, overviewH };
+            y += overviewH + gap;
+        }
+        c.ruler = { b.x, y, b.w, rulerH };
+        y += rulerH + 2.0f;
+        const float bandTop = b.bottom() - band;
+        if (sharedRow)
+        {
+            const float h = std::max (bracketH, statusH);
+            c.bracket = { b.x, bandTop - 6.0f - h, b.w * 0.5f, h };
+            c.status = { b.x + b.w * 0.5f, c.bracket.y, b.w * 0.5f, h };
+        }
+        else
+        {
+            c.status = { b.x, bandTop - 6.0f - statusH, b.w, statusH };
+            c.bracket = { b.x, c.status.y - bracketH, b.w, bracketH };
+        }
+        c.canvas = { b.x, y, b.w, c.bracket.y - 2.0f - y };
+
+        if (c.stacked)
+        {
+            c.pads = { b.x, bandTop, padsW, band };
+            c.output = { colX, bandTop, colW, keyRow + 6.0f + 36.0f + 6.0f + 12.0f };
+            c.send = { colX, c.output.bottom() + 6.0f, colW, b.bottom() - (c.output.bottom() + 6.0f) };
+        }
+        else
+        {
+            c.pads.y = c.output.y = c.send.y = bandTop;
+            c.pads.h = c.output.h = c.send.h = band;
+        }
+        c.notice = { c.send.x, c.send.y, c.send.w, noticeH };
+        return c;
+    }
+
     // ---- Status strip -----------------------------------------------------------
     namespace
     {
