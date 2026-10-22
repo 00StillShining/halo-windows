@@ -1263,3 +1263,140 @@ After those, M6's knobs and screen depth have the highest value.
 | 44 | D7, §3.1: `StageLook` by value under the SpinLock |
 | 45 | Moot, because AO is baked offline into the vertex byte (D10) |
 | 46 | Harness swatch-card definition; "≤ 3 geometry draws" in §7; pose override of input in the hooks table; line references corrected in §6 |
+---
+
+## Appendix B. Milestone log
+
+Measured results, newest last. Shots live in the git-ignored `build/shots/<milestone>/`
+(regenerate with `tools/dev/stage_shots.ps1`); numbers here are the record.
+
+### M0 (baseline, today's renderer)
+
+- **Harness:** `tools/dev/stage_shots.ps1` (one MOCK instance per shot, own `HALO_STAGE_LOG`,
+  waits for `HALO_STAGE_READY`, captures by PID, JSON sidecar with the stage rectangle) and
+  `tools/dev/compare_shots.py` (`card`, `mask`, `same`, `diff`, `border`, `hist`, `fringe`, `sheet`).
+  `small` is the app's minimum window (1180 × 720, rail open): the app does not allow 900 × 640.
+  Window size is set by the script (`SetWindowPos`), not by a `HALO_WINDOW_SIZE` hook.
+- **Python wheels (3.14.8):** numpy, Pillow, svgelements, scipy, shapely 2.2, fontTools all
+  resolved as binary wheels; no numpy fallbacks needed (`tools/model/requirements.txt`).
+- **Determinism:** two `hero` runs of the `rest` pose: max delta 0/255 over the whole stage.
+- **GPU, RTX 5080, Release, `hero` 1412 × 780 stage, mock MIDI animating:** p50 0.360 ms,
+  p95 0.366 ms; 367 geometry draws per frame (123 parts × main + shadow + height passes).
+  `GL_RENDERER=NVIDIA GeForce RTX 5080`, `GL_VERSION=3.2.0 NVIDIA 616.56`, default framebuffer
+  `GL_SAMPLES=4`.
+- **GPU, AMD Radeon iGPU:** not measured. It needs Halo.exe set to "Power saving" in Windows
+  Graphics settings, which is the owner's call (a system setting); run
+  `stage_shots.ps1 -Shots hero -Stats -HoldSeconds 12 -Exe <Release exe>` after switching.
+- **Card (Neutral, today's asset):** deck #C4C1B8 (ΔE 6.3 to #DCD2BF), body ΔE 10.1, key ΔE 2.2,
+  orange ΔE 4.5, green #0F644D (ΔE 8.4), label plate ΔE 1.6; the shell band is grey (ΔE 33 to
+  the green shell) and the screen frame near-black (ΔE 13.7).
+- **Mask, `hero`:** margins L 23.5 % R 26.6 % T 18.6 % B 9.4 %; fill 49.9 % × 72.1 %.
+
+### M1 (quick wins on the current asset)
+
+- **Asset:** the section 2.5 palette (cream #DCD2BF body and deck, #E9E9E5 numeral keys,
+  #DDD3C2 group pads and beige function caps, #0A4A36 green, #FA5A16 orange, #0B2E24 glossy
+  frame, #1C1B19 gaps, TE's inks); the bottom shell is a 3.8 mm dark-green stripe all round;
+  `legend_25..29` dropped (no more "DUB"); `halo_ring` is a zero-triangle anchor.
+- **Deviation (LEDs):** the plan said to remove `status_lamp_top_*`, but TE's front drawing and
+  section 2.3's own LED table have a fourth LED row at y 132.0 (LEVEL / PITCH / TIME). All 16 + 2
+  LEDs are now generated as flush 1.8 mm unlit discs at the section 2.3 positions (the Blender
+  lamps were 2.5 mm pills 1.3 mm above the plate and about 4 mm right of the real spots).
+- **Print:** TE positions in reference mm, green #00503A / orange #FF681D ink, 2.1 mm caps, plus
+  VOLUME, BPM ─ METRONOME, GAIN and SWING brackets and the big X / Y. The bracket row sits at
+  y 108.6 instead of 108.0 until M5a, because the carried-over display band reaches y 107.4.
+- **Card:** deck ΔE 1.75, key 1.31, orange 2.59, green 0.67, label plate 1.55, frame 1.47.
+- **Mask:** `hero` margins ≥ 6.9 %, limiting fill 84.7 %; `rack` 6.9 % / 86.1 %; `small` 7.0 % / 84.7 %.
+- **Border:** `dark()` stage border is exactly #060607 in `hero`, `rack`, `small`, `low`, `top`,
+  `edge` (floor terms fade out over the outer 4 % of the stage). With `paper()` the backdrop is
+  unchanged from M0 wherever M0 had no floor shadow (the only differences are M0's shadow
+  reaching the stage edge, which M1 no longer does).
+- **Determinism:** two `hero` runs: max delta 0.
+
+### M2 (HDR core and tone mapping)
+
+- **Pipeline:** 4x MSAA RGBA16F scene (device radiance + floor shadow, MRT) -> custom resolve
+  (device samples weighted 1/(1+luma); floor averaged over uncovered samples only) -> composite
+  (tone map once, floor, exact sRGB, ±0.45 LSB dither) -> FXAA only when MSAA < 4 or Low tier.
+  The window framebuffer requests no MSAA. GLSL lives in `Source/Stage/Shaders/` (HaloShaders
+  binary data; Debug hot reload from `HALO_STAGE_SHADER_DIR`, verified). Low tier = the M1
+  forward path into an LDR target + FXAA (`HALO_STAGE_TIER=low` renders a complete frame).
+- **Deviation (floor blend):** the ring pool and the contact shadow are blended in display values
+  in the composite (as the Low tier does), not as `base + (1 − base)·T(light)` in display-linear:
+  a display-linear screen of the saturated orange reads pink on the cool paper floor, and a
+  linear multiply makes the tuned shadow far weaker. Both tiers now match.
+- **Card:** Neutral worst ΔE2000 2.27 (orange), cream 1.47, white key 1.16, green 0.89 — passes
+  ≤ 3. **AgX fails ≤ 4** at exposure 1.0 (cream 7.7, white 9.1, orange 7.6 — AgX's base curve
+  compresses albedo-range values hard by design); ACES Hill 7.7–11.9 (reported only). Neutral
+  stays the default (D2).
+- **Tone curves:** `ToneCurvesTests` (reference values, monotonic, sRGB piecewise and 8-bit round
+  trip) pass; the Debug ramp self-test passes on the RTX 5080 (max |GLSL − C++| 1e-7 Neutral,
+  9e-6 AgX, 4e-7 ACES). Not run on the AMD iGPU (needs the owner's GPU switch).
+- **Border:** `dark()` border exactly #060607 in all six framings; floor terms are exactly zero in
+  the outer 2 px (near black, the sRGB curve made a 0.1 % residue a visible +2). `paper()` border
+  matches M1 within ±1 (dither on the anti-aliased grid lines).
+- **Banding:** `dark()` floor gradient (ring off): no empty histogram bins (R 6–30, G 6–30, B 7–30).
+- **Fringe:** 152 of 1395 silhouette samples fall outside their 2–4 px neighbours' range, all on the
+  bottom shell where the silhouette is the shadowed underside fillet (M1's LDR path: 170 at the same
+  places); none elsewhere. No halo is visible at 4x zoom.
+- **Uniform lookups:** 0 per frame after the first (GlProgram caches locations).
+- **Resize:** a 5 s window-edge drag (`tools/dev/stage_resize.ps1`) reallocated targets once, after
+  the size settled.
+- **GPU, RTX 5080, Release, `hero`:** p50 0.468 ms, p95 0.472 ms (M0 0.366 ms), `GL_SAMPLES=4`.
+- **Determinism:** two `hero` runs: max delta 0.
+
+### M3 (studio IBL, GGX, perspective floor) and gate G1
+
+- **Environment:** `tools/model/ep40/env_bake.py` -> `assets/stage/studio.henv` (2.1 MB):
+  256^2 x 7-mip GGX-prefiltered RGB9E5 cube map, SH9 ambient irradiance, key and rim light
+  records. Two runs give the same SHA-256 (586a2fb0...). `Source/Core/{ChunkFile,HenvFormat,
+  HtexFormat}` parse the shared chunked container with full rejection checks
+  (`HenvFormatTests`, `HtexFormatTests`, including a known unpremultiplied RGBA texel, RGB9E5
+  known vectors, CRC and every truncation). Python side: `tools/model/htex_io.py` plus
+  `tools/model/tests` (6 tests).
+- **Deviations (studio values):** key 12 (plan 6), fill 1.4 (0.8), room 0.05 (0.03); at the plan's
+  values the cream deck lit at L* 63 (target 78-88). The rim strip is 1.0 x 0.02 m at radiance
+  100 (plan 0.12 m at 10), behind-left at 37 degrees elevation (plan: behind-right, 20 degrees):
+  the hero camera's reflections from the flat screen look there, and a 0.12 m strip was taller
+  than the screen's reflection window, so it washed the whole glass instead of crossing it.
+  Mip m holds roughness (m/6)^2 and the shader samples lod = sqrt(roughness) x maxMip (plan:
+  linear), so glossy acrylic is not blended with a rough mip's haze.
+- **Deviation (direct light):** the key and rim are in the prefiltered map for reflections (that
+  is what draws the softbox and the streak), with the key's share of each reflection shadowed;
+  their diffuse is analytic (shadowed key, wrapped for satin) on top of SH9 ambient. There is no
+  separate analytic GGX lobe, which would count the lights twice.
+- **Shading:** split-sum DFG table (64^2 RG16F, height-correlated Smith, computed at startup),
+  multi-scatter compensation, Lagarde specular occlusion, Kaplanyan-Hoffman specular AA, SH9 with
+  a runtime floor-bounce lobe (paper vs dark changes the cream walls by 4.7 L*, no rebake).
+- **Floor:** a real plane at the device's lowest point, found per pixel from the inverse
+  view-projection; graph paper (5 mm cells, 25 mm major) recedes in perspective with
+  derivative-filtered lines and fades to the token before the stage edge.
+- **Checks:** `hero` deck (up-facing) mean L* 78.7 (78-88, ok); aperture gaps median L* 3.1 (ok);
+  PLAY broad highlight peak/median 1.40 (ok); **RECORD 1.14 (fails 1.25)**: the carried-over caps
+  are flat-topped, so at hero distance the rim's reflection is uniform across the top and only
+  the small back fillet peaks; M5b's caps with real 0.7 mm top fillets are the fix. Card
+  unchanged (worst ΔE 2.27). `dark()` border exact in six framings; banding: no empty bins.
+  The screen shows one continuous diagonal streak in `hero`. Release, RTX 5080, `hero`: GPU p50
+  0.492 ms, p95 0.496 ms. AMD iGPU still unmeasured (owner's GPU switch).
+- **Found and fixed:** on this machine the desktop compositor drops one exact colour,
+  RGB (13, 11, 12): the dark floor's dithered pixels landing on it showed as black dots on screen
+  and in captures although the framebuffer held them (proved with the new Debug
+  `HALO_STAGE_READBACK` framebuffer dump). Final outputs nudge that value to (13, 11, 13).
+  Also fixed: an undefined GLSL `clamp` (lo > hi) in the floor grid.
+- **G1 (delegated, self-review against `c_keys.png` and TE's renders):** passed with notes. The
+  cream body, white keys, riddim orange and green, near-black apertures and the satin response
+  read as the TE photographs; the device sits on a receding paper floor (or a lit dark sweep)
+  with a grounded contact shadow. Open: RECORD's highlight (above), white keys a touch brighter
+  than TE's photo, the glass streak is strong at `rack` framing, and proportions and artwork are
+  still the carried-over Blender asset (M5a/M5b).
+
+### M3 follow-up: screen sheen (review note)
+
+- The rim streak blew the left half of the LCD out to near-white (peak channel 254, LCD detail
+  under it down to 48 % of the bare screen at `rack`). The acrylic's reflection is now a sheen:
+  scaled by 0.55 and rolled off toward a ceiling of 0.13 linear luma (`uGlassSheen`,
+  `uGlassPeak`; `HALO_STAGE_GLASS=sheen,roughness,peak` tunes it in Debug, `0` removes it).
+- `tools/dev/stage_glass.ps1` shoots `hero`, `keys`, `rack`, `small` in both looks with and
+  without the sheen; `compare_shots.py glass` reports the sheen's lift, its peak and the LCD's
+  fine detail under it. Now: peak channel 241-242 (no clipping), mean lift 20-22 / 255, LCD detail
+  under the sheen 82-88 % of the bare screen in all eight shots (target >= 60 %).

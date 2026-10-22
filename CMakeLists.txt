@@ -35,6 +35,13 @@ add_library(HaloCore STATIC
     Source/Core/SysEx.cpp
     Source/Core/TeProtocol.cpp)
 target_include_directories(HaloCore PUBLIC Source)
+# Pure logic behind the 3D stage (docs/redesign/riddim-3d-plan.md).
+target_sources(HaloCore PRIVATE
+    Source/Core/ChunkFile.cpp
+    Source/Core/HenvFormat.cpp
+    Source/Core/HmeshFormat.cpp
+    Source/Core/HtexFormat.cpp
+    Source/Core/StageCamera.cpp)
 if(MSVC)
     target_compile_options(HaloCore PRIVATE /W4 /permissive-)
 endif()
@@ -76,6 +83,48 @@ target_sources(Halo PRIVATE
     Source/UI/ChopSurface.cpp
     Source/UI/LoadPanel.cpp
     Source/UI/BackupsPanel.cpp)
+
+# The 3D stage's own sources (docs/redesign/riddim-3d-plan.md), kept apart from
+# the list above so stage and UI work merge without touching the same lines.
+target_sources(Halo PRIVATE
+    Source/Stage/Environment.cpp
+    Source/Stage/GlProgram.cpp
+    Source/Stage/RenderTargets.cpp
+    Source/Stage/ShaderLibrary.cpp
+    Source/Stage/StageLog.cpp
+    Source/Stage/StageStats.cpp)
+
+# The stage's GLSL, embedded; Debug builds can hot-reload it from
+# HALO_STAGE_SHADER_DIR. The tone constants are shared with C++ (Core/ToneCurves.h).
+juce_add_binary_data(HaloShaders
+    HEADER_NAME HaloShaders.h
+    NAMESPACE HaloShaders
+    SOURCES
+        Source/Core/ToneCurveConstants.inc
+        Source/Stage/Shaders/backdrop.glsl
+        Source/Stage/Shaders/background.frag
+        Source/Stage/Shaders/card.frag
+        Source/Stage/Shaders/common.glsl
+        Source/Stage/Shaders/composite.frag
+        Source/Stage/Shaders/depth.frag
+        Source/Stage/Shaders/depth.vert
+        Source/Stage/Shaders/floor.glsl
+        Source/Stage/Shaders/fullscreen.vert
+        Source/Stage/Shaders/fxaa.frag
+        Source/Stage/Shaders/part.frag
+        Source/Stage/Shaders/part.vert
+        Source/Stage/Shaders/resolve.frag
+        Source/Stage/Shaders/selftest.frag)
+target_link_libraries(Halo PRIVATE HaloShaders)
+
+# The stage's own assets (assets/stage), apart from HaloAssets so stage and UI
+# changes do not touch the same lines.
+juce_add_binary_data(HaloStageAssets
+    HEADER_NAME HaloStageAssets.h
+    NAMESPACE HaloStageAssets
+    SOURCES
+        assets/stage/studio.henv)
+target_link_libraries(Halo PRIVATE HaloStageAssets)
 
 target_compile_definitions(Halo PRIVATE
     JUCE_WEB_BROWSER=0
@@ -122,6 +171,22 @@ add_executable(HaloTests
     Tests/SampleTests.cpp
     Tests/SysExTests.cpp
     Tests/TeProtocolTests.cpp)
+# 3D stage tests (pure HaloCore logic: contract, poses, camera, tone curves...).
+target_sources(HaloTests PRIVATE
+    Tests/Ep40EntityNamesTests.cpp
+    Tests/StagePoseTests.cpp
+    Tests/StageCameraTests.cpp
+    Tests/ToneCurvesTests.cpp
+    Tests/HenvFormatTests.cpp
+    Tests/HtexFormatTests.cpp
+    Tests/HmeshFormatTests.cpp)
+target_compile_definitions(HaloTests PRIVATE HALO_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+# The Mac app (its own repo) sits beside this one as the reference spec; when it
+# is there, the entity-name test cross-checks the frozen contract against it.
+set(HALO_MAC_REFERENCE_DIR "${CMAKE_SOURCE_DIR}/reference/halo-mac" CACHE PATH "Mac app checkout (optional)")
+if(EXISTS "${HALO_MAC_REFERENCE_DIR}/Halo/Reality/EP40EntityNames.swift")
+    target_compile_definitions(HaloTests PRIVATE HALO_MAC_REFERENCE_DIR="${HALO_MAC_REFERENCE_DIR}")
+endif()
 target_link_libraries(HaloTests PRIVATE HaloCore doctest::doctest)
 # Newer MSVC headers clash with doctest's forward declarations of std types.
 target_compile_definitions(HaloTests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)

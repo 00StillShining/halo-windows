@@ -4,12 +4,15 @@ out/
 .vs/
 *.user
 
-# Python tooling venv (recreate with: python -m venv tools/.venv && tools/.venv/Scripts/pip install usd-core)
+# Python tooling venv (recreate with: python -m venv tools/.venv && tools/.venv/Scripts/pip install -r tools/model/requirements.txt)
 tools/.venv/
 __pycache__/
 
 # The Mac app is kept beside this repo as the reference spec; it has its own repo.
-reference/
+# TE's EP-40 drawings are vendored for the 3D stage; their photos stay local.
+/reference/*
+!/reference/te-ep40/
+/reference/te-ep40/local/
 
 # Halo runtime data lives in %APPDATA%\Halo, never in the repo.
 
