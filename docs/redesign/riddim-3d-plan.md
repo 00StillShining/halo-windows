@@ -1400,3 +1400,19 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   without the sheen; `compare_shots.py glass` reports the sheen's lift, its peak and the LCD's
   fine detail under it. Now: peak channel 241-242 (no clipping), mean lift 20-22 / 255, LCD detail
   under the sheen 82-88 % of the bare screen in all eight shots (target >= 60 %).
+
+### M4 (hmesh v3 and single draw)
+
+- `assets/stage/EP40.hmesh` v3 (1.97 MB, was 3.4 MB as v2): 19 materials, 45,724 vertices, 71,786
+  triangles, 16 slots. The converter is byte-deterministic (two runs, same SHA-256 546908ae...).
+  Deviation: the v3 header is the shared 32-byte chunk-container header with bounds in a `HEAD`
+  chunk (one parser for every data file), and a material record is 72 bytes (the plan's fields do
+  not fit in 64).
+- The stage draws the device in **one** call (geometry draws per frame: 3 in all, shadow + height
+  + main, was 357); pads move by slot uniforms in the vertex shaders; the LCD and the printed deck
+  are found by material flags. The v2 asset is deleted.
+- `m4` against the pre-M4 renderer in the same app (`hero`, `keys`, `low`, `top`, `card`, both
+  looks): mean ΔE 0.00 everywhere, worst pixel 1.44 (limit: mean < 1, nothing above 3).
+- Tests: `HmeshFormatTests` (round trip, every rejection, unknown chunks, legacy v1/v2, 2000
+  corruptions, the shipped asset's contract names, slots and anchors); Python `test_hmesh_io`
+  (round trip, byte determinism, octahedral normals, shipped asset).
