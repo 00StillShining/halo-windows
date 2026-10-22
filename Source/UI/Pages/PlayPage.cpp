@@ -320,8 +320,7 @@ namespace halo
         auto head = r.removeFromTop (18.0f);
         title (g, head, "LAST PAD", t.scr.dim);
         float tx = head.getX() + paint::textWidth (HaloFonts::font (Role::label), "LAST PAD") + 10.0f;
-        if (model.isMock())
-            paint::tag (g, { tx, head.getY() }, "MOCK", paint::TagStyle::mock, {}, {}, 16.0f);
+        juce::ignoreUnused (tx);
         if (live)
             paint::text (g, "listening on all 16 channels", head, HaloFonts::font (Role::ui, 11.5f), t.scr.dim, juce::Justification::centredRight);
         else
@@ -623,7 +622,9 @@ namespace halo
     {
         const auto& t = theme();
         auto head = r.removeFromTop (18.0f);
-        title (g, head, "EVENTS", t.scr.dim, model.deviceName().isNotEmpty() ? model.deviceName().toLowerCase() : juce::String ("no midi port"));
+        // The MIDI port's name (a mock run shows a plain "midi in": owner decision, no mock marking).
+        title (g, head, "EVENTS", t.scr.dim, model.isMock() ? juce::String ("midi in")
+                                             : model.deviceName().isNotEmpty() ? model.deviceName().toLowerCase() : juce::String ("no midi port"));
         const auto& log = model.eventLog();
         const auto mono = HaloFonts::font (Role::mono);
         const int lines = juce::jmax (0, (int) (r.getHeight() / 18.0f));
@@ -635,7 +636,6 @@ namespace halo
             const auto& line = log[(size_t) i];
             const auto time = line.substring (0, 8);
             auto text = line.substring (8).trimStart();
-            const bool isMock = text.containsIgnoreCase ("mock");
             const bool isError = text.containsIgnoreCase ("error") || text.containsIgnoreCase ("failed") || text.startsWithIgnoreCase ("warning")
                               || text.startsWithIgnoreCase ("can't") || text.containsIgnoreCase ("in use by another");
             // Newest in ink; older lines step down to ramp6 then ramp5 (never dimmer).
@@ -647,7 +647,7 @@ namespace halo
                 g.fillRect (row.removeFromLeft (8.0f).withSizeKeepingCentre (6.0f, 6.0f));
                 row.removeFromLeft (4.0f);
             }
-            paint::text (g, paint::middleEllipsis (text.toLowerCase(), mono, row.getWidth()), row, mono, isMock ? t.honest.mock : ink);
+            paint::text (g, paint::middleEllipsis (text.toLowerCase(), mono, row.getWidth()), row, mono, ink);
         }
     }
 

@@ -79,15 +79,11 @@ namespace halo
         layout::StripContent c;
         const auto in = honestInputs (model);
         const auto honestFlags = honest::flags (in);
-        c.mock = honestFlags.mock;
+        c.mock = false; // owner decision: mock runs carry no marking in the UI
         c.preview = honestFlags.preview;
 
         const auto& lib = model.device();
-        if (model.isMock())
-        {
-            c.deviceFull = c.deviceShort = "synthetic";
-        }
-        else if (in.portBusy)
+        if (in.portBusy)
         {
             c.deviceFull = c.deviceShort = "in use by another app";
         }
@@ -189,8 +185,6 @@ namespace halo
             const auto r = rect (L.honest.r);
             float x = r.getX();
             const float top = cy - 10.0f;
-            if (c.mock)
-                x = paint::tag (g, { x, top }, "MOCK", paint::TagStyle::mock).getRight() + 8.0f;
             if (c.preview)
                 paint::tag (g, { x, top }, "PREVIEW", paint::TagStyle::preview);
         }
@@ -199,13 +193,13 @@ namespace halo
         {
             float x = L.device.r.x;
             const bool busyPort = c.deviceShort == "in use by another app";
-            const auto lampColour = model.isMock() ? t.honest.mock : busyPort ? t.honest.danger : model.isConnected() ? t.scr.hot : t.scr.dim;
-            lampAt (x, lampColour, ! model.isConnected() && ! model.isMock());
+            const auto lampColour = busyPort ? t.honest.danger : model.isConnected() ? t.scr.hot : t.scr.dim;
+            lampAt (x, lampColour, ! model.isConnected());
             label (x, "EP" + enDash + "40");
             if (L.device.form == layout::SlotForm::full)
-                value (x, fromStd (c.deviceFull), model.isConnected() || model.isMock() ? t.scr.ink : t.scr.dim);
+                value (x, fromStd (c.deviceFull), model.isConnected() ? t.scr.ink : t.scr.dim);
             else if (L.device.form == layout::SlotForm::shortForm)
-                value (x, fromStd (c.deviceShort), model.isConnected() || model.isMock() ? t.scr.ink : t.scr.dim);
+                value (x, fromStd (c.deviceShort), model.isConnected() ? t.scr.ink : t.scr.dim);
         }
 
         // 4. Feed.

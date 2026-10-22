@@ -28,11 +28,11 @@ namespace halo
         // The permanent fixture band: no gallery state can pass for device state.
         void fixtureBand (juce::Graphics& g, juce::Rectangle<float> r)
         {
-            paint::hazard (g, r.removeFromLeft (36.0f), 10.0f);
-            g.setColour (theme().honest.mock);
+            g.setColour (theme().scr.panel);
             g.fillRect (r);
-            paint::text (g, "FIXTURE" + dot + "GALLERY DATA, NOT DEVICE STATE", r.reduced (12.0f, 0.0f),
-                         HaloFonts::font (Role::tag), juce::Colour (0xff000005));
+            paint::hairlineH (g, r.getX(), r.getRight(), r.getBottom() - 1.0f, theme().scr.frame);
+            paint::text (g, "FIXTURE" + dot + "GALLERY DATA, NOT DEVICE STATE", r.reduced (24.0f, 0.0f),
+                         HaloFonts::font (Role::tag), theme().scr.ink);
         }
 
         //==========================================================================
@@ -208,8 +208,8 @@ namespace halo
                 }
                 y += 84.0f;
                 sx = x;
-                const std::pair<juce::Colour, const char*> honestHues[] {
-                    { t.honest.mock, "mock" }, { t.honest.preview, "preview" }, { t.honest.danger, "danger" }, { t.honest.info, "info" } };
+                const std::pair<juce::Colour, const char*> honestHues[] { // (no mock hue: owner decision)
+                    { t.honest.preview, "preview" }, { t.honest.danger, "danger" }, { t.honest.info, "info" } };
                 for (const auto& [c, n] : honestHues) { swatch (g, sx, y, c, n, true); sx += 68.0f; }
                 const std::pair<juce::Colour, const char*> paper[] {
                     { t.scr.paper, "paper" }, { t.scr.paperHi, "paperHi" }, { t.scr.paperShade, "paperSh" }, { t.scr.tapeEmpty, "tape" }, { t.scr.tapeWound, "wound" } };
@@ -302,7 +302,6 @@ namespace halo
                     const auto r = paint::tag (g, { tx, y }, s, st, fill, text);
                     tx = r.getRight() + 10.0f;
                 };
-                put ("MOCK", paint::TagStyle::mock);
                 put ("PREVIEW", paint::TagStyle::preview);
                 put ("REC 00:12", paint::TagStyle::danger);
                 put ("ENGAGED", paint::TagStyle::filled);
@@ -325,7 +324,7 @@ namespace halo
 
                 struct L { const char* what; int kind; juce::Colour c; };
                 const L lamps[] { { "live", 0, t.scr.hot }, { "off / locked", 1, t.scr.dim }, { "wait (blinks 1 hz)", 1, t.scr.dim },
-                                  { "mock", 0, t.honest.mock }, { "preview", 1, t.honest.preview }, { "error / rec", 0, t.honest.danger } };
+{ "preview", 1, t.honest.preview }, { "error / rec", 0, t.honest.danger } };
                 float lx = x;
                 for (const auto& l : lamps)
                 {
@@ -346,8 +345,6 @@ namespace halo
                 g.setColour (t.scr.droppedTail);
                 g.fillRect (x + 330.0f, y - 6.0f, 90.0f, 28.0f);
                 paint::hatch (g, { x + 330.0f, y - 6.0f, 90.0f, 28.0f }, t.scr.hatch);
-                paint::text (g, "hazard", { x + 440.0f, y, 60.0f, 16.0f }, HaloFonts::font (Role::print), t.scr.dim);
-                paint::hazard (g, { x + 496.0f, y - 6.0f, 90.0f, 28.0f });
                 paint::dashedRect (g, { x + 600.0f, y - 6.0f, 70.0f, 28.0f }, t.honest.preview);
             }
 

@@ -75,6 +75,8 @@
 
 ### 0.3 Product rules: invariants checked at every milestone
 
+> **Owner decision, 2026-10-22: no mock marking in the UI.** MOCK is a developer / test source the owner never uses, so mock runs carry no visible marking at all: no yellow caution band around the stage, no MOCK SOURCE tab, no MOCK tag in the strip's honest slot or anywhere else, no yellow. HonestState keeps its internal mock flag (writes stay "n/a" on mock, and the event log still names the source). H1 below is replaced by "no mock marking is drawn" (checked by `tools/dev/probe_honest.py`); U7's yellow and U10's caution band are retired. PREVIEW (violet), red blockers, orange info notes and the write confirms are unchanged.
+
 | ID | Invariant | How it is checked |
 |---|---|---|
 | **H1** | When the source is MOCK, a MOCK tag shows in the status strip's reserved honest slot in **every** mode, at **every** width (1180–2560), at every DPI scale. The stage, or its fallback poster, carries the caution band | `HonestStateTests`, `UiLayoutTests`, and a masked pixel probe in `ui_shots` |
