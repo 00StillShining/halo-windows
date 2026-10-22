@@ -207,7 +207,7 @@ TEST_CASE ("layout: CHOP keeps a 120 px canvas with the longest blocker at the m
         CHECK_FALSE (c.canvas.overlaps (c.pads));
         CHECK_FALSE (c.pads.overlaps (c.output));
         CHECK_FALSE (c.output.overlaps (c.send));
-        CHECK (30.0f + 8.0f + 4.0f * c.padRow + 18.0f <= c.pads.h + 0.5f); // 4 pad rows fit
+        CHECK (30.0f + 8.0f + 4.0f * c.padRow + 24.0f <= c.pads.h + 0.5f); // 4 pad rows fit
     }
     const auto r = chopLayout (frame (1440, 900), blocker, true);
     CHECK_FALSE (r.stacked);

@@ -243,7 +243,7 @@ namespace halo::layout
             lower = keyRow + 6.0f + 36.0f + 6.0f + 12.0f + 6.0f + noticeH + 6.0f + 18.0f + 6.0f + actionRow;
 
         // Pads: the GROUP / PROJECT row + 4 rows; rows shrink before the canvas does.
-        auto padsNeed = [] (float row) { return 30.0f + 8.0f + 4.0f * row + 3.0f * 6.0f; };
+        auto padsNeed = [] (float row) { return 30.0f + 8.0f + 4.0f * row + 3.0f * 8.0f; }; // PadGrid::gap = 8
         float fixedTop = headerH + gap + overviewH + gap + rulerH + 2.0f;
         float fixedUnder = 2.0f + bracketH + statusH + 6.0f;
         bool sharedRow = false; // the bracket and the status line share one row
@@ -265,7 +265,7 @@ namespace halo::layout
             row -= 1.0f;
             band = std::max (lower, padsNeed (row));
         }
-        c.padRow = std::clamp (std::floor ((band - 38.0f - 18.0f) / 4.0f), 38.0f, 100.0f);
+        c.padRow = std::clamp (std::floor ((band - 38.0f - 24.0f) / 4.0f), 38.0f, 100.0f);
 
         float y = b.y;
         c.header = { b.x, y, b.w, headerH };

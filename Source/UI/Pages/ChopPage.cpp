@@ -260,7 +260,7 @@ namespace halo
         padsZone.removeFromTop (8.0f);
         const float planW = L.stacked ? 120.0f : 130.0f;
         auto grid = padsZone.removeFromLeft (padsZone.getWidth() - planW - 12.0f);
-        pads.setBounds (grid.withHeight (4.0f * L.padRow + 3.0f * PadGrid::gap).toNearestInt());
+        pads.setBounds (grid.withHeight (4.0f * L.padRow + 3.0f * (float) PadGrid::gap).toNearestInt());
 
         auto out = localF (L.output);
         auto sendZone = localF (L.send);
