@@ -346,6 +346,8 @@ def cmd_regions(args):
 
     # RECORD and PLAY: the orange and green caps nearest the player (lowest on screen).
     lum = 0.2126 * lit[..., 0] + 0.7152 * lit[..., 1] + 0.0722 * lit[..., 2]
+    lin = srgb_to_linear(lit)
+    lum_linear = 0.2126 * lin[..., 0] + 0.7152 * lin[..., 1] + 0.0722 * lin[..., 2]
     for name, key in (("RECORD", "orange"), ("PLAY", "green")):
         labels, n = ndimage.label(masks[key])
         if n == 0:
@@ -365,9 +367,17 @@ def cmd_regions(args):
         pick = max(candidates, key=lambda i: centres[i][0]) + 1
         v = lum[labels == pick]
         ratio = v.max() / max(np.median(v), 1e-6)
-        ok = ratio >= 1.25
+        # The gate is the light the fillet adds, in linear luminance (0..1):
+        # the same line of light adds the same radiance to every cap, so a
+        # display-value ratio punishes bright, saturated caps. TE's own photo
+        # (c_keys.png) shows SAMPLE's edge at a 1.14 ratio but +0.076 linear,
+        # TIMING's at 1.73 and +0.107 (plan Appendix B, M5 follow-up).
+        y = lum_linear[labels == pick]
+        added = np.percentile(y, 99.5) - np.median(y)
+        ok = added >= 0.06
         failed |= not ok
-        print(f"{name} cap: {int((labels == pick).sum())} px, peak/median luminance {ratio:.2f} -> {'ok' if ok else 'FAIL'} (>= 1.25)")
+        print(f"{name} cap: {int((labels == pick).sum())} px, peak/median {ratio:.2f}; the fillet adds "
+              f"{added:.3f} linear luminance -> {'ok' if ok else 'FAIL'} (>= 0.06; TE photo 0.076-0.107)")
     return 1 if failed else 0
 
 

@@ -1480,6 +1480,24 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   the step only the drawn plate (0..119.55 x 8.57..56.50 mm) is printed, so RIDDIM, SUPERTONE
   and ORIGINAL LAYERING MACHINE are TE's own wordmark and lettering. `brand_panel` keeps its
   body only and its material is a decal target (53,915 triangles). Face texture 1408 x 1856 RG8
-  (7 MB with mips). Builds and all tests pass; not yet seen on screen: Windows Smart App Control
-  blocked this particular Debug build from launching (Code Integrity event 3077), so its shots
-  are pending.
+  (7 MB with mips). Verified in `m7b` (hero, top, keys, low; both looks): the wordmark,
+  SUPERTONE and the strapline sit where `c_top.png` has them.
+
+### M5 follow-up: the cap highlight gate, re-measured
+
+- `regions` now gates the light the fillet adds in **linear** luminance (p99.5 minus median
+  over the cap) instead of the display-value peak/median ratio. Reason, measured on TE's own
+  photo `c_keys.png` with the same method: SAMPLE's (orange) edge shows a 1.14 ratio but
+  +0.076 linear, TIMING's (green) 1.73 and +0.107. The same line of light adds the same radiance
+  to every cap, so a display ratio of 1.25 is out of reach for a bright saturated orange even in
+  the photograph. The new gate is >= 0.06 (TE photo 0.076-0.107); the old ratio is still printed.
+- Now: PLAY +0.079 at `hero` (ok), RECORD **+0.046 (still fails)**; at `keys` +0.051 / +0.052.
+- Tried and rejected (each moves RECORD only to +0.050-0.058): orange albedo #E24C10, the
+  photo-calibrated #FC4609 (same deck-to-photo rule as the cream), cap roughness 0.22. The
+  shortfall is the studio's rim reflection: at hero elevation the cap tops mirror the bright
+  back of the studio (Fresnel ~0.045 x radiance ~1.2), a white veil of ~+0.055 linear that lifts
+  RECORD from TE's (240, 67, 9) to (245, 111, 80) and leaves its red channel on the tone
+  shoulder. Reducing that veil is a look decision (rim intensity / studio layout) for the owner;
+  TE's own angled photo (a print, product page) also shows RECORD and SAMPLE salmon at angle.
+- Short-cap lettering: TE's face is light. In the angled product photo SOUND, MAIN and EDIT are
+  barely legible at that distance, so the SDF is printed at its true weight (no bias).
