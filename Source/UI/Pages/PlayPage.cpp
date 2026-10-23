@@ -394,13 +394,14 @@ namespace halo
 
         // Info line, in priority order (plan section 3.5).
         const auto font = HaloFonts::font (Role::ui, 12.0f);
+        // A quiet one-line blocker: crimson glyph and hairline, ink sentence.
         auto blockerChip = [&] (const juce::String& text)
         {
             g.setColour (t.honest.danger);
-            g.fillRoundedRectangle (info, 3.0f);
-            pictograms::draw (g, Pict::triangle, { info.getX() + 5.0f, info.getCentreY() - 6.0f, 12.0f, 12.0f }, juce::Colours::white, 1.3f);
-            paint::text (g, paint::middleEllipsis (text, HaloFonts::font (Role::bodyStrong, 12.0f), info.getWidth() - 26.0f),
-                         info.withTrimmedLeft (22.0f), HaloFonts::font (Role::bodyStrong, 12.0f), juce::Colours::white);
+            g.drawRoundedRectangle (info.reduced (0.5f), 3.0f, 1.0f);
+            pictograms::draw (g, Pict::triangle, { info.getX() + 5.0f, info.getCentreY() - 6.0f, 12.0f, 12.0f }, t.honest.danger, 1.3f);
+            paint::text (g, paint::middleEllipsis (text, HaloFonts::font (Role::ui, 12.0f), info.getWidth() - 28.0f),
+                         info.withTrimmedLeft (22.0f), HaloFonts::font (Role::ui, 12.0f), t.scr.ink);
         };
         const auto dropped = engine.recordingDroppedSamples();
         if (engine.isRecording() && dropped > 0 && engine.route().sampleRate > 0.0)

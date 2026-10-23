@@ -291,7 +291,7 @@ namespace halo
         {
             const auto n = NoticeData::blocker (reasonText);
             const float nh = notice::height (n, body.getWidth());
-            notice::paint (g, n, body.removeFromTop (nh));
+            notice::paint (g, n, body.removeFromTop (nh), true);
         }
     }
 }

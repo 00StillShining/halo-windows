@@ -32,8 +32,7 @@ namespace halo::honest
         {
             v.state = WriteState::notAvailable;
             v.word = "n/a";
-            v.reason = in.source == Source::mock ? "mock source: there's no real ep-40 to write to"
-                                                 : "connect the ep-40 to send. export works now.";
+            v.reason = "connect the ep-40 to send. export works now."; // the same words for mock (no mock marking)
             return v;
         }
         if (! in.writesUnlocked)

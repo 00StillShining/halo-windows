@@ -59,6 +59,7 @@ namespace halo
         EditSession& session;
         layout::Frame frame;
         layout::ChopLayout L;
+        juce::Rectangle<float> plainArea;
 
         Slicer slicer { session };
         PadGrid pads;

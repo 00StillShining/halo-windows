@@ -172,6 +172,7 @@ namespace halo
     {
         for (auto* c : cells)
             c->repaint();
+        deck.refreshEncoders();
         softKeys.repaint();
         lane.repaint();
     }

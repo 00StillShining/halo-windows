@@ -22,29 +22,31 @@ namespace halo::notice
             return { {}, s };
         }
 
-        juce::TextLayout layout (const NoticeData& n, float width)
+        juce::TextLayout layout (const NoticeData& n, float width, bool onPaper = false)
         {
             const auto& t = theme();
+            const auto ink = onPaper ? juce::Colour (0xff000005) : t.scr.ink;
             juce::AttributedString a;
             a.setLineSpacing (lineGap);
             a.setWordWrap (juce::AttributedString::byWord);
             switch (n.kind)
             {
                 case honest::NoticeKind::blocker:
-                    a.append (n.text, HaloFonts::font (Role::bodyStrong), juce::Colours::white);
+                    // Quiet but unmistakable: crimson outline and triangle, ink sentence.
+                    a.append (n.text, HaloFonts::font (Role::bodyStrong), ink);
                     break;
                 case honest::NoticeKind::info:
                 {
                     const auto [title, body] = splitTitle (n.text);
                     if (title.isNotEmpty())
                         a.append (title, HaloFonts::font (Role::bodyStrong), t.honest.info);
-                    a.append (body, HaloFonts::font (Role::body), t.scr.ink);
+                    a.append (body, HaloFonts::font (Role::body), ink);
                     break;
                 }
                 case honest::NoticeKind::plain:
                 case honest::NoticeKind::none:
                 default:
-                    a.append (n.text, HaloFonts::font (Role::body), t.scr.ink);
+                    a.append (n.text, HaloFonts::font (Role::body), ink);
                     break;
             }
             juce::TextLayout l;
@@ -71,37 +73,29 @@ namespace halo::notice
         return boxed (n) ? juce::jmax (iconSize, textH) + 2.0f * padY : textH;
     }
 
-    void paint (juce::Graphics& g, const NoticeData& n, juce::Rectangle<float> r)
+    void paint (juce::Graphics& g, const NoticeData& n, juce::Rectangle<float> r, bool onPaper)
     {
         if (n.kind == honest::NoticeKind::none || n.text.isEmpty())
             return;
         const auto& t = theme();
         if (! boxed (n))
         {
-            layout (n, r.getWidth()).draw (g, r);
+            layout (n, r.getWidth(), onPaper).draw (g, r);
             return;
         }
 
         const float h = height (n, r.getWidth());
         auto box = r.withHeight (juce::jmin (h, r.getHeight()));
-        if (n.kind == honest::NoticeKind::blocker)
-        {
-            g.setColour (t.honest.danger);
-            g.fillRoundedRectangle (box, 3.0f);
-        }
-        else
-        {
-            g.setColour (t.honest.info);
-            g.drawRoundedRectangle (box.reduced (0.75f), 4.0f, 1.5f);
-        }
+        g.setColour (n.kind == honest::NoticeKind::blocker ? t.honest.danger : t.honest.info);
+        g.drawRoundedRectangle (box.reduced (0.75f), 4.0f, 1.5f);
 
         auto inner = box.reduced (padX, padY);
         auto icon = inner.removeFromLeft (iconSize).removeFromTop (iconSize);
         // Align the icon with the first line's cap height.
         icon = icon.translated (0.0f, 1.0f);
         pictograms::draw (g, n.kind == honest::NoticeKind::blocker ? Pict::triangle : Pict::info, icon,
-                          n.kind == honest::NoticeKind::blocker ? juce::Colours::white : t.honest.info, 1.5f);
+                          n.kind == honest::NoticeKind::blocker ? t.honest.danger : t.honest.info, 1.5f);
         inner.removeFromLeft (iconGap);
-        layout (n, inner.getWidth()).draw (g, inner);
+        layout (n, inner.getWidth(), onPaper).draw (g, inner);
     }
 }

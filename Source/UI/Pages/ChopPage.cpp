@@ -275,6 +275,7 @@ namespace halo
 
             sendZone.removeFromTop (18.0f + 12.0f + 10.0f); // memory label + dots
             noticeView.setBounds (sendZone.removeFromTop ((float) noticeView.heightForWidth ((int) sendZone.getWidth())).toNearestInt());
+            plainArea = sendZone.removeFromTop (48.0f).withTrimmedTop (8.0f);
             auto actions = sendZone.removeFromBottom (14.0f + 44.0f).removeFromTop (44.0f);
             exportKey.setBounds (actions.removeFromLeft ((float) exportKey.preferredWidth()).toNearestInt());
             actions.removeFromLeft (10.0f);
@@ -494,21 +495,23 @@ namespace halo
             }
             else
             {
-                paint::text (g, "click a slice or press 1-9, 0 to hear it" + dot + "double-click: add cut" + dot + "drag a marker: move"
-                                    + dot + "right-click / delete: remove" + dot + "ctrl+wheel: zoom",
-                             r, HaloFonts::font (Role::ui, 11.5f), t.scr.dim);
+                const auto longHint = "click a slice or press 1-9, 0 to hear it" + dot + "double-click: add cut" + dot + "drag a marker: move"
+                                + dot + "right-click / delete: remove" + dot + "ctrl+wheel: zoom";
+            const auto shortHint = "click: hear" + dot + "double-click: cut" + dot + "drag: move" + dot + "right-click: remove" + dot + "ctrl+wheel: zoom";
+            const auto hintFont = HaloFonts::font (Role::ui, 11.5f);
+            paint::text (g, paint::textWidth (hintFont, longHint) <= r.getWidth() ? longHint : shortHint, r, hintFont, t.scr.dim);
             }
             const auto sr = localF (L.status);
             const auto status = session.status();
             const bool failed = status.startsWith ("Export failed") || status.startsWith ("Send failed");
             if (failed)
             {
-                g.setColour (t.honest.danger);
-                const float w = juce::jmin (sr.getWidth(), paint::textWidth (HaloFonts::font (Role::bodyStrong, 12.0f), status) + 30.0f);
+                const float w = juce::jmin (sr.getWidth(), paint::textWidth (HaloFonts::font (Role::ui, 12.0f), status) + 30.0f);
                 auto chip = sr.withLeft (sr.getRight() - w);
-                g.fillRoundedRectangle (chip, 3.0f);
-                pictograms::draw (g, Pict::triangle, { chip.getX() + 5.0f, chip.getCentreY() - 6.0f, 12.0f, 12.0f }, juce::Colours::white, 1.3f);
-                paint::text (g, status, chip.withTrimmedLeft (22.0f), HaloFonts::font (Role::bodyStrong, 12.0f), juce::Colours::white);
+                g.setColour (t.honest.danger);
+                g.drawRoundedRectangle (chip.reduced (0.5f), 3.0f, 1.0f);
+                pictograms::draw (g, Pict::triangle, { chip.getX() + 5.0f, chip.getCentreY() - 6.0f, 12.0f, 12.0f }, t.honest.danger, 1.3f);
+                paint::text (g, status, chip.withTrimmedLeft (22.0f), HaloFonts::font (Role::ui, 12.0f), t.scr.ink);
             }
             else
             {
@@ -551,9 +554,9 @@ namespace halo
             {
                 auto box = lines.removeFromTop (54.0f);
                 g.setColour (t.honest.danger);
-                g.fillRoundedRectangle (box, 3.0f);
+                g.drawRoundedRectangle (box.reduced (0.5f), 3.0f, 1.0f);
                 paint::paragraph (g, juce::String (plan.overflowCount) + " slices don't fit on this group's pads. They're still exported.",
-                                  box.reduced (6.0f, 4.0f), HaloFonts::font (Role::bodyStrong, 11.5f), juce::Colours::white, 1.0f);
+                                  box.reduced (6.0f, 4.0f), HaloFonts::font (Role::ui, 11.5f), t.scr.ink, 1.0f);
             }
             else if (count > 0)
             {
@@ -684,6 +687,9 @@ namespace halo
                 paint::text (g, view.available ? juce::String ("no complete backup") : juce::String (view.reason), backup.withTrimmedLeft (12.0f),
                              HaloFonts::font (Role::ui, 12.0f), t.scr.dim);
             }
+            // Under an info or blocker notice, the plain explanation still reads (as in the mockup).
+            if (! L.stacked && noticeView.get().kind != honest::NoticeKind::plain && session.hasSource())
+                paint::paragraph (g, plainNote(), plainArea, HaloFonts::font (Role::ui, 12.0f), t.scr.dim, 2.0f);
             if (! captions.isEmpty())
             {
                 paint::text (g, "ctrl e export" + dot + "ctrl enter send", captions, HaloFonts::font (Role::mono, 10.5f), t.scr.dim);
@@ -784,7 +790,7 @@ namespace halo
             };
             e.tag = [] { return juce::String ("AUTO-TRIM"); };
             e.tagOn = [&s] { return s.autoTrim; };
-            e.hint = [] { return "wheel " + plusMinus + "0.5 s" + dot + "ctrl " + plusMinus + "5 s"; };
+            e.hint = [] { return "wheel " + plusMinus + "0.5 s" + dot + "ctrl " + plusMinus + "5"; };
             e.available = [&s] { return s.hasSource(); };
             e.reason = [] { return juce::String ("nothing open"); };
             e.pressLabel = "auto-trim";

@@ -202,7 +202,7 @@ namespace halo
         const auto& t = theme();
         const auto r = getLocalBounds().toFloat();
         // Scale labels sit outside the arc; the tap and the limit lamp under it.
-        const float radius = juce::jmax (12.0f, juce::jmin (r.getWidth() * 0.5f - 16.0f, r.getHeight() - 30.0f));
+        const float radius = juce::jmax (12.0f, juce::jmin (r.getWidth() * 0.5f - 16.0f, r.getHeight() - 34.0f));
         const auto pivot = juce::Point<float> (r.getCentreX(), r.getY() + radius + 14.0f);
         constexpr float sweep = 1.05f; // radians each side of vertical
         auto angleFor = [] (float db) { return -sweep + 2.0f * sweep * juce::jlimit (0.0f, 1.0f, (db + 40.0f) / 40.0f); };
@@ -243,10 +243,12 @@ namespace halo
         g.fillEllipse (juce::Rectangle<float> (6.0f, 6.0f).withCentre (pivot));
 
         // Tap name under the pivot; limit lamp.
-        const float under = juce::jmin (r.getBottom() - 13.0f, pivot.y + 5.0f);
-        paint::text (g, tap, { pivot.x - 30.0f, under, 60.0f, 13.0f }, labelFont, t.scr.dim, juce::Justification::centred);
-        const auto lampC = juce::Point<float> (r.getX() + 6.0f, under + 6.5f);
+        // The tap under the pivot, the limit lamp at the left: 11.5 px, apart.
+        const auto small = HaloFonts::font (Role::ui, 11.5f);
+        const float under = juce::jmin (r.getBottom() - 15.0f, pivot.y + 5.0f);
+        paint::text (g, tap, { pivot.x - 30.0f, under, 60.0f, 15.0f }, small, t.scr.dim, juce::Justification::centred);
+        const auto lampC = juce::Point<float> (r.getX() + 4.0f, under + 7.5f);
         paint::lamp (g, lampC, limitHold > 0.0 ? t.honest.danger : t.scr.ledOff, 7.0f);
-        paint::text (g, "limit", { lampC.x + 7.0f, under, 40.0f, 13.0f }, labelFont, t.scr.dim);
+        paint::text (g, "limit", { lampC.x + 7.0f, under, 40.0f, 15.0f }, small, t.scr.dim);
     }
 }

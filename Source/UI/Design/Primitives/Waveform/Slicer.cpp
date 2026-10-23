@@ -158,7 +158,8 @@ namespace halo
             {
                 const float x = p.getX() + (float) c * stepW;
                 const double frame = (double) cols->start + (double) (cols->end - cols->start) * ((double) c + 0.5) / cols->count;
-                const float a = juce::jmax (std::abs (cols->mins[(size_t) c]), std::abs (cols->maxs[(size_t) c])) / peak;
+                // A gentle curve so quiet passages still read next to the kicks.
+                const float a = std::pow (juce::jmax (std::abs (cols->mins[(size_t) c]), std::abs (cols->maxs[(size_t) c])) / peak, 0.6f);
                 const float h = juce::jmax (4.0f, std::round (a * half / 4.0f) * 4.0f); // snapped to 4 px
                 const int si = sliceForFrame (frame);
                 bool dropped = false;

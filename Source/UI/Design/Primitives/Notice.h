@@ -28,7 +28,8 @@ namespace halo
     namespace notice
     {
         float height (const NoticeData&, float width);
-        void paint (juce::Graphics&, const NoticeData&, juce::Rectangle<float>);
+        // onPaper: dark text for notices inside a paper card (the confirm).
+        void paint (juce::Graphics&, const NoticeData&, juce::Rectangle<float>, bool onPaper = false);
     }
 
     class Notice : public juce::Component

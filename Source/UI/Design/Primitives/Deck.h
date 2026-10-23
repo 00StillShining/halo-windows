@@ -27,6 +27,7 @@ namespace halo
         // The hovered key's legend and shortcut, for the soft-key hint at compact sizes.
         std::function<void (const juce::String&)> onHint;
         juce::String recReason() const;
+        void refreshEncoders() { for (auto* e : encoders) e->repaint(); }
 
         void paint (juce::Graphics&) override;
 
