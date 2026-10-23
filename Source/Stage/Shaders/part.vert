@@ -10,7 +10,7 @@ uniform sampler2D uMaterials; // 4 texels per material (Stage/HaloMesh.h)
 
 out vec3 vNormal; out vec3 vColour; out vec3 vEmissive; out vec2 vUV; out vec2 vMaterial;
 out vec3 vWorld; out vec3 vModel; out vec3 vModelNormal;
-flat out int vFlags; flat out int vSlot; flat out int vMask; out float vAO;
+flat out int vFlags; flat out int vSlot; flat out int vMask; out float vAO; out float vTransmission;
 
 void main()
 {
@@ -35,5 +35,6 @@ void main()
     vMask = int (aBytes.z + 0.5);
     vUV = aUV;
     vAO = aBytes.w / 255.0;
+    vTransmission = t2.w;
     gl_Position = uViewProj * world;
 }

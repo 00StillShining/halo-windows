@@ -524,11 +524,12 @@ def led_for(name):
     return 0xFFFF
 
 
-def to_v3(parts, source_name, decal_parts=(), ao_fn=None):
+def to_v3(parts, source_name, decal_parts=(), ao_fn=None, transmission=None):
     """The v2 part list (local vertices + part-to-model) -> .hmesh v3 bytes: one vertex
     and index buffer in model space (rest pose), a material table, slots for pads and groups.
     decal_parts: parts whose UVs address the keys' SDF atlas (vertex mask bit 0).
-    ao_fn: optional (positions, normals) in model space -> baked AO in 0..1 per vertex."""
+    ao_fn: optional (positions, normals) in model space -> baked AO in 0..1 per vertex.
+    transmission: optional {linear colour: thickness transmission} (frosted stems)."""
     import hmesh_io
     import numpy as np
 
@@ -567,9 +568,13 @@ def to_v3(parts, source_name, decal_parts=(), ao_fn=None):
                     label = "lcd"
                 elif flags_for_part & hmesh_io.MATERIAL_FLAGS["decalTarget"]:
                     label = "deck"
+                trans = 0.0
+                for rgb, t in (transmission or {}).items():
+                    if all(abs(a - b) < 1e-6 for a, b in zip(rgb, colour)):
+                        trans = t
                 materials.append(dict(name=label[:16], base=colour, roughness=key[2], metallic=key[3],
                                       emissive=(key[1] * colour[0], key[1] * colour[1], key[1] * colour[2]),
-                                      flags=flags_for_part))
+                                      transmission=trans, flags=flags_for_part))
             mat_ids[i] = material_index[key]
         if len(materials) > 255:
             raise ValueError("more than 255 materials")

@@ -795,7 +795,9 @@ def main():
     def vertex_ao(pos, nrm):
         n_ref = np.column_stack([nrm[:, 0], -nrm[:, 1], nrm[:, 2]])
         return horizon.ao(ao_bake.to_ref(pos), n_ref)
-    data = legacy.to_v3(parts, Path(a.usdz).name, decal_parts=set(tiles), ao_fn=vertex_ao)
+    # Frosted stems (knobs, fader): thickness transmission 0.35 (plan section 3.4).
+    stems = {tuple(round(float(c), 6) for c in legacy.srgb("#EDEBE3")): 0.35}
+    data = legacy.to_v3(parts, Path(a.usdz).name, decal_parts=set(tiles), ao_fn=vertex_ao, transmission=stems)
     Path(a.out).write_bytes(data)
     deck = ao_bake.deck_texture(horizon, hf)
     Path(a.deck_ao).write_bytes(htex_io.write_htex([m[..., None] for m in ao_bake.mips(deck)], 1, channels=b"AO__"))

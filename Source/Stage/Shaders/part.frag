@@ -10,7 +10,7 @@
 
 in vec3 vNormal; in vec3 vColour; in vec3 vEmissive; in vec2 vUV; in vec2 vMaterial;
 in vec3 vWorld; in vec3 vModel; in vec3 vModelNormal;
-flat in int vFlags; flat in int vSlot; flat in int vMask; in float vAO;
+flat in int vFlags; flat in int vSlot; flat in int vMask; in float vAO; in float vTransmission;
 
 // Material flags (Core/HmeshFormat.h).
 const int FLAG_GLASS = 1;
@@ -224,12 +224,16 @@ vec4 inkCover (sampler2D atlas, vec2 uv)
 vec3 shade (vec3 albedo, float roughness, vec3 n, vec3 v, float shadow, float ao)
 {
     float rough = specularAA (n, roughness);
-    // Satin plastic: the key wraps a little past the terminator.
-    float keyNoL = clamp ((dot (n, uKeyDir) + 0.08) / 1.08, 0.0, 1.0);
+    // Satin plastic: the key wraps a little past the terminator; frosted
+    // stems (vTransmission) wrap further and pass the key through to their
+    // far side, so they glow faintly where backlit (plan section 3.4).
+    float wrap = 0.08 + vTransmission * 0.6;
+    float keyNoL = clamp ((dot (n, uKeyDir) + wrap) / (1.0 + wrap), 0.0, 1.0);
     float rimNoL = max (dot (n, uRimDir), 0.0);
     vec3 irradiance = irradianceSH (n) * ao
                     + uKeyE * keyNoL * shadow * mix (1.0, ao, 0.35)
-                    + uRimE * rimNoL * ao;
+                    + uRimE * rimNoL * ao
+                    + (uKeyE + uRimE) * vTransmission * 0.5 * clamp (-dot (n, uKeyDir), 0.0, 1.0) * mix (0.6, 1.0, ao);
     float NoV = clamp (dot (n, v), 1e-4, 1.0);
     vec2 dfg = texture (uBrdfLut, vec2 (NoV, rough)).rg;
     float fresnel = 0.04 * dfg.x + dfg.y;
