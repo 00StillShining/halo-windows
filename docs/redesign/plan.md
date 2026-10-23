@@ -1,6 +1,6 @@
 # Halo redesign plan: one big TE screen
 
-**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** in progress (R0-R6 landed; revised after critic review; §8 lists where each issue was resolved)
+**File:** `docs/redesign/plan.md` · **Branch:** `redesign/te-hardware` · **Status:** R0-R13 landed (owner gate U4 and the device checks remain; revised after critic review; §8 lists where each issue was resolved)
 **Companion plan:** `docs/redesign/riddim-3d-plan.md`. It owns everything inside the 3D stage: `Source/Stage/*`, the model pipeline and the stage's look tokens. The two plans meet at only three points:
 - `StageLook` (3D plan §3.1)
 - the overlay rule (3D plan §3.9): nothing JUCE draws can sit on top of the stage
@@ -1796,3 +1796,18 @@ R6 and R7 may land in either order; both depend only on R2b's WaveCache.
 - Fixed: level arcs were cramped (scale labels, the 40 mark and the limit lamp collided): labels 24/12/6/0 only, limit lamp and tap name under the arc; "limiter -1 dbfs" moved into the MONITOR header facts; the tape lane got its "history 30 s" / "now" captions; the deck nameplate was clipped (moved to the deck's caption row); compact LAST PAD values overlapped their labels (smaller numerals); the lane said "no clock" twice.
 - Kept from the plan over the mockup: the clock moved from the stage corner into the lane; the parameter strip at the bottom over its encoders (the mockup put no strip in PLAY).
 - Known gaps: compact arcs are small (about 20 px radius); the return poster waits on the 3D plan's lastFrameImage().
+
+**U3 (after R7): EDIT and CHOP.** Reviewed at 1440x900, 1180x720 and 1180x660 (and 125%): empty, loaded, trimmed (HALO_EDIT_TRIM), the shape page as the shift layer, and the AUTO-TRIM note with a 64 s fixture.
+- Decision (U13): CHOP keeps the stepped slicer; EDIT uses the paper band. The two read as different tools (cutting vs shaping), and the slicer's hatched dropped tails already match the band's AUTO-TRIM tail.
+- Fixed before closing: marker tabs were clipped at the band's edges (the plot is now inset); the cut-away parts were drawn under a full-strength wave (now veiled over it); the band now shows what SEND drops past 20 s (orange edge, "send ends 20 s" chip) and the size block says what SEND sends; word values (mono, lo 22k) in the cells were invisible (now Inter Light on the figures' baseline); the backup line repeated the notice; the lane repeated the soft-key hint.
+- Known gaps: one mono lane (no per-channel columns yet, so no pretend L / R).
+
+**R8-R13, reviewed the same way (no owner gate).**
+- LOAD: shot with a debug-only fixture library (HALO_LOAD_FIXTURE, mock only; its downloads fail honestly) and the armed pose. Fixed: the PROJECT encoder ignored the active project; nothing was selected on arrival; the storage dots were mis-sized; the play mark covered short pad names.
+- CAPTURE: fixed the empty middle of the tape machine (GRAB history lane), the blocker colliding with the last-take line on short machines, and no first selection. The recording state still needs a device (owner check).
+- RACK, BACKUPS: fixed hatch under the INCOMPLETE word (now its own swatch), the cassette label clipping, and the dot matrix using a quarter of its space.
+- R12: idle is now truly idle: LevelArc woke the clock ~29 times a second in every mode; HALO_UI_STATS measures 0 vblank frames and 0 message-thread backup scans per 10 s in all seven modes.
+- R13: the legacy palette, HaloColours.h and the docked panels are gone; HALO_THEME=field checked in all seven modes; the active deck key was white on aluminium (now black ink with an LED bezel).
+
+**U4: open for the owner** ("trophy-worthy"), with the device checks: EDIT send progress and AUTO-TRIM on the device; LOAD sync, assign (armed, card), delete card, storage; CAPTURE in-meters stay put while LEVEL moves; a real backup, cancelled (hatched INCOMPLETE), then completed (writes unlock everywhere within one poll).
+

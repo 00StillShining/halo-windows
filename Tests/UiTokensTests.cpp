@@ -141,24 +141,6 @@ TEST_CASE ("tokens: deltaE2000 matches the reference pairs")
     CHECK (deltaE2000 (0x000000, 0xFFFFFF) == doctest::Approx (100.0).epsilon (0.001));
 }
 
-TEST_CASE ("tokens: legacy dark maps every legacy role onto the glass")
-{
-    const auto d = legacyDark();
-    const auto s = blackGlass();
-    CHECK ((d.paper & 0xFFFFFF) == s.panel);
-    CHECK ((d.paperHigh & 0xFFFFFF) == s.wave);
-    CHECK ((d.ink & 0xFFFFFF) == s.ink);
-    CHECK ((d.inkSoft & 0xFFFFFF) == s.dim);
-    CHECK ((d.metal & 0xFFFFFF) == s.frame);
-    CHECK ((d.riddimGreen & 0xFFFFFF) == s.ramp[6]);
-    CHECK ((d.orange & 0xFFFFFF) == fieldEncoders()[3].line);
-    CHECK ((d.warning & 0xFFFFFF) == honestHues().danger);
-    // Legacy panels draw ink on paper / paperHigh: still legible on the glass.
-    CHECK (contrast (d.ink & 0xFFFFFF, d.paper & 0xFFFFFF) >= 4.5);
-    CHECK (contrast (d.ink & 0xFFFFFF, d.paperHigh & 0xFFFFFF) >= 4.5);
-    CHECK (contrast (d.inkSoft & 0xFFFFFF, d.paperHigh & 0xFFFFFF) >= 4.5);
-}
-
 TEST_CASE ("tokens: RACK tiles: values black on paper, the bar beside each in the encoder's skirt")
 {
     // Tile values are #000005 Numerals on paper (never encoder-coloured

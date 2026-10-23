@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/UiTokens.h"
-#include "UI/HaloColours.h"
 
 #include <juce_core/juce_core.h>
 #include <juce_graphics/juce_graphics.h>
@@ -10,10 +9,17 @@
 
 namespace halo
 {
+    // The window's sizes (plan section 3.1).
+    struct HaloMetrics
+    {
+        static constexpr int windowDefaultWidth = 1440, windowDefaultHeight = 900;
+        static constexpr int windowMinimumWidth = 1180, windowMinimumHeight = 660;
+    };
+
     // The redesign's colour roles (docs/redesign/plan.md sections 2.1 and 5.1),
     // built from Source/Core/UiTokens.h. Read it with theme(); switch with
-    // setTheme(), which also refreshes the legacy palette that not-yet-rebuilt
-    // panels read through legacyColours() and broadcasts a change.
+    // setTheme(), which broadcasts a change. Two skins share one black screen:
+    // graphite (the default) and field (a brushed aluminium deck).
     struct Theme
     {
         enum class Skin { graphite, field };
@@ -36,21 +42,15 @@ namespace halo
 
         juce::String name;
         Skin skin = Skin::graphite;
-        // true: the whole app still wears today's graph paper (R1's default,
-        // so the plumbing lands with no visual change). false: black glass,
-        // and legacy panels use the legacy-dark role mapping.
-        bool legacyLook = false;
 
         Screen scr;
         std::array<Encoder, 4> enc;
         Honest honest;
         Deck deck;
-        tokens::Legacy legacy;
 
         static Theme graphite();
         static Theme field();
-        static Theme legacyPaper(); // today's look, everywhere
-        static Theme fromName (const juce::String&); // HALO_THEME: graphite | field | legacy
+        static Theme fromName (const juce::String&); // HALO_THEME: graphite (default) | field
 
         const Encoder& encoder (int index) const { return enc[(size_t) juce::jlimit (0, 3, index)]; }
     };

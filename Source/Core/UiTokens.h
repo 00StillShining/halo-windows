@@ -94,34 +94,6 @@ namespace halo::tokens
                            0x2B2B2B, 0x2B2B2B, 0x6E7173, 0x55595B, 0xFFFFFF, 0x34343A, true } };
     }
 
-    // ---- Legacy panels (until R13) -------------------------------------------
-    // The pre-redesign palette, role for role, so panels not yet rebuilt keep
-    // working: legacyPaper() is today's "graph paper"; legacyDark() maps the
-    // same roles onto the black glass (plan section 5.1).
-    struct Legacy
-    {
-        Argb canvas, gridMinor, gridMajor, paper, paperHigh, metal,
-             ink, inkSoft, orange, orangeHot, riddimGreen, lcdGreen, warning;
-        bool dark;
-    };
-
-    constexpr Legacy legacyPaper()
-    {
-        return { 0xFFAEB9BE, 0x85CAD3D6, 0x57869399, 0xFFE6E8E5, 0xFFF4F4EF, 0xFFA6B0B4,
-                 0xFF111315, 0xFF343A3D, 0xFFFF5A1F, 0xFFFF6A2A, 0xFF405C4C, 0xFFA6D39F, 0xFFD94A24, false };
-    }
-
-    constexpr Legacy legacyDark()
-    {
-        constexpr auto s = blackGlass();
-        constexpr auto e = fieldEncoders();
-        constexpr auto h = honestHues();
-        return { 0xFF000000u | s.bg, 0x40000000u | s.rule, 0x60000000u | s.frame,
-                 0xFF000000u | s.panel, 0xFF000000u | s.wave, 0xFF000000u | s.frame,
-                 0xFF000000u | s.ink, 0xFF000000u | s.dim, 0xFF000000u | e[3].line, 0xFF000000u | h.info,
-                 0xFF000000u | s.ramp[6], 0xFF000000u | s.ramp[6], 0xFF000000u | h.danger, true };
-    }
-
     // ---- Measurement ---------------------------------------------------------
     inline double channelToLinear (int c)
     {

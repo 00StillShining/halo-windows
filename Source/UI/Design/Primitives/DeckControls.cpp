@@ -41,6 +41,10 @@ namespace halo
         auto cap = juce::Rectangle<float> (cs, cs).withCentre ({ area.getCentreX(), cs * 0.5f });
         const bool pressed = down || (active && style != Style::rec);
         const bool enabled = isEnabled();
+        // The active key's icon and legend: white on graphite; black ink on
+        // the aluminium field deck, where white would vanish.
+        const bool field = t.skin == Theme::Skin::field;
+        const auto activeInk = field ? juce::Colour (0xff000005) : d.ledOn;
 
         if (style == Style::rec)
         {
@@ -90,7 +94,7 @@ namespace halo
             {
                 const float iconSize = juce::jmin (18.0f, cs * 0.42f);
                 pictograms::draw (g, icon, juce::Rectangle<float> (iconSize, iconSize).withCentre (face.getCentre()),
-                                  active ? d.ledOn : (enabled ? d.printCap.brighter (0.25f) : d.printDim), 1.5f);
+                                  active ? activeInk : (enabled ? d.printCap.brighter (0.25f) : d.printDim), 1.5f);
                 // ^n micro-print (chassis print, exempt from the 10.5 px floor;
                 // the soft-key hint repeats it as legible text).
                 if (shortcutText.isNotEmpty() && cs >= 38.0f)
@@ -102,7 +106,11 @@ namespace halo
             const auto ledCentre = juce::Point<float> (face.getX() + 7.5f, face.getY() + 7.5f);
             switch (led)
             {
-                case Led::on:      paint::deckLed (g, ledCentre, d.ledOn, 4.0f); break;
+                case Led::on:
+                    paint::deckLed (g, ledCentre, d.ledOn, 4.0f);
+                    if (field) // a white LED needs its bezel on a light cap
+                        paint::hollowLamp (g, ledCentre, d.printDim, 6.5f, 1.0f);
+                    break;
                 case Led::dim:     paint::lamp (g, ledCentre, d.ledOn.withAlpha (0.45f), 4.0f); break;
                 case Led::crimson: paint::deckLed (g, ledCentre, t.honest.danger, 4.0f); break;
                 case Led::hollow:  paint::hollowLamp (g, ledCentre, d.printCap, 5.0f, 1.2f); break;
@@ -116,7 +124,8 @@ namespace halo
         if (showLegend)
         {
             auto legendArea = area.withTop (cs + 4.0f);
-            paint::text (g, legendText, legendArea, HaloFonts::font (Role::print), active ? d.ledOn : d.print, juce::Justification::centredTop);
+            paint::text (g, legendText, legendArea, active ? HaloFonts::font (Role::bodyStrong, 11.0f) : HaloFonts::font (Role::print),
+                         active ? activeInk : d.print, juce::Justification::centredTop);
         }
     }
 

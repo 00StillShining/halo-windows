@@ -71,8 +71,8 @@ namespace halo
        #if HALO_HAS_STAGE_LOOK
         // The stage sits on the black glass (plan section 4.3): the dark look,
         // its backdrop exactly the glass so the two read as one surface.
-        // HALO_STAGE_LOOK still picks a look for testing; legacy keeps paper.
-        if (! theme().legacyLook && juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_LOOK", {}).isEmpty())
+        // HALO_STAGE_LOOK still picks a look for testing.
+        if (juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_LOOK", {}).isEmpty())
         {
             auto look = StageLook::dark();
             look.backdrop = look.floor = theme().scr.bg;

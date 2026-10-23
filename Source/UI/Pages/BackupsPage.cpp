@@ -332,11 +332,11 @@ namespace halo
         const auto& t = theme();
         // Big reels on the left, turning while bytes move.
         const double angle = reels.angle;
-        auto reels = r.removeFromLeft (juce::jmin (300.0f, r.getWidth() * 0.26f));
-        const float rr = juce::jmin (reels.getHeight() * 0.32f, reels.getWidth() * 0.22f);
+        auto reelArea = r.removeFromLeft (juce::jmin (300.0f, r.getWidth() * 0.26f));
+        const float rr = juce::jmin (reelArea.getHeight() * 0.32f, reelArea.getWidth() * 0.22f);
         const float f = v.total > 0 ? (float) v.done / (float) v.total : 0.0f;
-        progress::reel (g, { reels.getX() + rr + 8.0f, reels.getCentreY() }, rr, angle, 1.0f - f, t.scr.ink);
-        progress::reel (g, { reels.getRight() - rr - 8.0f, reels.getCentreY() }, rr, angle, f, t.scr.ink);
+        progress::reel (g, { reelArea.getX() + rr + 8.0f, reelArea.getCentreY() }, rr, angle, 1.0f - f, t.scr.ink);
+        progress::reel (g, { reelArea.getRight() - rr - 8.0f, reelArea.getCentreY() }, rr, angle, f, t.scr.ink);
         r.removeFromLeft (24.0f);
 
         // The count, the time left, today's status line.

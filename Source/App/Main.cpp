@@ -9,7 +9,6 @@
 #include "UI/Design/Gallery.h"
 #include "UI/Design/Motion.h"
 #include "UI/Design/Theme.h"
-#include "UI/HaloColours.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -139,7 +138,7 @@ namespace halo
            #endif
 
             // The embedded faces live as long as the app; then the theme
-            // (HALO_THEME=graphite|field|legacy; R1 keeps today's look by default).
+            // (HALO_THEME=graphite|field; graphite by default).
             fonts = std::make_unique<HaloFonts>();
             int galleryPage = 0;
            #if JUCE_DEBUG
