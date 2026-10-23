@@ -158,6 +158,7 @@ namespace halo
         // GL-thread state
         HaloMesh mesh;
         DecalAtlas keysAtlas; // the keys' legends (four-ink SDF)
+        DecalAtlas faceAtlas; // the deck's silkscreen (green and orange SDF over FaceRegion)
         ShaderLibrary shaders { log };
         GlProgram partProgram, depthProgram, backgroundProgram, cardProgram;
         GlProgram resolveProgram, compositeProgram, fxaaProgram, selfTestProgram;
@@ -169,7 +170,7 @@ namespace halo
         float glassSheen = 0.55f, glassRoughness = 0.05f, glassPeak = 0.13f;
         bool fxaaEngaged = false;
         int framesSinceShaderCheck = 0;
-        juce::OpenGLTexture displayTexture, printTexture;
+        juce::OpenGLTexture displayTexture;
         DepthTarget shadowTarget, heightTarget;
         GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
         // Per-slot motion (slot 0 static, 1-12 pads, 13-16 groups), this frame.

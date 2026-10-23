@@ -1,7 +1,6 @@
 #include "Stage/StageComponent.h"
 #include "Core/Ep40MidiMapping.h"
 #include "Core/ToneCurves.h"
-#include "Stage/FacePrint.h"
 
 #include <HaloStageAssets.h>
 
@@ -108,19 +107,6 @@ namespace halo
         juce::Vector3D<float> linear (juce::Colour c)
         {
             return { tone::srgbDecode (c.getFloatRed()), tone::srgbDecode (c.getFloatGreen()), tone::srgbDecode (c.getFloatBlue()) };
-        }
-
-        // Anisotropic filtering where the driver has it (8x), for decals seen
-        // at grazing angles.
-        void enableAnisotropy()
-        {
-            constexpr GLenum maxAnisotropy = 0x84FF, textureMaxAnisotropy = 0x84FE; // EXT/ARB_texture_filter_anisotropic
-            if (! juce::OpenGLHelpers::isExtensionSupported ("GL_EXT_texture_filter_anisotropic")
-                && ! juce::OpenGLHelpers::isExtensionSupported ("GL_ARB_texture_filter_anisotropic"))
-                return;
-            GLfloat limit = 1.0f;
-            glGetFloatv (maxAnisotropy, &limit);
-            glTexParameterf (GL_TEXTURE_2D, textureMaxAnisotropy, std::min (8.0f, limit));
         }
     }
 
@@ -490,6 +476,8 @@ namespace halo
             std::string error;
             if (! keysAtlas.upload (HaloStageAssets::ep40_keys_sdf_htex, (size_t) HaloStageAssets::ep40_keys_sdf_htexSize, error))
                 log.line ("decals: ep40_keys_sdf.htex rejected: " + juce::String (error));
+            if (! faceAtlas.upload (HaloStageAssets::ep40_face_sdf_htex, (size_t) HaloStageAssets::ep40_face_sdf_htexSize, error))
+                log.line ("decals: ep40_face_sdf.htex rejected: " + juce::String (error));
         }
 
         // Slots: the pads in grid order, then the group pads (the converter and
@@ -659,24 +647,6 @@ namespace halo
         makeTarget (shadowTarget, shadowMapSize, shadowMapSize, true);
         makeTarget (heightTarget, 1024, juce::roundToInt (1024.0f * heightHalfY / heightHalfX), false);
 
-        // The face silkscreen, mipmapped so small print stays clean at a distance.
-        const auto print = FacePrint::render();
-       #if JUCE_DEBUG
-        if (const auto dump = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_DUMP_PRINT", {}); dump.isNotEmpty())
-        {
-            juce::File file (dump);
-            file.deleteFile();
-            if (juce::FileOutputStream out (file); out.openedOk())
-                juce::PNGImageFormat().writeImageToStream (print, out);
-        }
-       #endif
-        printTexture.loadImage (print);
-        printTexture.bind();
-        glGenerateMipmap (GL_TEXTURE_2D);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        enableAnisotropy();
-        printTexture.unbind();
 
        #if JUCE_DEBUG
         runToneSelfTest();
@@ -690,7 +660,7 @@ namespace halo
         mesh.release();
         keysAtlas.release();
         displayTexture.release();
-        printTexture.release();
+        faceAtlas.release();
         releasePrograms();
         targets.release();
         environment.release();
@@ -1053,14 +1023,17 @@ namespace halo
         glActiveTexture (GL_TEXTURE2);
         glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
         glActiveTexture (GL_TEXTURE3);
-        glBindTexture (GL_TEXTURE_2D, printTexture.getTextureID());
+        glBindTexture (GL_TEXTURE_2D, faceAtlas.texture);
         glActiveTexture (GL_TEXTURE0);
 
         partProgram.use();
         partProgram.set ("uTexture", 0);
         partProgram.set ("uShadowMap", 1);
         partProgram.set ("uHeightMap", 2);
-        partProgram.set ("uPrint", 3);
+        partProgram.set ("uFaceAtlas", 3);
+        partProgram.set ("uFaceAtlasOn", faceAtlas.valid() ? 1 : 0);
+        // tools/model/build_ep40.py FACE_REGION: the step (y 104) to the front edge, reference mm.
+        partProgram.set ("uFaceRect", 0.0f, 104.0f, 176.0f, 136.0f);
         partProgram.set ("uEye", camera.eye.x, camera.eye.y, camera.eye.z);
         partProgram.setMat4 ("uLightViewProj", lightViewProj.mat);
         partProgram.set ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));

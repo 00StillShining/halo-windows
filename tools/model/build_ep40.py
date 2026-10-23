@@ -7,7 +7,10 @@ SDF atlas (artwork/atlas.py), sampled through each cap's planar UVs; the old
 geometric legends are dropped.
 
     python -I tools/model/build_ep40.py <EP40.usdz> --out assets/stage/EP40.hmesh
-        [--atlas assets/stage/ep40_keys_sdf.htex] [--preview build/model/keys_atlas.png]
+        [--atlas assets/stage/ep40_keys_sdf.htex] [--face assets/stage/ep40_face_sdf.htex]
+        [--preview build/model/keys_atlas.png]
+
+The deck's silkscreen comes from the same drawing (artwork/face.py).
 
 Model space: Z up, metres, origin at the footprint centre, ports at +Y.
 """
@@ -24,7 +27,12 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "ep40"))
 import spec  # noqa: E402
 import usdz_to_hmesh as legacy  # noqa: E402
-from artwork import atlas as keys_atlas, svg_import  # noqa: E402
+from artwork import atlas as keys_atlas, face as face_atlas, svg_import  # noqa: E402
+
+# The deck silkscreen texture's extent (reference mm): the step to the front edge.
+FACE_REGION = (0.0, spec.STEP_Y.mm, spec.WIDTH.mm, spec.DEPTH.mm)
+# The fader's slot as drawn (svg-px): the 3D track covers it; its tick stays printed.
+FADER_SLOT = (14.2, 168.0, 17.3, 208.5)
 
 
 # ------------------------------------------------------------------ frames
@@ -213,12 +221,32 @@ def decal_tiles():
     return tiles
 
 
+def build_face(fills):
+    """The deck silkscreen: everything inked on the deck that is not a key, plate,
+    small key or knob (those parts carry their own artwork)."""
+    cell, m = spec.CELL.mm, 0.3
+    rects = []
+    for _, col, row in spec.FULL_KEYS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        rects.append((x - m, y - m, x + cell + m, y + cell + m))
+    for _, _, col, row in spec.FUNCTION_CELLS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        rects.append((x - m, y - m, x + cell + m, y + cell + m))
+    sx0, sx1 = spec.SMALL_KEY_X
+    for y0, y1 in spec.SMALL_KEY_Y.values():
+        rects.append((sx0 - 0.8, y0 - 0.8, sx1 + 0.8, y1 + 0.8))   # drawn borders run wider than the keys
+    rects.append((0.0, spec.STEP_Y.mm, spec.WIDTH.mm, spec.STEP_Y.mm + 1.0))  # the screen's edge
+    rects.append(FADER_SLOT)
+    discs = [(x, y, spec.KNOB_DISC[0] / 2 + m) for x, y in spec.KNOBS.values()]
+    return face_atlas.build(fills, FACE_REGION, rects, discs)
+
+
 def build_atlas():
     """-> (tiles by part name, atlas height, level-0 atlas, preview)."""
     fills, _ = svg_import.load()
     tiles = decal_tiles()
     level0, preview = keys_atlas.build(fills, tiles)
-    return {t.name: t for t in tiles}, level0.shape[0], level0, preview
+    return {t.name: t for t in tiles}, level0.shape[0], level0, preview, fills
 
 
 def build(usdz, tiles, atlas_height):
@@ -340,9 +368,10 @@ def main():
     ap.add_argument("usdz")
     ap.add_argument("--out", default="assets/stage/EP40.hmesh")
     ap.add_argument("--atlas", default="assets/stage/ep40_keys_sdf.htex")
+    ap.add_argument("--face", default="assets/stage/ep40_face_sdf.htex")
     ap.add_argument("--preview", default="build/model/keys_atlas.png", help="review image of the atlas ('' for none)")
     a = ap.parse_args()
-    tiles, atlas_height, level0, preview = build_atlas()
+    tiles, atlas_height, level0, preview, fills = build_atlas()
     for t in tiles.values():
         if sum(t.ink_px.values()) == 0:
             raise SystemExit(f"{t.name}: no legend ink inside its include rectangle")
@@ -353,10 +382,16 @@ def main():
     from artwork import sdf
     Path(a.atlas).write_bytes(htex_io.write_htex(sdf.mips(level0), 3, channels=b"GOWC", flags=2))
     print(f"wrote {a.atlas}: {level0.shape[1]} x {level0.shape[0]}, {len(tiles)} tiles")
+    face0, face_preview, face_ink = build_face(fills)
+    if min(face_ink) == 0:
+        raise SystemExit("deck silkscreen: an ink is empty")
+    Path(a.face).write_bytes(htex_io.write_htex(sdf.mips(face0), 2, channels=b"GO__", flags=2))
+    print(f"wrote {a.face}: {face0.shape[1]} x {face0.shape[0]}, region {FACE_REGION} mm")
     if a.preview:
         from PIL import Image
         Path(a.preview).parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(preview).save(a.preview)
+        Image.fromarray(face_preview).save(Path(a.preview).with_name("face_atlas.png"))
     tris = sum(len(p[4]) for p in parts) // 3
     print(f"wrote {a.out}: {len(parts)} parts, {tris} triangles, {len(data)} bytes")
 

@@ -6,8 +6,9 @@
 
 namespace halo
 {
-    // A four-ink SDF atlas (.htex RGBA8 with compiler-built mips; plan section
-    // 4.5) on the GPU: the keys' legends (assets/stage/ep40_keys_sdf.htex).
+    // An ink SDF atlas (.htex RGBA8 or RG8 with compiler-built mips; plan section
+    // 4.5) on the GPU: the keys' legends (ep40_keys_sdf.htex, four inks) and the
+    // deck's silkscreen (ep40_face_sdf.htex, green and orange).
     // Uploaded raw, in stored channel order, with no premultiply.
     struct DecalAtlas
     {

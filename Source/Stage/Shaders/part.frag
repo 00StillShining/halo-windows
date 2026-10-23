@@ -20,7 +20,9 @@ uniform int uKind;            // 0 the device (one draw; materials say LCD or pr
 uniform vec3 uEye;
 uniform vec3 uSlotGlow[32];   // linear emissive per slot (pad strike, active group)
 uniform sampler2D uTexture;   // LCD (sRGB image)
-uniform sampler2D uPrint;     // face silkscreen, linear premultiplied, model XY
+uniform sampler2D uFaceAtlas; // deck silkscreen: SDF per ink (R green, G orange) over uFaceRect
+uniform int uFaceAtlasOn;
+uniform vec4 uFaceRect;      // x0, y0, width, depth in reference mm (x from the left, y from the ports)
 uniform sampler2D uKeyAtlas;  // keys' legends: SDF per ink (R green, G orange, B white, A charcoal), at vUV
 uniform int uKeyAtlasOn;
 uniform vec2 uDeviceSize;     // model width, depth (m)
@@ -189,6 +191,22 @@ vec3 studioSpecular (vec3 n, vec3 v, float roughness, float shadow, float ao)
     return env * spec * energy * occlusion * mix (1.0, shadow, keyShare) * uSpecular;
 }
 
+// Ink coverage from an SDF atlas (0.5 at the edge): each edge antialiased over
+// one screen pixel, from four sub-pixel taps at half the footprint, so 0.3 mm
+// strokes stay visible (as grey, not gone) when a cap is a few pixels across.
+vec4 inkCover (sampler2D atlas, vec2 uv)
+{
+    vec2 gx = dFdx (uv) * 0.5, gy = dFdy (uv) * 0.5;
+    vec4 fw = max (fwidth (textureGrad (atlas, uv, gx, gy)) * 0.5, vec4 (1e-4));
+    vec4 cover = vec4 (0.0);
+    for (int i = 0; i < 4; ++i)
+    {
+        vec2 o = (float (i & 1) - 0.5) * gx + (float (i >> 1) - 0.5) * gy;
+        cover += clamp ((textureGrad (atlas, uv + o, gx, gy) - 0.5) / fw + 0.5, 0.0, 1.0);
+    }
+    return cover * 0.25;
+}
+
 vec3 shade (vec3 albedo, float roughness, vec3 n, vec3 v, float shadow, float ao)
 {
     float rough = specularAA (n, roughness);
@@ -299,26 +317,20 @@ void main()
 
     if ((vFlags & FLAG_DECAL_TARGET) != 0 && mn.z > 0.5)
     {
-        vec2 uv = vModel.xy / uDeviceSize + 0.5;
-        vec4 ink = texture (uPrint, uv);  // premultiplied
-        albedo = albedo * (1.0 - ink.a) + ink.rgb;
-        roughness = mix (roughness, 0.5, ink.a);
+        // Model metres -> reference mm -> the silkscreen's texture.
+        vec2 uv = (vec2 (vModel.x * 1000.0 + 88.0, 120.0 - vModel.y * 1000.0) - uFaceRect.xy) / uFaceRect.zw;
+        if (uFaceAtlasOn != 0 && all (greaterThanEqual (uv, vec2 (0.0))) && all (lessThanEqual (uv, vec2 (1.0))))
+        {
+            vec2 cover = inkCover (uFaceAtlas, uv).rg;
+            albedo = mix (albedo, srgbDecode (vec3 (1.0, 0.408, 0.114)), cover.g);     // orange #FF681D
+            albedo = mix (albedo, srgbDecode (vec3 (0.0, 0.314, 0.227)), cover.r);     // green #00503A
+            roughness = min (roughness + 0.08 * max (cover.r, cover.g), 1.0);
+        }
     }
     else if ((vMask & 1) != 0 && uKeyAtlasOn != 0 && mn.z > 0.5)
     {
-        // Laser-printed legends: each ink's edge from its distance field,
-        // antialiased over one screen pixel, slightly rougher than the cap.
-        // Four sub-pixel taps at half the footprint, so 0.3 mm strokes stay
-        // visible (as grey, not gone) when a cap is only a few pixels across.
-        vec2 gx = dFdx (vUV) * 0.5, gy = dFdy (vUV) * 0.5;
-        vec4 fw = max (fwidth (textureGrad (uKeyAtlas, vUV, gx, gy)) * 0.5, vec4 (1e-4));
-        vec4 cover = vec4 (0.0);
-        for (int i = 0; i < 4; ++i)
-        {
-            vec2 o = (float (i & 1) - 0.5) * gx + (float (i >> 1) - 0.5) * gy;
-            cover += clamp ((textureGrad (uKeyAtlas, vUV + o, gx, gy) - 0.5) / fw + 0.5, 0.0, 1.0);
-        }
-        cover *= 0.25;
+        // Laser-printed legends, slightly rougher than the cap.
+        vec4 cover = inkCover (uKeyAtlas, vUV);
         albedo = mix (albedo, srgbDecode (vec3 (0.957, 0.949, 0.925)), cover.b);   // white #F4F2EC
         albedo = mix (albedo, srgbDecode (vec3 (0.169, 0.169, 0.157)), cover.a);   // charcoal #2B2B28
         albedo = mix (albedo, srgbDecode (vec3 (1.0, 0.408, 0.114)), cover.g);     // orange #FF681D

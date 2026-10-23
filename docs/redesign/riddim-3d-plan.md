@@ -1460,3 +1460,19 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   function cap and plate its lettering (`m5b` shots). `build_ep40.py` fails if any decal tile is
   empty; `HaloTests` checks the atlas (RGBA8 SDF, full mip chain) and ink under every pad top.
 - Measured (`m5b` hero, both looks): deck L* 85.8, gaps 9.3, PLAY 1.34 ok, RECORD 1.11 (open).
+
+### M7 (partial): the deck silkscreen from TE's drawing; FacePrint.h deleted
+
+- `tools/model/artwork/face.py`: the deck from the step (y 104) to the front edge, cut from the
+  same front drawing, minus every key, plate, small key, knob disc, the screen edge and the
+  drawn fader slot (its tick stays). Two inks (R green, G orange), SDF +-8 texels, mips.
+  `assets/stage/ep40_face_sdf.htex`: 1408 x 1088 RG8 at 8 texels/mm (4.1 MB with mips).
+- `part.frag` prints it on the deck's decal target (model XY -> reference mm -> `uFaceRect`)
+  with the same four-tap SDF coverage as the keys (`inkCover`). `Source/Stage/FacePrint.h`
+  (the JUCE-font stand-in) is deleted: VOLUME, LIVE, BPM / METRONOME, GAIN, SWING, the parameter
+  names, X and Y are now TE's own lettering and positions.
+- Raster speed-up: each subpath is drawn only into its own pixel box (keys atlas unchanged but
+  for 1-LSB rounding on one texel in a million).
+- Not yet: the label plate (RIDDIM wordmark), port strip and side-wall icon are still the
+  carried-over geometry; neutral mode (`artwork/neutral.py`) not started; the LEVEL/PITCH
+  readability gate (L* difference >= 30) not measured.

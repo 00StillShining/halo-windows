@@ -331,3 +331,31 @@ TEST_CASE ("EP-40 keys atlas: an SDF with full mips, and every pad's top prints 
     MESSAGE ("HALO_ASSET_DIR not set");
 #endif
 }
+
+TEST_CASE ("EP-40 face atlas: the deck silkscreen is a two-ink SDF with ink in both inks")
+{
+#ifdef HALO_ASSET_DIR
+    const auto data = readFile (HALO_ASSET_DIR "/stage/ep40_face_sdf.htex");
+    REQUIRE (! data.empty());
+    std::string error;
+    const auto face = Htex::parse (data, error);
+    REQUIRE_MESSAGE (face.has_value(), error);
+    CHECK (face->format == Htex::Format::rg8);
+    CHECK ((face->flags & Htex::sdf) != 0);
+    // 176 x 136 mm (the step to the front edge) at 8 texels per mm.
+    CHECK (face->width == 1408);
+    CHECK (face->height == 1088);
+    int strongest[2] {};
+    for (std::uint32_t y = 0; y < face->height; y += 2)
+        for (std::uint32_t x = 0; x < face->width; x += 2)
+        {
+            const auto t = face->texel8 (0, x, y);
+            strongest[0] = std::max (strongest[0], (int) t[0]);
+            strongest[1] = std::max (strongest[1], (int) t[1]);
+        }
+    CHECK (strongest[0] > 140); // green: parameter names, brackets, Y
+    CHECK (strongest[1] > 140); // orange: GAIN and X
+#else
+    MESSAGE ("HALO_ASSET_DIR not set");
+#endif
+}

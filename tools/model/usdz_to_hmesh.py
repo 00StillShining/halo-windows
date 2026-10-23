@@ -20,7 +20,7 @@ On the way through, the bake refines what RealityKit got for free or never had:
   * Rounded-corner chassis slabs in place of the bevelled cubes, with the
     dark-green 3.8 mm bottom shell.
   * The 16 + 2 LEDs as flush, unlit 1.8 mm discs at TE's positions.
-  * The floating legend_25..29 meshes dropped (FacePrint.h prints that text)
+  * The floating legend_25..29 meshes dropped (the deck silkscreen, ep40_face_sdf.htex, prints that text)
     and halo_ring kept only as a zero-triangle anchor (the ring is a floor pool).
 
 Format (little endian):
@@ -131,7 +131,7 @@ PART_MATERIALS = {
 # observed state (plan D4), so every lamp ships unlit.
 LAMP_PREFIX = "status_lamp_"
 # legend_25..29 floated 1.65 mm above the plate, and legend_26 read "DUB" where
-# the device says "BPM". Their text is printed by Source/Stage/FacePrint.h.
+# the device says "BPM". Their text is the deck silkscreen (artwork/face.py).
 DROPPED_PARTS = {"legend_25", "legend_26", "legend_27", "legend_28", "legend_29"}
 # The ring is a pool of light on the floor now (plan D6); the name stays as a
 # zero-triangle anchor so the DD-006 contract still resolves.
