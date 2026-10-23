@@ -105,6 +105,10 @@ namespace halo
         // The meters, polled once per UI tick for everyone (H7: the deck VU,
         // PLAY's arcs and ladders all read this). The limit lamp holds 1.5 s.
         const StereoLevels& meterLevels() const noexcept { return meters; }
+        // CAPTURE's taps, polled with the meters: the raw input (what takes and
+        // GRAB record) and, with PRINT FX, the post-rack signal being recorded.
+        const StereoLevels& inputLevels() const noexcept { return inMeters; }
+        const StereoLevels& printLevels() const noexcept { return printMeters; }
         bool limitLit (int channel) const noexcept { return now() < limitUntil[(size_t) juce::jlimit (0, 1, channel)]; }
 
         // Clocks since Start (the bar phase), for the PLAY lane's bar.beat and ruler.
@@ -173,7 +177,7 @@ namespace halo
         juce::Time latestRecordingAt, latestGrabAt;
         int latestGrabBars = 0;
         bool stoppedByDisconnect = false;
-        StereoLevels meters;
+        StereoLevels meters, inMeters, printMeters;
         std::array<double, 2> limitUntil {};
         std::optional<double> recordingStartedAt;
         int diskCheckCountdown = 0;

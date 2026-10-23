@@ -5,6 +5,78 @@
 
 namespace halo
 {
+    Library::~Library()
+    {
+        *alive = false;
+        peakPool.removeAllJobs (true, 4000);
+    }
+
+    const std::vector<float>* Library::peaks (const juce::File& file)
+    {
+        const auto key = file.getFullPathName();
+        if (const auto it = peakCache.find (key); it != peakCache.end())
+            return &it->second;
+        if (peakPending.count (key) > 0)
+            return nullptr;
+        peakPending.insert (key);
+        std::weak_ptr<bool> token = alive;
+        peakPool.addJob ([this, file, key, token]
+        {
+            std::vector<float> result ((size_t) peakCount, 0.0f);
+            if (std::unique_ptr<juce::AudioFormatReader> reader { SampleIO::formats().createReaderFor (file) })
+            {
+                const auto total = reader->lengthInSamples;
+                const int channels = (int) juce::jmin (2u, reader->numChannels);
+                for (int i = 0; i < peakCount && total > 0; ++i)
+                {
+                    const auto start = total * i / peakCount, end = total * (i + 1) / peakCount;
+                    juce::Range<float> levels[2];
+                    reader->readMaxLevels (start, end - start, levels, channels);
+                    float peak = 0.0f;
+                    for (int c = 0; c < channels; ++c)
+                        peak = juce::jmax (peak, std::abs (levels[c].getStart()), std::abs (levels[c].getEnd()));
+                    result[(size_t) i] = peak;
+                }
+            }
+            juce::MessageManager::callAsync ([this, key, token, result = std::move (result)]
+            {
+                if (token.expired() || ! *token.lock())
+                    return;
+                peakCache[key] = result;
+                peakPending.erase (key);
+                sendChangeMessage();
+            });
+        });
+        return nullptr;
+    }
+
+    std::vector<int> Library::view (Filter filter, Sort sort, const juce::String& search) const
+    {
+        std::vector<int> out;
+        for (int i = 0; i < (int) all.size(); ++i)
+        {
+            const auto& it = all[(size_t) i];
+            const bool kindOk = filter == Filter::all || (filter == Filter::takes && it.kind == Item::Kind::take)
+                             || (filter == Filter::grabs && it.kind == Item::Kind::grab)
+                             || (filter == Filter::files && it.kind == Item::Kind::imported);
+            if (kindOk && (search.isEmpty() || it.title.containsIgnoreCase (search) || it.file.getFileName().containsIgnoreCase (search)))
+                out.push_back (i);
+        }
+        std::stable_sort (out.begin(), out.end(), [this, sort] (int a, int b)
+        {
+            const auto& x = all[(size_t) a];
+            const auto& y = all[(size_t) b];
+            switch (sort)
+            {
+                case Sort::name:   return x.title.compareNatural (y.title) < 0;
+                case Sort::length: return x.seconds > y.seconds;
+                case Sort::date:
+                default:           return x.modified > y.modified;
+            }
+        });
+        return out;
+    }
+
     Library::Library (Settings& s) : settings (s)
     {
         imported.addLines (settings.getString ("importedFiles"));

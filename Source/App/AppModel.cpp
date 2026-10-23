@@ -472,12 +472,16 @@ namespace halo
         if (engine.isRunning())
         {
             meters = engine.levels();
+            inMeters = engine.inputLevels();
+            printMeters = engine.isPrintingFx() ? engine.printLevels() : StereoLevels {};
             if (meters.limitedL) limitUntil[0] = t + 1.5;
             if (meters.limitedR) limitUntil[1] = t + 1.5;
         }
         else if (std::isfinite (meters.peakL) || std::isfinite (meters.peakR))
         {
             meters = {};
+            inMeters = {};
+            printMeters = {};
         }
 
         if (--diskCheckCountdown <= 0)

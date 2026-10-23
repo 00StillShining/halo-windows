@@ -200,6 +200,16 @@ namespace halo
                         else model->editor().exportEdit();
                     });
             }
+            // HALO_LIBRARY_FIXTURE=<folder>: import that folder's audio into the
+            // (sandboxed) library, for CAPTURE shots. Files stay where they are.
+            if (const auto dir = juce::File (env ("HALO_LIBRARY_FIXTURE")); env ("HALO_LIBRARY_FIXTURE").isNotEmpty() && dir.isDirectory())
+            {
+                juce::StringArray paths;
+                for (const auto& f : dir.findChildFiles (juce::File::findFiles, false))
+                    if (SampleIO::isSupported (f))
+                        paths.add (f.getFullPathName());
+                model->library().importFiles (paths);
+            }
             // HALO_LOAD_FIXTURE=1 (mock only): a made-up EP-40 library so LOAD's
             // available state can be shot. Downloads from it fail honestly.
             if (env ("HALO_LOAD_FIXTURE") == "1" && model->isMock())

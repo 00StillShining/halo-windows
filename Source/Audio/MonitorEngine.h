@@ -62,6 +62,11 @@ namespace halo
         double gainDb() const noexcept { return gainDecibels; }
 
         StereoLevels levels() { return meter.snapshot(); }
+        // Metering taps (read-only: they never touch the samples).
+        //   in:    the raw EP-40 input, exactly what raw takes and GRAB record
+        //   print: post-rack, pre-limiter; what a PRINT FX take records
+        StereoLevels inputLevels() { return inMeter.snapshot(); }
+        StereoLevels printLevels() { return printMeter.snapshot(); }
 
         // The dub rack's parameters (written by the UI, read by the audio thread).
         RackParameters& rackParameters() noexcept { return rackParams; }
@@ -110,7 +115,7 @@ namespace halo
         RackParameters rackParams;
         std::atomic<bool> printFx { false };
         SafetyLimiter limiter;
-        AudioMeter meter;
+        AudioMeter meter, inMeter, printMeter;
         juce::AudioBuffer<float> scratch;
         SessionRecorder recorder;
         std::shared_ptr<RollingCaptureBuffer> historyBuffer;

@@ -234,6 +234,8 @@ namespace halo
         gain.reset (gainDecibels);
         limiter.prepare (sr);
         meter.prepare (sr);
+        inMeter.prepare (sr);
+        printMeter.prepare (sr);
         meter.reset();
         scratch.setSize (2, juce::jmax (maxBlock, d->getCurrentBufferSizeSamples()), false, true, false);
         rack.prepare (sr, scratch.getNumSamples()); // a prior tail never leaks across a restart
@@ -258,7 +260,9 @@ namespace halo
             if (inL != nullptr) std::copy (inL, inL + n, l); else std::fill (l, l + n, 0.0f);
             if (inR != nullptr) std::copy (inR, inR + n, r); else std::fill (r, r + n, 0.0f);
 
-            // Raw, pre-monitor taps: the recorder (unless printing FX) and GRAB history.
+            // Raw, pre-monitor taps: the `in` meter, the recorder (unless
+            // printing FX) and GRAB history. The meter only reads.
+            inMeter.publish (l, r, n, MeterMath::peak (l, n), MeterMath::peak (r, n));
             const bool print = printFx.load (std::memory_order_relaxed);
             if (! print)
                 recorder.write (l, r, n);
@@ -269,7 +273,10 @@ namespace halo
             gain.process (l, r, n);
             rack.process (l, r, n, rackParams);
             if (print)
+            {
                 recorder.write (l, r, n); // PRINT FX: post-rack, pre-limiter
+                printMeter.publish (l, r, n, MeterMath::peak (l, n), MeterMath::peak (r, n));
+            }
             const float rawPeakL = MeterMath::peak (l, n), rawPeakR = MeterMath::peak (r, n);
             limiter.process (l, r, n);
             meter.publish (l, r, n, rawPeakL, rawPeakR);

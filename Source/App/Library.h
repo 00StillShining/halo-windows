@@ -4,6 +4,9 @@
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include <map>
+#include <set>
+
 namespace halo
 {
     // Local samples halo knows about: takes and grabs in Music\Halo\Recordings,
@@ -25,6 +28,7 @@ namespace halo
         };
 
         explicit Library (Settings&);
+        ~Library() override;
 
         const std::vector<Item>& items() const noexcept { return all; }
         void refresh();
@@ -36,11 +40,26 @@ namespace halo
 
         static juce::String kindLabel (Item::Kind);
 
+        // Lazy thumbnails (CAPTURE): `peakCount` peaks per file, read on a
+        // background thread with the format reader's own max levels. Returns
+        // nullptr until ready; a change message follows when it is.
+        static constexpr int peakCount = 30;
+        const std::vector<float>* peaks (const juce::File&);
+
+        // CAPTURE's view: indices into items(), filtered and sorted.
+        enum class Filter { all, takes, grabs, files };
+        enum class Sort { date, name, length };
+        std::vector<int> view (Filter, Sort, const juce::String& search) const;
+
     private:
         void saveImported();
 
         Settings& settings;
         juce::StringArray imported;
         std::vector<Item> all;
+        std::map<juce::String, std::vector<float>> peakCache;
+        std::set<juce::String> peakPending;
+        juce::ThreadPool peakPool { 1 };
+        std::shared_ptr<bool> alive = std::make_shared<bool> (true);
     };
 }

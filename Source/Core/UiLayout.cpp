@@ -207,6 +207,30 @@ namespace halo::layout
         return std::max (16.0f, wrappedHeight (fontmetrics::kBodyStrong, text, (width - 24.0f - 26.0f) * 0.98f, line)) + 18.0f;
     }
 
+    // ---- CAPTURE --------------------------------------------------------------------
+    CaptureLayout captureLayout (const Frame& f)
+    {
+        CaptureLayout c;
+        const auto& b = f.body;
+        const bool regular = f.density == Density::regular;
+        const float headerH = regular ? 44.0f : 40.0f, actionsH = regular ? 44.0f : 36.0f;
+        float y = b.y;
+        c.header = { b.x, y, b.w, headerH };
+        y += headerH + 4.0f;
+        c.actions = { b.x, b.bottom() - actionsH, b.w, actionsH };
+        c.message = { b.x, c.actions.y - 4.0f - 22.0f, b.w, 22.0f };
+        // The machine yields first: the list keeps three rows at least.
+        const float listFloor = CaptureLayout::minList;
+        const float rest = c.message.y - 6.0f - y - 8.0f - 30.0f - 6.0f;
+        const float machineH = std::clamp (rest - std::max (listFloor, rest * 0.5f), 120.0f, regular ? 226.0f : 160.0f);
+        c.machine = { b.x, y, b.w, machineH };
+        y += machineH + 8.0f;
+        c.toolbar = { b.x, y, b.w, 30.0f };
+        y += 30.0f + 6.0f;
+        c.list = { b.x, y, b.w, c.message.y - 6.0f - y };
+        return c;
+    }
+
     // ---- LOAD -----------------------------------------------------------------------
     LoadLayout loadLayout (const Frame& f)
     {

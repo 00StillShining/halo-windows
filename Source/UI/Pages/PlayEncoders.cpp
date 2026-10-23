@@ -19,11 +19,9 @@ namespace halo
         }
     }
 
-    std::array<std::optional<EncoderBinding>, 4> playBindings (AppModel& model, StageComponent& stage)
+    EncoderBinding levelBinding (AppModel& model)
     {
-        std::array<std::optional<EncoderBinding>, 4> b;
-
-        // 1. LEVEL: the one monitor level (H7: strip, rail and meters agree).
+        // The one monitor level (H7: strip, rail and meters agree).
         {
             constexpr double floorDb = MonitorGain::silenceFloorDb;
             EncoderBinding e;
@@ -51,10 +49,13 @@ namespace halo
                 const double n = (model.monitorGainDb() - floorDb) / -floorDb;
                 gauges::ladder (g, r.withSizeKeepingCentre (r.getWidth(), 12.0f), 20, juce::roundToInt (n * 20.0), c);
             };
-            b[0] = e;
+            return e;
         }
+    }
 
-        // 2. GRAB length: bars while a clock runs with the transport playing, else seconds.
+    EncoderBinding grabBinding (AppModel& model, int encoderIndex)
+    {
+        // GRAB length: bars while a clock runs with the transport playing, else seconds.
         {
             EncoderBinding e;
             e.label = "GRAB";
@@ -82,7 +83,7 @@ namespace halo
             e.pressLabel = "grab";
             e.press = [&model] { model.grabNow(); };
             e.pressAvailable = [&model] { return model.monitor().isRunning() && ! model.grabber().isBusy(); };
-            e.gauge = [&model, index] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, bool)
+            e.gauge = [&model, index, encoderIndex] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, bool)
             {
                 const bool bars = model.grabUsesBars();
                 const auto font = HaloFonts::face (HaloFonts::Face::interMedium, 12.0f);
@@ -96,7 +97,7 @@ namespace halo
                     {
                         g.setColour (c);
                         g.fillRoundedRectangle (cell.reduced (3.0f, 0.0f), 3.0f);
-                        paint::text (g, text, cell, font, theme().encoder (1).onFill, juce::Justification::centred);
+                        paint::text (g, text, cell, font, theme().encoder (encoderIndex).onFill, juce::Justification::centred);
                     }
                     else
                     {
@@ -104,8 +105,15 @@ namespace halo
                     }
                 }
             };
-            b[1] = e;
+            return e;
         }
+    }
+
+    std::array<std::optional<EncoderBinding>, 4> playBindings (AppModel& model, StageComponent& stage)
+    {
+        std::array<std::optional<EncoderBinding>, 4> b;
+        b[0] = levelBinding (model); // 1. LEVEL
+        b[1] = grabBinding (model, 1); // 2. GRAB length
 
         // 3. ORBIT: yaw on the turn, tilt on the shift layer; press = hero view.
         {

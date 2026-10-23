@@ -14,4 +14,8 @@ namespace halo
     // ORBIT drives the stage's camera through its small UI camera API; its
     // readout follows drags on the stage too (one camera, one readout).
     std::array<std::optional<EncoderBinding>, 4> playBindings (AppModel&, StageComponent&);
+
+    // Shared with CAPTURE: the one monitor LEVEL and the GRAB length.
+    EncoderBinding levelBinding (AppModel&);
+    EncoderBinding grabBinding (AppModel&, int encoderIndex);
 }

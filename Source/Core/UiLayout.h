@@ -101,6 +101,16 @@ namespace halo::layout
     };
     LoadLayout loadLayout (const Frame&);
 
+    // ---- CAPTURE (plan section 3.10) -------------------------------------------
+    // Header, the tape machine, then the library: toolbar (search, kind and
+    // sort chips), the list (40 px rows), the message line and the actions.
+    struct CaptureLayout
+    {
+        Rect header, machine, toolbar, list, message, actions;
+        static constexpr float rowHeight = 40.0f, minList = 120.0f;
+    };
+    CaptureLayout captureLayout (const Frame&);
+
     // A greedy word wrap with the generated metrics: the height a paragraph
     // needs at this width (lineHeight per line).
     float wrappedHeight (const fontmetrics::Role&, std::string_view utf8, float width, float lineHeight);

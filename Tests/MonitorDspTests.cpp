@@ -4,6 +4,7 @@
 
 #include "Core/MonitorDsp.h"
 
+#include <cstring>
 #include <vector>
 
 using namespace halo;
@@ -132,4 +133,41 @@ TEST_CASE ("meter: the limit lamp lights from the pre-limiter peak above -1 dBFS
     // Exactly at the ceiling is not "limited".
     meter.publish (l.data(), r.data(), 256, SafetyLimiter::ceiling, 0.0f);
     CHECK_FALSE (meter.snapshot().limitedL);
+}
+
+TEST_CASE ("in tap: reads the raw input and leaves the monitored output bit-identical")
+{
+    // The chain as MonitorEngine runs it (gain -> limiter -> out meter), once
+    // with CAPTURE's `in` tap publishing the raw block first and once without.
+    auto run = [] (bool tapOn, AudioMeter& in)
+    {
+        MonitorGain gain (0.0, 48000.0);
+        SafetyLimiter limiter;
+        AudioMeter out;
+        std::vector<float> l = sine (4096, 0.98f, 220.0), r = sine (4096, 0.6f, 330.0), result;
+        for (int offset = 0; offset < 4096; offset += 512)
+        {
+            float* bl = l.data() + offset;
+            float* br = r.data() + offset;
+            if (tapOn)
+                in.publish (bl, br, 512, MeterMath::peak (bl, 512), MeterMath::peak (br, 512));
+            gain.process (bl, br, 512);
+            limiter.process (bl, br, 512);
+            out.publish (bl, br, 512, MeterMath::peak (bl, 512), MeterMath::peak (br, 512));
+        }
+        result = l;
+        result.insert (result.end(), r.begin(), r.end());
+        return result;
+    };
+    AudioMeter tap, unused;
+    const auto withTap = run (true, tap);
+    const auto without = run (false, unused);
+    REQUIRE (withTap.size() == without.size());
+    CHECK (std::memcmp (withTap.data(), without.data(), withTap.size() * sizeof (float)) == 0);
+
+    // The tap shows the raw input (its 0.98 peak), not the limited output.
+    const auto s = tap.snapshot();
+    CHECK (std::pow (10.0, s.peakL / 20.0) == doctest::Approx (0.98).epsilon (0.01));
+    CHECK (std::pow (10.0, s.peakR / 20.0) == doctest::Approx (0.6).epsilon (0.01));
+    CHECK (s.limitedL); // above the limiter's ceiling on the way in
 }

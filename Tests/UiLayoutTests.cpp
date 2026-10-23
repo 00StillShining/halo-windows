@@ -262,3 +262,19 @@ TEST_CASE ("layout: LOAD's pads column fits, PROJECT and GROUP share one row")
     CHECK (loadLayout (frame (1440, 900)).padRow >= 90.0f);
     CHECK (loadLayout (frame (1180, 660)).padRow >= 44.0f);
 }
+
+TEST_CASE ("layout: CAPTURE keeps its tape machine and three list rows at every minimum size")
+{
+    for (auto size : { std::pair { 1440.0f, 900.0f }, std::pair { 1180.0f, 720.0f }, std::pair { 1180.0f, 660.0f } })
+    {
+        INFO ("size " << size.first << " x " << size.second);
+        const auto f = frame (size.first, size.second);
+        const auto c = captureLayout (f);
+        CHECK (c.machine.h >= 120.0f);
+        CHECK (c.list.h >= CaptureLayout::minList);
+        CHECK (c.list.bottom() <= c.message.y);
+        CHECK (c.message.bottom() <= c.actions.y);
+        CHECK (f.body.contains (c.actions));
+    }
+    CHECK (captureLayout (frame (1440, 900)).machine.h >= 200.0f);
+}
