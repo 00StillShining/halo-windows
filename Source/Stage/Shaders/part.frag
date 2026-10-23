@@ -157,12 +157,15 @@ vec3 irradianceSH (vec3 n)
 
 // Kaplanyan-Hoffman: widen the lobe by the normal's variance across the
 // pixel, so thin bevels and fillets never sparkle. Returns perceptual roughness.
+// The widening is capped at 0.04 (was 0.18) so a 0.7 mm cap fillet a pixel or
+// two wide still catches a line of the key at hero framing (M5 RECORD/PLAY);
+// 4x MSAA resolves what is left.
 float specularAA (vec3 n, float roughness)
 {
     vec3 du = dFdx (n), dv = dFdy (n);
     float variance = 0.25 * (dot (du, du) + dot (dv, dv));
     float a = roughness * roughness;
-    float a2 = clamp (a * a + min (2.0 * variance, 0.18), 0.0, 1.0);
+    float a2 = clamp (a * a + min (2.0 * variance, 0.04), 0.0, 1.0);
     return sqrt (sqrt (a2));
 }
 

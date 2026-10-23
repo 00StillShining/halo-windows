@@ -1416,3 +1416,26 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
 - Tests: `HmeshFormatTests` (round trip, every rejection, unknown chunks, legacy v1/v2, 2000
   corruptions, the shipped asset's contract names, slots and anchors); Python `test_hmesh_io`
   (round trip, byte determinism, octahedral normals, shipped asset).
+
+### M5a/M5b geometry (keys, step, function cells, knobs) - shots verified
+
+- `tools/model/build_ep40.py` rebuilds the body and every key from `tools/model/ep40/spec.py`
+  (each value tagged with its source; all heights measured from TE's side drawings at 0.600 mm
+  per unit): a 3.17 mm shell band, the deck at 12.83 mm, the upper body stepped up to 15.96 mm
+  from y 104, 3.21 mm keys with 0.7 mm top fillets in near-black apertures, function cells as a
+  short cap over a flat 0.2 mm plate, small keys, and knob towers (16 mm disc, 8.07 mm stem, cap
+  top at 11.2 mm). Display, label plate, speaker and port tabs are carried over from the old
+  asset, scaled onto the new heights. `lint.py`: 0 failures, 81,418 triangles.
+- Shots `m5` (hero, keys, low, edge, top, hit; dark and paper) all render; the device now reads
+  as the low, stepped EP-40 rather than the tall Blender block. Compared with `m4` it is a new
+  model by design, so no pixel diff is gated.
+- Highlight on the caps: the specular anti-aliasing widened a 1-2 px fillet to roughness ~0.65,
+  so no edge caught the key. The widening is capped at 0.04 (was 0.18) and caps are satin 0.30
+  (was 0.45). `regions` on `m5r2` hero: PLAY 1.33 (ok); RECORD 1.11 (still under 1.25: its top
+  already sits on the tone shoulder at R 245, so the line of light cannot add much luminance).
+  Deck L* 85.8, gaps 9.3 (both ok). The `small` shot shows no fillet sparkle.
+- Glass sheen re-check (`m5glass`, hero and keys, both looks): peak channel 241-242, LCD detail
+  under the sheen 85-87 % of bare (ok).
+- Open for G2: pad 7's carried-over legend reads as "=", cap and plate legends are too small to
+  read and not TE's lettering (decal atlas, M5b remainder), the VOLUME label sits partly under
+  its knob.

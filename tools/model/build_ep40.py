@@ -32,6 +32,9 @@ def Z(z_mm): return (z_mm - 8.0) / 1000.0
 
 DECK = Z(spec.DECK_TOP.mm)
 UPPER = Z(spec.UPPER_TOP.mm)
+# Satin cap plastic: low enough that the 0.7 mm top fillet catches a line of
+# the studio key (plan section 1, "soft 0.7 mm edges that catch a line of light").
+CAP_ROUGHNESS = 0.30
 
 
 # ------------------------------------------------------------------ geometry
@@ -234,7 +237,7 @@ def build(usdz):
 
     def rebuild_key(name, cx, cy, w, h, height, well=True, well_size=None):
         body, legend, colour = split_body_and_legend(old[name])
-        roughness = body[0][0][5]
+        roughness = min(body[0][0][5], CAP_ROUGHNESS)
         top_w, top_h = w - taper, h - taper
         b.add(name, keycap(cx, cy, w, h, DECK, DECK + height, top_w, top_h, corner, fillet), colour, roughness)
         b.add_corners(name, reseat(legend, body, cx, cy, DECK + height, top_w - 2 * fillet, top_h - 2 * fillet))
