@@ -114,6 +114,9 @@ void main()
         vec3 litEnc = mix (baseEnc + (1.0 - baseEnc) * spot, uShadowTint, floorTerms.a);
         litEnc += (1.0 - litEnc) * uRingColour * pool;
         vec3 floorColour = srgbDecode (litEnc);
+        // The device's reflection in a dark glossy floor (M8; zero on Paper),
+        // tone mapped like the device it mirrors.
+        floorColour += tonemap (floorTerms.rgb * uExposure, uToneMapper);
 
         // Device over floor.
         vec3 deviceColour = vec3 (0.0);

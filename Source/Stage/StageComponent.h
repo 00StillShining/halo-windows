@@ -146,7 +146,9 @@ namespace halo
         void drawCard (int height);
         void setPartUniforms (const StageView&, const juce::Matrix3D<float>& lightViewProj);
         void drawGround (const juce::Matrix3D<float>& viewProj, const SharedState&, float time, int viewportWidth, int viewportHeight);
-        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&);
+        // mirror: the floor reflection pass (M8): the device mirrored in the floor
+        // plane, written to the floor target's rgb; glass is skipped.
+        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&, bool mirror = false);
         void setSlotUniforms (GlProgram&);
         RingLight ringLight (const SharedState&, float time) const;
 

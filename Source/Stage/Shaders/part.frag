@@ -52,6 +52,8 @@ uniform float uGlassSheen;      // screen acrylic: reflection scale (0 = no shee
 uniform float uGlassRoughness;  // screen acrylic: perceptual roughness of the sheen
 uniform float uGlassPeak;       // screen acrylic: soft ceiling of the sheen (linear luma)
 uniform float uExposure;
+uniform float uMirror;        // > 0: the floor reflection pass (dark look strength), M8
+uniform float uMirrorFloorY;  // world height of the floor plane
 uniform int uToneMapper;
 uniform int uDebug;           // 0 normal; 1 AO, 2 key shadow, 3 height contours, 4 floor terms,
                               // 6 mask, 7 albedo, 8 emissive, 9 world normals
@@ -87,6 +89,26 @@ vec4 radiance (vec3 c)
 #else
     return vec4 (srgbEncode (tonemap (c * uExposure, uToneMapper)), 1.0);
 #endif
+}
+
+// Where a lit device colour goes: the device target, or, in the floor
+// reflection pass, the floor target's rgb, weighted by black glass's Fresnel
+// at this view and faded within about 20 mm of the floor so it reads as a
+// sheen under the case, never a mirror.
+void emit (vec3 lit)
+{
+#if HALO_HDR
+    if (uMirror > 0.0)
+    {
+        float below = max (uMirrorFloorY - vWorld.y, 0.0);
+        float cosView = clamp ((uEye.y - uMirrorFloorY) / max (length (uEye - vWorld), 1e-4), 0.0, 1.0);
+        float k = uMirror * (0.3 + 0.7 * pow (1.0 - cosView, 3.0)) * exp (-below / 0.007);
+        floorOut = vec4 (lit * k, 0.0);
+        fragColour = vec4 (0.0);
+        return;
+    }
+#endif
+    fragColour = radiance (lit);
 }
 
 //---------------------------------------------------------------- shadows
@@ -283,7 +305,17 @@ void main()
     if (! gl_FrontFacing) mn = -mn;
     vec3 v = normalize (uEye - vWorld);
 
-    float shadow = keyShadow (vWorld, n, 1.0, noise);
+    // The reflection pass: the mirror image of the real, lit device is that
+    // device seen from the mirrored eye, so shade the unmirrored point with the
+    // unmirrored normal and the mirrored eye (light, shadow and studio stay real).
+    vec3 shadeWorld = vWorld;
+    if (uMirror > 0.0)
+    {
+        shadeWorld = vec3 (vWorld.x, 2.0 * uMirrorFloorY - vWorld.y, vWorld.z);
+        n *= vec3 (1.0, -1.0, 1.0);
+        v = normalize (vec3 (uEye.x, 2.0 * uMirrorFloorY - uEye.y, uEye.z) - shadeWorld);
+    }
+    float shadow = keyShadow (shadeWorld, n, 1.0, noise);
     // Baked AO (tools/model/ep40/ao.py): per vertex, and from the deck texture
     // on the top surfaces, whose few large triangles carry too few vertices.
     float ao = vAO;
@@ -335,7 +367,7 @@ void main()
         if (uDebug == 7 || uDebug == 8) { fragColour = displayValue (srgbEncode (tex)); return; }
         // Backlit under the acrylic (drawn after, with its sheen): nearly unshaded.
         vec3 c = tex * mix (0.86, 1.0, shadow) * mix (0.8, 1.0, ao);
-        fragColour = radiance (c);
+        emit (c);
         return;
     }
 
@@ -375,5 +407,5 @@ void main()
 
     vec3 lit = shade (albedo, roughness, n, v, shadow, ao);
     lit += vEmissive * 0.6 + uSlotGlow[vSlot];
-    fragColour = radiance (lit);
+    emit (lit);
 }

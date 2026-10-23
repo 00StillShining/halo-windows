@@ -841,7 +841,7 @@ namespace halo
         glDepthMask (GL_TRUE);
     }
 
-    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state)
+    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state, bool mirror)
     {
         const auto toWorld = modelToWorld();
         const auto orange = linear (cueOrange);
@@ -870,7 +870,16 @@ namespace halo
         glActiveTexture (GL_TEXTURE0);
         if (displayTexture.getTextureID() != 0)
             displayTexture.bind();
-        partProgram.setMat4 ("uModel", toWorld.mat);
+        if (mirror)
+        {
+            // Reflect world y about the floor (y = groundZ): y' = 2 groundZ - y.
+            float m[16] { 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 2.0f * groundZ, 0, 1 };
+            partProgram.setMat4 ("uModel", then (toWorld, Mat (m)).mat);
+        }
+        else
+            partProgram.setMat4 ("uModel", toWorld.mat);
+        partProgram.set ("uMirror", mirror ? look.floorReflection : 0.0f);
+        partProgram.set ("uMirrorFloorY", groundZ);
         partProgram.set ("uKind", 0);
         setSlotUniforms (partProgram);
         ++stats.geometryDraws;
@@ -879,7 +888,7 @@ namespace halo
         // The screen acrylic (D5), after everything opaque: it adds its
         // reflection and lets the LCD through (rgb added, alpha = transmittance),
         // leaving depth and the device mask's alpha alone.
-        if (mesh.hasGlass() && debugView == 0)
+        if (mesh.hasGlass() && debugView == 0 && ! mirror)
         {
             glEnable (GL_BLEND);
             // Low tier: display values, so a screen blend (src x (1 - dst)) that
@@ -1192,7 +1201,21 @@ namespace halo
             drawModel (viewProj, state);
             const GLenum floorOnly[] { GL_NONE, GL_COLOR_ATTACHMENT1 };
             glDrawBuffers (2, floorOnly);
+            // The floor reflection (dark look): the mirrored device into the floor
+            // target's rgb, behind the real device in depth; the ground then
+            // writes only its contact-shadow alpha over it.
+            const bool reflect = look.floorReflection > 0.0f && debugView == 0;
+            if (reflect)
+            {
+                glFrontFace (GL_CW); // mirrored: keep gl_FrontFacing meaning outside
+                drawModel (viewProj, state, true);
+                glFrontFace (GL_CCW);
+                partProgram.set ("uMirror", 0.0f);
+                glColorMaski (1, GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+            }
             drawGround (viewProj, state, time, frame.width, frame.height);
+            if (reflect)
+                glColorMaski (1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         }
         glDisable (GL_DEPTH_TEST);
 
