@@ -1574,3 +1574,25 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   against the deck (gate >= 30, borderline); PITCH could not be isolated from the key behind it
   with a box measurement. TE's lettering is thin at that distance; it is printed at its true
   weight.
+
+### M7 remainder: --check and neutral mode; M8 (started): cached depth maps
+
+- `build_ep40.py --check` rasterises TE's front drawing and classifies every inked pixel:
+  decal ink (inside a tile's include rectangle and not its cap's colour, or printed by the face
+  texture), a part's own colour (caps, plates, knobs, inserts, slider, fader slot, LEDs, screen,
+  speaker, label plate), or unassigned. It fails above 1 mm2 unassigned or on an empty legend;
+  now 0.06 mm2 (raster edge slivers). Overlay: `build/model/check_overlay.png`.
+- `--artwork neutral` (`artwork/neutral.py`, D11): the same layout set in Inter Tight and
+  Lexend Exa (OFL, `assets/fonts`) with generic group icons and Halo's own label plate, through
+  the same atlas and face pipeline (tiles keep every ink when the artwork paints no cap colour).
+  The TE build is byte-identical to before. Shot `m7neutral`: no TE lettering, numerals,
+  illustrations or wordmark on the keys, deck, inserts or label. The LCD's icon art is the
+  display texture's (M9) and is not covered by this switch yet.
+- Not done in M7: the -X wall battery icon; the per-frame legend flicker test; the DD-006g line
+  in `docs/plan.md` (that file has no decision log; DD-006g stays recorded in D11 here).
+- **M8, cached depth maps:** the shadow and height maps depend only on the key direction and
+  the slots' offsets, so they are re-rendered only when one changes. Camera orbits re-render
+  nothing; `HALO_STAGE_STATS` reports `depth_renders` (1 in 280 frames at rest, hero, Debug
+  GPU p50 0.229 ms). Stage pixels identical to the uncached build.
+- M8 not done: baked vertex and deck AO (and deleting the height-map AO), PCSS-lite and the
+  analytic contact term, PA66 grain, glass clearcoat and stem transmission, floor reflection.
