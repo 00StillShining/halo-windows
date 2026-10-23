@@ -73,6 +73,30 @@ KNOB_DISC = (16.0, 2.4)                   # plan: diameter, height
 KNOB_STEM = (8.07, 1.8, 9.4)              # svg-path (left view, VOLUME): diameter, from, to above the deck
 KNOB_CAP = (8.07, 11.2)                   # svg-path: cap diameter, top above the deck (plan said 11.45)
 
+# ------------------------------------------------------------------ side walls
+# TE's side drawings (6903405a... left, 6903405a d2b3... right; 0.600 mm per
+# unit): five dark-green plugs in a ring on each wall (along = mm from the port
+# edge), and on the left (-X) wall the embossed battery icon, an arrow and "x4".
+SIDE_PLUGS = (16.0, 24.0, 48.1, 216.0, 224.0)     # svg-path
+SIDE_PLUG_Z, SIDE_PLUG_R, SIDE_RING_R = 7.98, 2.52, 3.15   # svg-path
+EMBOSS = Value(0.15, "plan")
+# Battery icon outlines as (along, z) mm polygons, from the left drawing's
+# paths 28-30 (u, v) -> (along = (v - 100.1) x 0.6, z = (u - 206.7) x 0.6).
+def _icon(points_uv):
+    return [((v - 100.1) * 0.6, (u - 206.7) * 0.6) for u, v in points_uv]
+def _rel(start, steps):
+    pts, (u, v) = [start], start
+    for du, dv in steps:
+        u, v = u + du, v + dv
+        pts.append((u, v))
+    return pts
+BATTERY_ARROW = _icon(_rel((216.614, 152.403), [(3.367, 0), (0, -1.655), (3.309, 3.015), (-3.309, 3.014), (0, -1.714), (-3.367, 0)]))
+BATTERY_BODY = _icon(_rel((216.614, 159.791), [(6.676, 0), (0, 12.53), (-2.009, 0), (0, 1.359), (-2.659, 0), (0, -1.359), (-2.008, 0)]))
+BATTERY_X = _icon(_rel((217.382, 161.742), [(0, 0.768), (2.186, 1.477), (-2.186, 1.536), (0, 0.768), (2.6, -1.891), (2.422, 1.714),
+                                           (0, -0.709), (-2.068, -1.418), (2.068, -1.359), (0, -0.827), (-2.422, 1.772)]))
+BATTERY_4 = _icon(_rel((218.505, 166.529), [(0, 2.245), (-1.123, 0), (0, 0.65), (1.123, 0), (0, 0.768), (0.472, 0), (0, -0.768),
+                                           (3.427, 0), (0, -0.768), (-3.308, -2.127)]))
+
 # ------------------------------------------------------------------ fader and LEDs
 FADER_SLOT = (15.75, 168.6, 207.8, 2.5)           # svg-path: slot centre x, y ends, width (front drawing)
 FADER_CAP = (15.75, 180.3, 7.9)                   # svg-path: the knob as drawn (resting), x, y, diameter

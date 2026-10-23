@@ -49,7 +49,11 @@ def main(path):
     check(len(CONTRACT) == 43 and all(n in parts for n in CONTRACT), "all 43 contract names present")
     lo, hi = np.array(h["bounds_min"]), np.array(h["bounds_max"])
     size = (hi - lo) * 1000
-    check(abs(size[0] - spec.WIDTH.mm) <= 0.3, f"footprint width {size[0]:.2f} mm (176 +-0.3)")
+    body = parts["chassis_edgeBand"]["bounds"]
+    body_w = (body[3] - body[0]) * 1000
+    check(abs(body_w - spec.WIDTH.mm) <= 0.3, f"body width {body_w:.2f} mm (176 +-0.3)")
+    # Side-wall details (plugs, the battery emboss) may stand off the walls, a little.
+    check(size[0] - body_w <= 2 * 0.35, f"side details stand {size[0] - body_w:.2f} mm off the walls in all (<= 0.7)")
     check(abs((parts['chassis_edgeBand']['bounds'][4] - parts['chassis_edgeBand']['bounds'][1]) * 1000 - spec.DEPTH.mm) <= 0.3,
           "body depth 240 +-0.3")
     check(abs(ref_z(lo[2])) <= 0.05, f"ground contact at reference z {ref_z(lo[2]):.2f} (feet flush; plan allows -0.3)")

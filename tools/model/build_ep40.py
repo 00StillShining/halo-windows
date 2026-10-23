@@ -191,6 +191,77 @@ def ref_slab(rect, z0_mm, z1_mm, corner_mm=0.3, fillet_mm=0.0):
     return slab(X(x0), X(x1), Y(y1), Y(y0), Z(z0_mm), Z(z1_mm), corner_mm / 1000, fillet_mm / 1000, 0.0)
 
 
+def _ear_clip(poly):
+    """Triangles (index triples) of a simple polygon, counter-clockwise in its own 2D frame."""
+    pts = [tuple(p) for p in poly]
+    area = sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1] for i in range(len(pts)))
+    idx = list(range(len(pts))) if area > 0 else list(reversed(range(len(pts))))
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    def inside(p, a, b, c):
+        return cross(a, b, p) >= 0 and cross(b, c, p) >= 0 and cross(c, a, p) >= 0
+
+    tris, guard = [], 0
+    while len(idx) > 3 and guard < 10000:
+        guard += 1
+        for k in range(len(idx)):
+            i0, i1, i2 = idx[k - 1], idx[k], idx[(k + 1) % len(idx)]
+            a, b, c = pts[i0], pts[i1], pts[i2]
+            if cross(a, b, c) <= 1e-12:
+                continue
+            if any(inside(pts[j], a, b, c) for j in idx if j not in (i0, i1, i2)):
+                continue
+            tris.append((i0, i1, i2))
+            idx.pop(k)
+            break
+    if len(idx) == 3:
+        tris.append(tuple(idx))
+    return tris
+
+
+def side_emboss(poly_az, side, base_mm, height_mm):
+    """A flat-topped emboss of a (along, z) mm polygon on a side wall: side -1
+    is the -X wall (reference x = 0), +1 the +X wall. Raised from base_mm to
+    base_mm + height_mm off the wall."""
+    x_wall = 0.0 if side < 0 else spec.WIDTH.mm
+    out_n = (float(side), 0.0, 0.0)
+
+    def P(a, z, off):
+        return (X(x_wall + side * off), Y(a), Z(z))
+    # A frame where the outward normal points at the viewer: (u, v) = (-along * side, z)
+    # is counter-clockwise seen from outside for both walls.
+    frame = [(-a * side, z) for a, z in poly_az]
+    tris = []
+    top = base_mm + height_mm
+    for i0, i1, i2 in _ear_clip(frame):
+        tris.append(((P(*poly_az[i0], top), P(*poly_az[i1], top), P(*poly_az[i2], top)), (out_n, out_n, out_n)))
+    n = len(poly_az)
+    area = sum(frame[i][0] * frame[(i + 1) % n][1] - frame[(i + 1) % n][0] * frame[i][1] for i in range(n))
+    for i in range(n):
+        j = (i + 1) % n
+        (a0, z0), (a1, z1) = poly_az[i], poly_az[j]
+        (u0, v0), (u1, v1) = frame[i], frame[j]
+        du, dv = u1 - u0, v1 - v0
+        length = math.hypot(du, dv) or 1.0
+        nu, nv = (dv / length, -du / length) if area > 0 else (-dv / length, du / length)   # outward in (u, v)
+        # back to model: u = -along * side (model Y = -along), v = z
+        nrm = (0.0, nu * side, nv)     # u maps to model Y with slope `side`, v to Z
+        b0, b1, t0, t1 = P(a0, z0, base_mm), P(a1, z1, base_mm), P(a0, z0, top), P(a1, z1, top)
+        tris.append(((b0, b1, t1), (nrm, nrm, nrm)))
+        tris.append(((b0, t1, t0), (nrm, nrm, nrm)))
+    # Wind every triangle to face its normal (two-sided lighting reads gl_FrontFacing).
+    fixed = []
+    for (a, b2, c), ns in tris:
+        e1 = np.subtract(b2, a)
+        e2 = np.subtract(c, a)
+        if np.dot(np.cross(e1, e2), ns[0]) < 0:
+            b2, c = c, b2
+        fixed.append(((a, b2, c), ns))
+    return fixed
+
+
 def wall_shape(outline_xz, proud_mm):
     """A flat shape on the port wall (reference y = 0), facing out (+Y model):
     outline as (x_mm, z_mm) points round a convex shape."""
@@ -600,6 +671,19 @@ def build(usdz, tiles, atlas_height):
         p1 = (X(mx + mr * math.cos(a1)), Y(my + mr * math.sin(a1)), zm)
         mic.append((((X(mx), Y(my), zm), p1, p0), (up3, up3, up3)))
     b.add("mic_port", mic, gap, 0.8)
+
+    # The side walls (TE's side drawings): five dark-green plugs in a ring on
+    # each, and the embossed battery icon on the -X wall.
+    angles = np.linspace(0, 2 * math.pi, 40, endpoint=False)
+    for side in (-1, 1):
+        for a in spec.SIDE_PLUGS:
+            ring = [(a + spec.SIDE_RING_R * math.cos(t), spec.SIDE_PLUG_Z + spec.SIDE_RING_R * math.sin(t)) for t in angles]
+            plug = [(a + spec.SIDE_PLUG_R * math.cos(t), spec.SIDE_PLUG_Z + spec.SIDE_PLUG_R * math.sin(t)) for t in angles]
+            b.add("chassis_sideDetail", side_emboss(ring, side, 0.0, 0.03), gap, 0.7)
+            b.add("chassis_sideDetail", side_emboss(plug, side, 0.0, 0.08), green, 0.4)
+    for poly, h in ((spec.BATTERY_ARROW, spec.EMBOSS.mm), (spec.BATTERY_BODY, spec.EMBOSS.mm),
+                    (spec.BATTERY_X, 2 * spec.EMBOSS.mm), (spec.BATTERY_4, 2 * spec.EMBOSS.mm)):
+        b.add("chassis_sideDetail", side_emboss(poly, -1, 0.0, h), cream, 0.62)
 
     # The fader: a dark slot in the deck and a frosted stem for its knob.
     fx, fy0, fy1, fw = spec.FADER_SLOT
