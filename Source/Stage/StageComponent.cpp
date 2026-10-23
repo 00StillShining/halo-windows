@@ -886,7 +886,12 @@ namespace halo
         if (mesh.hasGlass() && debugView == 0)
         {
             glEnable (GL_BLEND);
-            glBlendFuncSeparate (GL_ONE, GL_SRC_ALPHA, GL_ZERO, GL_ONE);
+            // Low tier: display values, so a screen blend (src x (1 - dst)) that
+            // rolls the sheen off over bright icons instead of clipping them.
+            if (tierName == "low")
+                glBlendFuncSeparate (GL_ONE_MINUS_DST_COLOR, GL_SRC_ALPHA, GL_ZERO, GL_ONE);
+            else
+                glBlendFuncSeparate (GL_ONE, GL_SRC_ALPHA, GL_ZERO, GL_ONE);
             glDepthMask (GL_FALSE);
             ++stats.geometryDraws;
             mesh.drawGlass();

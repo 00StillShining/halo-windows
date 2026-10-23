@@ -303,6 +303,10 @@ void main()
         // a ceiling of about a third of the LCD's own range, so icons and
         // digits stay readable through it at every framing. Its edges show
         // as tinted acrylic.
+        // Only the outer faces: the slab's underside, seen through the top,
+        // would add the sheen a second time.
+        if (vModelNormal.z < -0.5)
+            discard;
         vec3 glass = studioSpecular (n, v, specularAA (n, uGlassRoughness), shadow, 1.0) * uGlassSheen;
         glass /= 1.0 + luma (glass) / uGlassPeak;
         float edge = 1.0 - smoothstep (0.5, 0.9, abs (mn.z));
@@ -310,7 +314,14 @@ void main()
 #if HALO_HDR
         fragColour = vec4 (glass + tint, mix (0.97, 0.35, edge));
 #else
-        fragColour = vec4 (srgbEncode (tonemap ((glass + tint) * uExposure, uToneMapper)), mix (0.97, 0.35, edge));
+        // Display values blend additively here, so add what the sheen adds to
+        // a typical LCD level once tone mapped, not the sheen tone mapped on
+        // its own (which the curve's steep toe would exaggerate several times).
+        const vec3 lcdLevel = vec3 (0.0035, 0.113, 0.051);  // the LCD backlight green, linear (DisplayRenderer)
+        vec3 lifted = srgbEncode (tonemap ((lcdLevel * 0.97 + glass + tint) * uExposure, uToneMapper));
+        vec3 base = srgbEncode (tonemap (lcdLevel * 0.97 * uExposure, uToneMapper));
+        // Screen-blended (Stage/StageComponent): exact at that level, smaller over brighter icons.
+        fragColour = vec4 (max (lifted - base, vec3 (0.0)) / max (1.0 - base, vec3 (0.05)), mix (0.97, 0.35, edge));
 #endif
         return;
     }

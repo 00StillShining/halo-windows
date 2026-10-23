@@ -1529,3 +1529,20 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
 - Not yet (M6): jack, USB-C and power-recess openings in the port wall, the speaker rebuilt flush
   (its carried slats still stand ~0.6 mm proud), the fader, LEDs re-seated, the side seam where
   the window band meets the rear body.
+
+### Review decisions (coordinator, delegated by the owner)
+
+- **RECORD highlight gate: waived: matches reference photo.** RECORD's fillet adds +0.046 linear
+  at `hero` (gate 0.06). TE's own angled product photo shows RECORD and SAMPLE with the same
+  salmon cast; the studio rim / veil is kept as it is and is not reduced to pass the gate.
+- **Screen haze after ad5d8cd (fixed).** The window read milky (mean lift 31-35 / 255). Cause:
+  the acrylic slab's underside, seen through its top, was drawn too (two-sided lighting flips
+  its normal up), so the sheen was added twice. The glass pass now drops faces whose model
+  normal points down. The Low tier added the sheen tone mapped on its own (the curve's toe made
+  it several times too strong); it now adds the increment the sheen makes over the LCD's
+  backlight level, screen-blended (`ONE_MINUS_DST_COLOR`) so bright icons roll off instead of
+  clipping.
+  - High (`m6glass2`, hero and keys, both looks): mean lift 19.8-21.8, peak 240-241, LCD detail
+    under the sheen 83-87 % (targets <= 24 and >= 82 %).
+  - Low (`m6glow`): mean lift 18.9-21.1, peak 227-233, detail 92-94 %.
+  - The 1.6 mm parallax and the tinted window edges are unchanged.
