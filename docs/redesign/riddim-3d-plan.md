@@ -1596,3 +1596,50 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   GPU p50 0.229 ms). Stage pixels identical to the uncached build.
 - M8 not done: baked vertex and deck AO (and deleting the height-map AO), PCSS-lite and the
   analytic contact term, PA66 grain, glass clearcoat and stem transmission, floor reflection.
+
+### Polish phase (after the te-hardware merge 8a605c5): M7 to M11
+
+Verified on screen before the owner's GUI cutoff (19:21):
+- **Side walls** (2b127c6): TE's side drawings give five dark-green plugs per wall (along 16,
+  24, 48.1, 216, 224 mm; z 7.98) and, on the -X wall, the battery icon (arrow and "x4"),
+  embossed 0.15 / 0.30 mm. Lint measures the body width apart from these details.
+- **Orbit flicker** (c7fa282, M7 gate): legends tracked through a 30-frame, 1-degree keys orbit
+  at minimum radius; ink-mass jitter per step median 0.16 %, worst-step p95 7.2 % (gate 10 %).
+- **Baked AO** (c3a3534, M8): `tools/model/ep40/ao.py`, a 0.1 mm height field of the opaque rest
+  pose, horizon occlusion per vertex and for the top surfaces (`ep40_deck_ao.htex`, 1024 x 1408).
+  The height-map AO, its target, pass and re-mip are deleted; the floor's contact term is
+  analytic. Hero / keys, both looks: deck L* 86.0, gaps 6.9, mean change 2.6 / 255.
+
+Built and tested headless after the cutoff ("shots pending"):
+- **PCSS-lite** (d6f1771): a blocker search in an R32F copy of the shadow depth; the PCF radius
+  follows the receiver's distance behind the blocker times the softbox's angular size.
+- **Floor reflection, dark look** (2e22162): the device mirrored in the floor into the floor
+  target's rgb, shaded from the mirrored eye, black glass's Fresnel x look.floorReflection,
+  faded within ~20 mm; Paper unchanged.
+- **Frosted stems** (25cced2): thickness transmission 0.35 on the knob and fader stems. The
+  screen's clearcoat is the existing acrylic lobe (roughness 0.05).
+- **PA66 grain: dropped.** 40-90 um bumps are under 0.4 px at the closest framing
+  (0.16 mm / px); they would only add a constant roughness the material already carries.
+- **Live LCD** (b04f37a, M9): `Core/LcdState` (exhaustive tests: nothing lights without a
+  backing field; every preview frame differs from live in backlight and digits). Digits are
+  TE's own ten-segment shapes (`Stage/LcdSegments.h`, generated from the screen SVG by
+  `artwork/lcd_segments.py`). **Deviation:** preview reads "SIM", not "PRV": TE's digit has no
+  middle bars and cannot draw a V (it reads "PRY"). Waiting reads "___" and lights nothing.
+  The pad grid and dot beacon are gone; icon halos blur once. Verified as images with the new
+  windowless `HaloLcdPreview` tool. Bloom (scene) not done: in-glass halation covers lit icons,
+  and nothing else HDR-bright is lit today (LEDs stay dark under D4).
+- **Motion** (4c147e1, M10): `Core/PadSpring` (tests: press < 90 ms, release overshoot < 6 %,
+  30 / 144 fps agree, one travel); D3 underglow on the struck pad's well (slot in mask bits 1-5),
+  caps never change colour, group tint removed. Point lights and the O3 LED echo not done.
+- **On-demand repaint** (a0ec0fa, M10): frames only on change (pad, display, status, look,
+  resize, camera incl. the ORBIT API via a 30 Hz check), while motion lasts, until READY, and
+  0.6 s after a request; stats tag the reason. `HALO_STAGE_CONTINUOUS=1` restores the loop.
+- **Hardening** (f26e852, 15dfdd2, M11): a KHR_debug error counter (Debug, `gl_errors` in the
+  stats line); the Still tier (TE's plan view `ep40_plan.png` + live LCD + pad cues) when no GL
+  tier builds or `HALO_STAGE_TIER=still`.
+
+Shots pending (take in this order): hero / keys / top / low in dark and paper (PCSS, AO,
+reflection, stems, LCD in place); `DEBUG=2` keys crop (penumbra crisp at contact); `low` dark
+(reflection subtle, no mirror); `hit` dark with `DEBUG=8` (emission only on the liner);
+`HALO_STAGE_STATS=1` idle (0 frames over 60 s, connected mock) and a pad burst; preview and
+waiting LCD on the device; `HALO_STAGE_TIER=low` and `=still` canonical sets; `gl_errors=0`.
