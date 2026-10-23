@@ -8,14 +8,24 @@
 #include "common.glsl"
 #include "floor.glsl"
 
-in vec3 vNormal; in vec3 vColour; in float vEmissive; in vec2 vUV; in vec2 vMaterial;
+in vec3 vNormal; in vec3 vColour; in vec3 vEmissive; in vec2 vUV; in vec2 vMaterial;
 in vec3 vWorld; in vec3 vModel; in vec3 vModelNormal;
+flat in int vFlags; flat in int vSlot; flat in int vMask; in float vAO;
 
-uniform int uKind;            // 0 part, 1 display, 3 ground, 4 face plate
+// Material flags (Core/HmeshFormat.h).
+const int FLAG_GLASS = 1;
+const int FLAG_LCD = 2;
+const int FLAG_DECAL_TARGET = 16;
+
+uniform int uKind;            // 0 the device (one draw; materials say LCD or printed deck), 3 ground
 uniform vec3 uEye;
-uniform vec3 uGlow;           // linear emissive added to the part
+uniform vec3 uSlotGlow[32];   // linear emissive per slot (pad strike, active group)
 uniform sampler2D uTexture;   // LCD (sRGB image)
-uniform sampler2D uPrint;     // face silkscreen, linear premultiplied, model XY
+uniform sampler2D uFaceAtlas; // deck silkscreen: SDF per ink (R green, G orange) over uFaceRect
+uniform int uFaceAtlasOn;
+uniform vec4 uFaceRect;      // x0, y0, width, depth in reference mm (x from the left, y from the ports)
+uniform sampler2D uKeyAtlas;  // keys' legends: SDF per ink (R green, G orange, B white, A charcoal), at vUV
+uniform int uKeyAtlasOn;
 uniform vec2 uDeviceSize;     // model width, depth (m)
 
 uniform sampler2DShadow uShadowMap;
@@ -152,12 +162,15 @@ vec3 irradianceSH (vec3 n)
 
 // Kaplanyan-Hoffman: widen the lobe by the normal's variance across the
 // pixel, so thin bevels and fillets never sparkle. Returns perceptual roughness.
+// The widening is capped at 0.04 (was 0.18) so a 0.7 mm cap fillet a pixel or
+// two wide still catches a line of the key at hero framing (M5 RECORD/PLAY);
+// 4x MSAA resolves what is left.
 float specularAA (vec3 n, float roughness)
 {
     vec3 du = dFdx (n), dv = dFdy (n);
     float variance = 0.25 * (dot (du, du) + dot (dv, dv));
     float a = roughness * roughness;
-    float a2 = clamp (a * a + min (2.0 * variance, 0.18), 0.0, 1.0);
+    float a2 = clamp (a * a + min (2.0 * variance, 0.04), 0.0, 1.0);
     return sqrt (sqrt (a2));
 }
 
@@ -177,6 +190,22 @@ vec3 studioSpecular (vec3 n, vec3 v, float roughness, float shadow, float ao)
     // Mip m holds roughness (m / maxMip)^2 (env_bake.py).
     vec3 env = textureLod (uEnv, r, sqrt (roughness) * uEnvMaxMip).rgb;
     return env * spec * energy * occlusion * mix (1.0, shadow, keyShare) * uSpecular;
+}
+
+// Ink coverage from an SDF atlas (0.5 at the edge): each edge antialiased over
+// one screen pixel, from four sub-pixel taps at half the footprint, so 0.3 mm
+// strokes stay visible (as grey, not gone) when a cap is a few pixels across.
+vec4 inkCover (sampler2D atlas, vec2 uv)
+{
+    vec2 gx = dFdx (uv) * 0.5, gy = dFdy (uv) * 0.5;
+    vec4 fw = max (fwidth (textureGrad (atlas, uv, gx, gy)) * 0.5, vec4 (1e-4));
+    vec4 cover = vec4 (0.0);
+    for (int i = 0; i < 4; ++i)
+    {
+        vec2 o = (float (i & 1) - 0.5) * gx + (float (i >> 1) - 0.5) * gy;
+        cover += clamp ((textureGrad (atlas, uv + o, gx, gy) - 0.5) / fw + 0.5, 0.0, 1.0);
+    }
+    return cover * 0.25;
 }
 
 vec3 shade (vec3 albedo, float roughness, vec3 n, vec3 v, float shadow, float ao)
@@ -265,21 +294,46 @@ void main()
     // Faces near the floor see less of the room.
     ao *= mix (0.72, 1.0, clamp (smoothstep (-0.0095, -0.002, vModel.z) + max (mn.z, 0.0), 0.0, 1.0));
 
-    if (uKind == 1)
+    if ((vFlags & FLAG_GLASS) != 0)
+    {
+        // The screen acrylic (blended over the LCD, Stage/StageComponent):
+        // the studio's rim strip crossing it as a soft diagonal sheen. The
+        // screen is the stage's most important surface, so the sheen is a
+        // highlight, never a veil: scaled (uGlassSheen) and rolled off toward
+        // a ceiling of about a third of the LCD's own range, so icons and
+        // digits stay readable through it at every framing. Its edges show
+        // as tinted acrylic.
+        // Only the outer faces: the slab's underside, seen through the top,
+        // would add the sheen a second time.
+        if (vModelNormal.z < -0.5)
+            discard;
+        vec3 glass = studioSpecular (n, v, specularAA (n, uGlassRoughness), shadow, 1.0) * uGlassSheen;
+        glass /= 1.0 + luma (glass) / uGlassPeak;
+        float edge = 1.0 - smoothstep (0.5, 0.9, abs (mn.z));
+        vec3 tint = vColour * irradianceSH (n) * edge * 0.6;
+#if HALO_HDR
+        fragColour = vec4 (glass + tint, mix (0.97, 0.35, edge));
+#else
+        // Display values blend additively here, so add what the sheen adds to
+        // a typical LCD level once tone mapped, not the sheen tone mapped on
+        // its own (which the curve's steep toe would exaggerate several times).
+        const vec3 lcdLevel = vec3 (0.0035, 0.113, 0.051);  // the LCD backlight green, linear (DisplayRenderer)
+        vec3 lifted = srgbEncode (tonemap ((lcdLevel * 0.97 + glass + tint) * uExposure, uToneMapper));
+        vec3 base = srgbEncode (tonemap (lcdLevel * 0.97 * uExposure, uToneMapper));
+        // Screen-blended (Stage/StageComponent): exact at that level, smaller over brighter icons.
+        fragColour = vec4 (max (lifted - base, vec3 (0.0)) / max (1.0 - base, vec3 (0.05)), mix (0.97, 0.35, edge));
+#endif
+        return;
+    }
+
+    if ((vFlags & FLAG_LCD) != 0)
     {
         // The LCD is self-lit under a glossy window: nearly unshaded, plus
         // the studio's reflection in the glass.
         vec3 tex = srgbDecode (texture (uTexture, vUV).rgb);
         if (uDebug == 7 || uDebug == 8) { fragColour = displayValue (srgbEncode (tex)); return; }
-        // The only truly glossy surface: acrylic over the backlit LCD, with
-        // the studio's rim strip crossing it as a soft diagonal sheen. The
-        // screen is the stage's most important surface, so the sheen is a
-        // highlight, never a veil: scaled (uGlassSheen) and rolled off toward
-        // a ceiling of about a third of the LCD's own range, so icons and
-        // digits stay readable through it at every framing.
-        vec3 glass = studioSpecular (n, v, specularAA (n, uGlassRoughness), shadow, 1.0) * uGlassSheen;
-        glass /= 1.0 + luma (glass) / uGlassPeak;
-        vec3 c = tex * mix (0.86, 1.0, shadow) * mix (0.8, 1.0, ao) + glass;
+        // Backlit under the acrylic (drawn after, with its sheen): nearly unshaded.
+        vec3 c = tex * mix (0.86, 1.0, shadow) * mix (0.8, 1.0, ao);
         fragColour = radiance (c);
         return;
     }
@@ -287,23 +341,38 @@ void main()
     vec3 albedo = vColour;
     float roughness = clamp (vMaterial.x, 0.04, 1.0);
 
-    if (uKind == 4 && mn.z > 0.5)
+    if ((vFlags & FLAG_DECAL_TARGET) != 0 && mn.z > 0.5)
     {
-        vec2 uv = vModel.xy / uDeviceSize + 0.5;
-        vec4 ink = texture (uPrint, uv);  // premultiplied
-        albedo = albedo * (1.0 - ink.a) + ink.rgb;
-        roughness = mix (roughness, 0.5, ink.a);
+        // Model metres -> reference mm -> the silkscreen's texture.
+        vec2 uv = (vec2 (vModel.x * 1000.0 + 88.0, 120.0 - vModel.y * 1000.0) - uFaceRect.xy) / uFaceRect.zw;
+        if (uFaceAtlasOn != 0 && all (greaterThanEqual (uv, vec2 (0.0))) && all (lessThanEqual (uv, vec2 (1.0))))
+        {
+            vec2 cover = inkCover (uFaceAtlas, uv).rg;
+            albedo = mix (albedo, srgbDecode (vec3 (1.0, 0.408, 0.114)), cover.g);     // orange #FF681D
+            albedo = mix (albedo, srgbDecode (vec3 (0.0, 0.314, 0.227)), cover.r);     // green #00503A
+            roughness = min (roughness + 0.08 * max (cover.r, cover.g), 1.0);
+        }
+    }
+    else if ((vMask & 1) != 0 && uKeyAtlasOn != 0 && mn.z > 0.5)
+    {
+        // Laser-printed legends, slightly rougher than the cap.
+        vec4 cover = inkCover (uKeyAtlas, vUV);
+        albedo = mix (albedo, srgbDecode (vec3 (0.957, 0.949, 0.925)), cover.b);   // white #F4F2EC
+        albedo = mix (albedo, srgbDecode (vec3 (0.169, 0.169, 0.157)), cover.a);   // charcoal #2B2B28
+        albedo = mix (albedo, srgbDecode (vec3 (1.0, 0.408, 0.114)), cover.g);     // orange #FF681D
+        albedo = mix (albedo, srgbDecode (vec3 (0.0, 0.314, 0.227)), cover.r);     // green #00503A
+        roughness = min (roughness + 0.08 * max (max (cover.r, cover.g), max (cover.b, cover.a)), 1.0);
     }
 
     // 7: unlit albedo (print included); 8: emissive only.
     if (uDebug == 7) { fragColour = displayValue (srgbEncode (albedo)); return; }
-    if (uDebug == 8) { fragColour = displayValue (srgbEncode (albedo * vEmissive * 0.6 + uGlow)); return; }
+    if (uDebug == 8) { fragColour = displayValue (srgbEncode (vEmissive * 0.6 + uSlotGlow[vSlot])); return; }
     if (uDebug == 9) { fragColour = displayValue (n * 0.5 + 0.5); return; }
     if (uDebug == 1) { fragColour = displayValue (vec3 (ao)); return; }
     if (uDebug == 2) { fragColour = displayValue (vec3 (shadow)); return; }
     if (uDebug == 3) { fragColour = displayValue (vec3 (fract (heightAt (vModel.xy, 0.0) * 100.0))); return; }
 
     vec3 lit = shade (albedo, roughness, n, v, shadow, ao);
-    lit += albedo * vEmissive * 0.6 + uGlow;
+    lit += vEmissive * 0.6 + uSlotGlow[vSlot];
     fragColour = radiance (lit);
 }

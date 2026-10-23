@@ -20,7 +20,7 @@ On the way through, the bake refines what RealityKit got for free or never had:
   * Rounded-corner chassis slabs in place of the bevelled cubes, with the
     dark-green 3.8 mm bottom shell.
   * The 16 + 2 LEDs as flush, unlit 1.8 mm discs at TE's positions.
-  * The floating legend_25..29 meshes dropped (FacePrint.h prints that text)
+  * The floating legend_25..29 meshes dropped (the deck silkscreen, ep40_face_sdf.htex, prints that text)
     and halo_ring kept only as a zero-triangle anchor (the ring is a floor pool).
 
 Format (little endian):
@@ -131,7 +131,7 @@ PART_MATERIALS = {
 # observed state (plan D4), so every lamp ships unlit.
 LAMP_PREFIX = "status_lamp_"
 # legend_25..29 floated 1.65 mm above the plate, and legend_26 read "DUB" where
-# the device says "BPM". Their text is printed by Source/Stage/FacePrint.h.
+# the device says "BPM". Their text is the deck silkscreen (artwork/face.py).
 DROPPED_PARTS = {"legend_25", "legend_26", "legend_27", "legend_28", "legend_29"}
 # The ring is a pool of light on the floor now (plan D6); the name stays as a
 # zero-triangle anchor so the DD-006 contract still resolves.
@@ -369,6 +369,19 @@ def disc(cx, cy, z0, z1, radius, fillet, segments=32, fillet_steps=3):
 
 # ------------------------------------------------------------------ conversion
 def convert(usdz_path, out_path, fmt="v3"):
+    parts = extract_parts(usdz_path)
+    if fmt == "v2":
+        write_v2(parts, out_path)
+    else:
+        data = to_v3(parts, Path(usdz_path).name)
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(out_path).write_bytes(data)
+        print(f"wrote {out_path}: v3, {len(parts)} parts, {len(data)} bytes")
+
+
+def extract_parts(usdz_path):
+    """The Blender model as a list of (name, part-to-model column-major matrix, pivot,
+    vertices of 14 floats, indices), with this script's materials and fixes applied."""
     with tempfile.TemporaryDirectory() as tmp:
         with zipfile.ZipFile(usdz_path) as archive:
             archive.extractall(tmp)
@@ -420,14 +433,7 @@ def convert(usdz_path, out_path, fmt="v3"):
         for name, tris in led_parts():
             corners = [(p, n, LED_OFF, 0.0, (0.0, 0.0), 0.35, 0.0) for ps, ns in tris for p, n in zip(ps, ns)]
             parts.append(pack_part(name, Gf.Matrix4d(1.0), corners))
-
-    if fmt == "v2":
-        write_v2(parts, out_path)
-    else:
-        data = to_v3(parts, Path(usdz_path).name)
-        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(out_path).write_bytes(data)
-        print(f"wrote {out_path}: v3, {len(parts)} parts, {len(data)} bytes")
+    return parts
 
 
 def write_v2(parts, out_path):
@@ -499,6 +505,8 @@ def part_kind(name):
         return k["led"]
     if name == "display_surface":
         return k["display"]
+    if name == "display_glass":
+        return k["glass"]
     if name in ANCHOR_PARTS:
         return k["anchor"]
     if name in ("chassis_topPlate", "brand_panel"):
@@ -516,9 +524,10 @@ def led_for(name):
     return 0xFFFF
 
 
-def to_v3(parts, source_name):
+def to_v3(parts, source_name, decal_parts=()):
     """The v2 part list (local vertices + part-to-model) -> .hmesh v3 bytes: one vertex
-    and index buffer in model space (rest pose), a material table, slots for pads and groups."""
+    and index buffer in model space (rest pose), a material table, slots for pads and groups.
+    decal_parts: parts whose UVs address the keys' SDF atlas (vertex mask bit 0)."""
     import hmesh_io
     import numpy as np
 
@@ -537,9 +546,11 @@ def to_v3(parts, source_name):
         nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-20)
 
         flags_for_part = 0
-        if name == "display_surface":
+        if name in ("display_surface", "display_well"):
             flags_for_part |= hmesh_io.MATERIAL_FLAGS["lcd"]
-        if name == "chassis_topPlate":
+        if name == "display_glass":
+            flags_for_part |= hmesh_io.MATERIAL_FLAGS["glass"]
+        if name in ("chassis_topPlate", "brand_panel"):
             flags_for_part |= hmesh_io.MATERIAL_FLAGS["decalTarget"]
 
         mat_ids = np.zeros(n_vert, dtype=np.uint8)
@@ -591,7 +602,7 @@ def to_v3(parts, source_name):
         rec["uv"] = np.round(uv * 65535).astype(np.uint16)
         rec["material"] = mat_ids
         rec["slot"] = slot
-        rec["mask"] = 1 if name == "chassis_topPlate" else 0
+        rec["mask"] = 1 if name == "chassis_topPlate" or name in decal_parts else 0
         rec["ao"] = 255
         vert_chunks.append(rec)
         idx_chunks.append((idx + base).astype(np.uint32))

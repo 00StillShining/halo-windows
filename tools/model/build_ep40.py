@@ -1,0 +1,722 @@
+"""The EP-40 model compiler (docs/redesign/riddim-3d-plan.md section 4), first
+stage: the stepped chassis, the keys and their apertures, and the knobs are
+built from ep40/spec.py; every other part is carried over from the Blender
+model (usdz_to_hmesh.py) onto the surface it sits on (spec.CARRY_OVER). Key,
+plate and small-key legends are decals: TE's front drawing cut into the keys'
+SDF atlas (artwork/atlas.py), sampled through each cap's planar UVs; the old
+geometric legends are dropped.
+
+    python -I tools/model/build_ep40.py <EP40.usdz> --out assets/stage/EP40.hmesh
+        [--atlas assets/stage/ep40_keys_sdf.htex] [--face assets/stage/ep40_face_sdf.htex]
+        [--preview build/model/keys_atlas.png]
+
+The deck's silkscreen comes from the same drawing (artwork/face.py).
+
+Model space: Z up, metres, origin at the footprint centre, ports at +Y.
+"""
+
+import argparse
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE / "ep40"))
+import spec  # noqa: E402
+import usdz_to_hmesh as legacy  # noqa: E402
+from artwork import atlas as keys_atlas, face as face_atlas, svg_import  # noqa: E402
+
+# The deck silkscreen texture's extent (reference mm): the step to the front edge.
+# The face texture's extent (reference mm): from the label plate's top edge to the
+# front edge. Above the step only the label plate is printed (LABEL_PLATE).
+FACE_REGION = (0.0, 0.0, spec.WIDTH.mm, spec.DEPTH.mm)
+# The label plate as drawn (svg-path: the #EEEFEA fill, 0..119.55 x 8.57..56.50 mm).
+LABEL_PLATE = (0.0, 8.57, 119.55, 56.50)
+# The fader's slot as drawn (svg-px): the 3D track covers it; its tick stays printed.
+FADER_SLOT = (14.2, 168.0, 17.3, 208.5)   # (x0, y0, x1, y1), with margin
+
+
+# ------------------------------------------------------------------ frames
+def X(x_mm): return (x_mm - 88.0) / 1000.0
+def Y(y_mm): return (120.0 - y_mm) / 1000.0
+def Z(z_mm): return (z_mm - 8.0) / 1000.0
+
+
+DECK = Z(spec.DECK_TOP.mm)
+UPPER_TOP_MM = spec.UPPER_TOP.mm
+UPPER = Z(spec.UPPER_TOP.mm)
+# Satin cap plastic: low enough that the 0.7 mm top fillet catches a line of
+# the studio key (plan section 1, "soft 0.7 mm edges that catch a line of light").
+CAP_ROUGHNESS = 0.30
+
+
+# ------------------------------------------------------------------ geometry
+def rounded_outline(hx, hy, r, steps=8):
+    """Points and outward normals round a rounded rectangle (corner centres at
+    +-(hx - r), +-(hy - r)), counter-clockwise."""
+    out = []
+    for cx, cy, start in ((hx - r, hy - r, 0.0), (-hx + r, hy - r, 90.0), (-hx + r, -hy + r, 180.0), (hx - r, -hy + r, 270.0)):
+        for i in range(steps + 1):
+            a = math.radians(start + 90.0 * i / steps)
+            out.append((cx, cy, math.cos(a), math.sin(a)))
+    return out
+
+
+def keycap(cx, cy, w, h, z0, z1, w_top, h_top, corner, fillet, steps=8, fillet_steps=8):
+    """A moulded key: walls tapering from (w, h) at z0 to (w_top, h_top), a
+    quarter-round top fillet, a flat top. Triangles with analytic normals."""
+    hx, hy = w / 2, h / 2
+    inset = ((w - w_top) / 2 + (h - h_top) / 2) / 2      # the taper, per side
+    outline = rounded_outline(hx, hy, corner, steps)
+    wall_top = z1 - fillet
+    slope = math.atan2(inset, wall_top - z0)              # walls lean in
+    rings = [(0.0, z0, math.cos(slope), math.sin(slope)), (inset, wall_top, math.cos(slope), math.sin(slope))]
+    for i in range(1, fillet_steps + 1):
+        t = math.radians(90.0 * i / fillet_steps)
+        a = slope + (math.pi / 2 - slope) * i / fillet_steps
+        rings.append((inset + fillet * (1 - math.cos(t)), wall_top + fillet * math.sin(t), math.cos(a), math.sin(a)))
+
+    def point(o, d, z):
+        cxo, cyo, nx, ny = o
+        r = max(corner - d, 0.0002)
+        return (cx + cxo + nx * r, cy + cyo + ny * r, z)
+
+    tris = []
+    n = len(outline)
+    for k in range(len(rings) - 1):
+        d0, z0_, no0, nz0 = rings[k]
+        d1, z1_, no1, nz1 = rings[k + 1]
+        for i in range(n):
+            j = (i + 1) % n
+            a0, b0 = point(outline[i], d0, z0_), point(outline[j], d0, z0_)
+            a1, b1 = point(outline[i], d1, z1_), point(outline[j], d1, z1_)
+            na0 = (outline[i][2] * no0, outline[i][3] * no0, nz0)
+            nb0 = (outline[j][2] * no0, outline[j][3] * no0, nz0)
+            na1 = (outline[i][2] * no1, outline[i][3] * no1, nz1)
+            nb1 = (outline[j][2] * no1, outline[j][3] * no1, nz1)
+            tris.append(((a0, b0, b1), (na0, nb0, nb1)))
+            tris.append(((a0, b1, a1), (na0, nb1, na1)))
+    d_top, z_top = rings[-1][0], rings[-1][1]
+    centre = (cx, cy, z_top)
+    up = (0.0, 0.0, 1.0)
+    for i in range(n):
+        j = (i + 1) % n
+        tris.append(((centre, point(outline[i], d_top, z_top), point(outline[j], d_top, z_top)), (up, up, up)))
+    return tris
+
+
+def frame(cx, cy, w_in, h_in, gap, z, corner_in, steps=8):
+    """A flat dark ring round an aperture: the visible gap between key and deck."""
+    inner = rounded_outline(w_in / 2, h_in / 2, corner_in, steps)
+    tris = []
+    up = (0.0, 0.0, 1.0)
+    n = len(inner)
+    for i in range(n):
+        j = (i + 1) % n
+
+        def p(o, r):
+            return (cx + o[0] + o[2] * r, cy + o[1] + o[3] * r, z)
+
+        a0, b0 = p(inner[i], corner_in), p(inner[j], corner_in)
+        a1, b1 = p(inner[i], corner_in + gap), p(inner[j], corner_in + gap)
+        tris.append(((a0, b0, b1), (up, up, up)))
+        tris.append(((a0, b1, a1), (up, up, up)))
+    return tris
+
+
+def cylinder(cx, cy, z0, z1, radius, fillet):
+    return [((tuple(p) for p in ps), (tuple(n) for n in ns)) for ps, ns in
+            legacy.disc(cx, cy, z0, z1, radius, fillet, segments=48, fillet_steps=4)]
+
+
+def slab(x0, x1, y0, y1, z0, z1, corner, top_fillet, bottom_fillet):
+    hx, hy = (x1 - x0) / 2, (y1 - y0) / 2
+    return legacy.rounded_slab(hx, hy, corner, z0, z1, top_fillet, bottom_fillet, (x0 + x1) / 2, (y0 + y1) / 2)
+
+
+def slab4(rect, z0_mm, z1_mm, radii, top_fillet_mm, bottom_fillet_mm, steps=8):
+    """A slab over a reference-mm rectangle with its own plan radius per corner
+    (x0y0, x1y0, x1y1, x0y1 in reference mm; 0 = sharp), filleted top and bottom.
+    Pieces of one body overlap by twice the fillet so their joins show no groove."""
+    x0, y0, x1, y1 = rect
+    # Model +y is reference y0 (the port side), so counter-clockwise from above
+    # starts at reference (x1, y0).
+    corners = ((x1, y0, radii[1], 0.0), (x0, y0, radii[0], 90.0), (x0, y1, radii[3], 180.0), (x1, y1, radii[2], 270.0))
+    outline = []  # (corner centre xy, outward normal xy, corner radius), counter-clockwise from above
+    for cx, cy, r, start in corners:
+        # Reference y grows toward the player; model Y flips it, so build in (x, -y).
+        sx = -1.0 if cx == x0 else 1.0
+        sy = -1.0 if cy == y1 else 1.0
+        centre = (X(cx - sx * r), Y(cy + sy * r))
+        for i in range(steps + 1):
+            a = math.radians(start + 90.0 * i / steps)
+            outline.append((centre, (math.cos(a), math.sin(a)), r / 1000))
+    profile = []  # (inset, z, normal_out, normal_z), bottom to top
+    bf, tf = bottom_fillet_mm / 1000, top_fillet_mm / 1000
+    z0, z1 = Z(z0_mm), Z(z1_mm)
+    for i in range(7):
+        a = math.radians(-90.0 + 90.0 * i / 6)
+        profile.append((bf * (1 - math.cos(a)), z0 + bf * (1 + math.sin(a)), math.cos(a), math.sin(a)))
+    for i in range(7):
+        a = math.radians(90.0 * i / 6)
+        profile.append((tf * (1 - math.cos(a)), z1 - tf * (1 - math.sin(a)), math.cos(a), math.sin(a)))
+    rings = [[(c[0] + nx * (r - inset), c[1] + ny * (r - inset), z) for c, (nx, ny), r in outline]
+             for inset, z, _, _ in profile]
+    tris, n = [], len(outline)
+    for k in range(len(profile) - 1):
+        no0, nz0 = profile[k][2], profile[k][3]
+        no1, nz1 = profile[k + 1][2], profile[k + 1][3]
+        for i in range(n):
+            j = (i + 1) % n
+            (ax, ay), (bx, by) = outline[i][1], outline[j][1]
+            na0, nb0 = (ax * no0, ay * no0, nz0), (bx * no0, by * no0, nz0)
+            na1, nb1 = (ax * no1, ay * no1, nz1), (bx * no1, by * no1, nz1)
+            a0, b0, a1, b1 = rings[k][i], rings[k][j], rings[k + 1][i], rings[k + 1][j]
+            tris.append(((a0, b0, b1), (na0, nb0, nb1)))
+            tris.append(((a0, b1, a1), (na0, nb1, na1)))
+    top, bottom = rings[-1], rings[0]
+    up, down = (0.0, 0.0, 1.0), (0.0, 0.0, -1.0)
+    for i in range(1, n - 1):
+        tris.append(((top[0], top[i], top[i + 1]), (up, up, up)))
+        tris.append(((bottom[0], bottom[i + 1], bottom[i]), (down, down, down)))
+    return tris
+
+
+def ref_slab(rect, z0_mm, z1_mm, corner_mm=0.3, fillet_mm=0.0):
+    """A slab over a reference-mm rectangle (x0, y0, x1, y1), z in reference mm."""
+    x0, y0, x1, y1 = rect
+    return slab(X(x0), X(x1), Y(y1), Y(y0), Z(z0_mm), Z(z1_mm), corner_mm / 1000, fillet_mm / 1000, 0.0)
+
+
+def wall_shape(outline_xz, proud_mm):
+    """A flat shape on the port wall (reference y = 0), facing out (+Y model):
+    outline as (x_mm, z_mm) points round a convex shape."""
+    y = Y(0.0) + proud_mm / 1000
+    out = (0.0, 1.0, 0.0)
+    pts = [(X(x), y, Z(z)) for x, z in outline_xz]
+    cx = sum(p[0] for p in pts) / len(pts)
+    cz = sum(p[2] for p in pts) / len(pts)
+    c = (cx, y, cz)
+    # Counter-clockwise seen from outside (+Y): outlines run counter-clockwise in (x, z), so reverse.
+    return [((c, pts[(i + 1) % len(pts)], pts[i]), (out, out, out)) for i in range(len(pts))]
+
+
+def stadium_xz(cx, cz, w, h, steps=10):
+    """A rounded slot (w x h mm, ends of radius h / 2) as wall outline points."""
+    r = h / 2
+    pts = []
+    for side, x0 in ((-1, cx + w / 2 - r), (1, cx - w / 2 + r)):
+        for i in range(steps + 1):
+            a = math.pi * (-0.5 + i / steps) if side < 0 else math.pi * (0.5 + i / steps)
+            pts.append((x0 + r * math.cos(a), cz + r * math.sin(a)))
+    return pts
+
+
+def ref_quad(rect, z_mm):
+    """An upward-facing rectangle at z (two triangles, counter-clockwise from above)."""
+    x0, y0, x1, y1 = rect
+    a, b, c, d = (X(x0), Y(y1), Z(z_mm)), (X(x1), Y(y1), Z(z_mm)), (X(x1), Y(y0), Z(z_mm)), (X(x0), Y(y0), Z(z_mm))
+    up = (0.0, 0.0, 1.0)
+    return [((a, b, c), (up, up, up)), ((a, c, d), (up, up, up))]
+
+
+# ------------------------------------------------------------------ parts
+class Builder:
+    def __init__(self):
+        self.parts = {}  # name -> list of corners (p, n, colour, emissive, uv, roughness, metallic)
+
+    def add(self, name, tris, colour, roughness, metallic=0.0, uv=None):
+        """uv: optional function of a model-space point -> (u, v) (decal parts)."""
+        corners = self.parts.setdefault(name, [])
+        for ps, ns in tris:
+            for p, n in zip(ps, ns):
+                p = tuple(float(c) for c in p)
+                corners.append((p, tuple(float(c) for c in n), tuple(colour), 0.0, uv(p) if uv else (0.0, 0.0),
+                                roughness, metallic))
+
+    def add_corners(self, name, corners):
+        self.parts.setdefault(name, []).extend(corners)
+
+
+def model_space(parts):
+    """The legacy (name, matrix, pivot, verts, idx) list in model space, per triangle corner."""
+    out = {}
+    for name, matrix, pivot, verts, idx in parts:
+        m = np.array(matrix, dtype=np.float64).reshape(4, 4).T
+        v = np.array(verts, dtype=np.float64).reshape(-1, 14)
+        if len(v) == 0:
+            out[name] = []
+            continue
+        pos = v[:, 0:3] @ m[:3, :3].T + m[:3, 3]
+        nrm = v[:, 3:6] @ np.linalg.inv(m[:3, :3])
+        nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-20)
+        corners = []
+        for i in idx:
+            corners.append((tuple(pos[i]), tuple(nrm[i]), tuple(v[i, 6:9]), float(v[i, 9]), tuple(v[i, 10:12]),
+                            float(v[i, 12]), float(v[i, 13])))
+        out[name] = corners
+    return out
+
+
+def triangles(corners):
+    return [corners[i:i + 3] for i in range(0, len(corners), 3)]
+
+
+def split_body_and_legend(corners):
+    """The cap body is the colour of its walls; anything else on the part is legend."""
+    area = {}
+    for tri in triangles(corners):
+        p = np.array([c[0] for c in tri])
+        n = np.cross(p[1] - p[0], p[2] - p[0])
+        a = np.linalg.norm(n) / 2
+        if a > 0 and abs(n[2]) / (2 * a) < 0.5:  # a wall
+            area[tri[0][2]] = area.get(tri[0][2], 0.0) + a
+    body_colour = max(area, key=area.get)
+    body = [t for t in triangles(corners) if t[0][2] == body_colour]
+    legend = [t for t in triangles(corners) if t[0][2] != body_colour]
+    return body, legend, body_colour
+
+
+def seat_lamp(name, corners):
+    """Move a carried LED onto its ring in the front drawing (spec.LEDS) at the
+    drawn diameter; its height stays."""
+    tail = name[len(legacy.LAMP_PREFIX):]
+    if tail.startswith("aux_"):
+        index = 16 + int(tail[4:])
+    else:
+        row, col = (int(t) for t in tail.split("_"))
+        index = row * 4 + col
+    tx, ty = spec.LEDS[index]
+    p = np.array([c[0] for c in corners])
+    centre = (p[:, :2].min(axis=0) + p[:, :2].max(axis=0)) / 2
+    size = (p[:, 0].max() - p[:, 0].min())
+    s = (spec.LED_DIAMETER / 1000) / size if size > 0 else 1.0
+    out = []
+    for q, n, *rest in corners:
+        xy = (np.array(q[:2]) - centre) * s + np.array([X(tx), Y(ty)])
+        out.append(((float(xy[0]), float(xy[1]), q[2]), n, *rest))
+    return out
+
+
+def carry(corners, mode, scale, y_remap=None):
+    base = {"upper": UPPER, "deck": DECK}.get(mode)
+    out = []
+    for p, n, *rest in corners:
+        x, y, z = p
+        if base is not None:
+            z = base + (z - legacy.TOP_FACE) * scale
+        if y_remap is not None:
+            y = y_remap(y)
+        out.append(((x, y, z), n, *rest))
+    return out
+
+
+def decal_tiles():
+    """Every decal part's footprint (reference mm) and include inset (artwork/atlas.py)."""
+    cell = spec.CELL.mm
+    tiles = []
+    for name, col, row in spec.FULL_KEYS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        tiles.append(keys_atlas.Tile(name, (x, y, x + cell, y + cell), (1.0, 1.0)))
+    cw, ch = spec.SHORT_CAP
+    pw, ph = spec.PLATE
+    for cap, plate, col, row in spec.FUNCTION_CELLS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        tiles.append(keys_atlas.Tile(cap, (x + (cell - cw) / 2, y + 0.5, x + (cell + cw) / 2, y + 0.5 + ch), (0.6, 0.6)))
+        tiles.append(keys_atlas.Tile(plate, (x + (cell - pw) / 2, y + cell - ph, x + (cell + pw) / 2, y + cell), (1.0, 0.7)))
+    sx0, sx1 = spec.SMALL_KEY_X
+    for name, (y0, y1) in spec.SMALL_KEY_Y.items():
+        tiles.append(keys_atlas.Tile(name, (sx0, y0, sx1, y1), (1.0, 1.0)))  # past the drawn key border
+    for name, rect in spec.PORT_TABS.items():
+        tiles.append(keys_atlas.Tile(name, rect, (0.35, 0.35)))
+    return tiles
+
+
+def build_face(fills):
+    """The deck silkscreen: everything inked on the deck that is not a key, plate,
+    small key or knob (those parts carry their own artwork)."""
+    rects, discs = face_exclusions()
+    return face_atlas.build(fills, FACE_REGION, rects, discs)
+
+
+def face_exclusions():
+    """Where the face texture prints nothing: the parts' own areas."""
+    cell, m = spec.CELL.mm, 0.3
+    rects = []
+    for _, col, row in spec.FULL_KEYS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        rects.append((x - m, y - m, x + cell + m, y + cell + m))
+    for _, _, col, row in spec.FUNCTION_CELLS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        rects.append((x - m, y - m, x + cell + m, y + cell + m))
+    sx0, sx1 = spec.SMALL_KEY_X
+    for y0, y1 in spec.SMALL_KEY_Y.values():
+        rects.append((sx0 - 0.8, y0 - 0.8, sx1 + 0.8, y1 + 0.8))   # drawn borders run wider than the keys
+    # Above the step: nothing but the label plate (ports, speaker and screen are parts).
+    lx0, ly0, lx1, ly1 = LABEL_PLATE
+    rects.append((lx1 + 0.05, ly0 - 0.4, spec.WIDTH.mm, spec.STEP_Y.mm + 1.0))
+    rects.append((0.0, ly1 - 0.05, lx1 + 0.05, spec.STEP_Y.mm + 1.0))
+    for tx0, ty0, tx1, ty1 in spec.PORT_TABS.values():   # inserts carry their own lettering
+        rects.append((tx0 - 0.3, ty0 - 0.6, tx1 + 0.3, ty1 + 0.3))
+    px0, py0, px1, py1 = spec.POWER_SLIDER
+    rects.append((px0 - 0.5, py0, px1 + 0.5, py1 + 0.5))
+    rects.append(FADER_SLOT)
+    discs = [(x, y, spec.KNOB_DISC[0] / 2 + m) for x, y in spec.KNOBS.values()]
+    return rects, discs
+
+
+def check_artwork(fills, tiles, out_png, px_per_mm=6):
+    """--check (plan section 4.5): every inked pixel of TE's front drawing must be
+    a decal (inside a tile's include rectangle, or printed by the face texture),
+    or lie on a part that carries that colour itself (a cap, knob, insert, the
+    screen, the speaker). Anything else is unassigned. The overlay shows decal
+    ink green, part colour blue, unassigned red, over the drawing in grey."""
+    from artwork import inks, raster
+    from PIL import Image
+    region = (0.0, -5.0, spec.WIDTH.mm, spec.DEPTH.mm)
+    lab = raster.label_image(fills, region, px_per_mm, inks.classify)
+    h, w = lab.shape
+    ys = region[1] + (np.arange(h) + 0.5) / px_per_mm
+    xs = region[0] + (np.arange(w) + 0.5) / px_per_mm
+    yy, xx = np.meshgrid(ys, xs, indexing="ij")
+
+    def in_rects(rects):
+        m = np.zeros((h, w), bool)
+        for x0, y0, x1, y1 in rects:
+            m |= (xx >= x0) & (xx <= x1) & (yy >= y0) & (yy <= y1)
+        return m
+
+    ink = np.isin(lab, [inks.GREEN, inks.ORANGE, inks.WHITE, inks.CHARCOAL])
+    decal = np.zeros((h, w), bool)
+    for t in tiles.values():   # a tile prints every ink but its cap's own colour
+        inside = in_rects([(t.rect[0] + t.inset[0], t.rect[1] + t.inset[1], t.rect[2] - t.inset[0], t.rect[3] - t.inset[1])])
+        decal |= inside & ink & (lab != t.base)
+    rects, discs = face_exclusions()
+    face_keep = in_rects([FACE_REGION]) & ~in_rects(rects)
+    for cx, cy, r in discs:
+        face_keep &= (xx - cx) ** 2 + (yy - cy) ** 2 > r * r
+    decal |= face_keep & np.isin(lab, [inks.GREEN, inks.ORANGE])   # the face texture's two inks
+    # Parts that carry their own colour: caps and plates (whole cells), small keys,
+    # knobs, port inserts, the slider, the fader slot, the screen and the speaker.
+    cell = spec.CELL.mm
+    parts = [(spec.COLUMN_LEFT[c] - 0.5, spec.ROW_TOP[r] - 0.5, spec.COLUMN_LEFT[c] + cell + 0.5, spec.ROW_TOP[r] + cell + 0.5)
+             for _, c, r in spec.FULL_KEYS] + \
+            [(spec.COLUMN_LEFT[c] - 0.5, spec.ROW_TOP[r] - 0.5, spec.COLUMN_LEFT[c] + cell + 0.5, spec.ROW_TOP[r] + cell + 0.5)
+             for _, _, c, r in spec.FUNCTION_CELLS]
+    sx0, sx1 = spec.SMALL_KEY_X
+    parts += [(sx0 - 1.0, y0 - 1.0, sx1 + 1.0, y1 + 1.0) for y0, y1 in spec.SMALL_KEY_Y.values()]
+    parts += [(x0 - 0.6, y0 - 0.6, x1 + 0.6, y1 + 0.6) for x0, y0, x1, y1 in spec.PORT_TABS.values()]
+    px0, py0, px1, py1 = spec.POWER_SLIDER
+    wx0, wy0, wx1, wy1 = spec.WINDOW
+    parts += [(px0 - 1.0, py0 - 1.0, px1 + 1.0, py1 + 1.0), FADER_SLOT, (wx0, wy0, wx1, wy1 + 0.6), spec.SPEAKER,
+              (LABEL_PLATE[0], LABEL_PLATE[1] - 0.6, LABEL_PLATE[2] + 0.3, LABEL_PLATE[3])]
+    on_part = in_rects(parts)
+    for (x, y), d in zip(spec.KNOBS.values(), [spec.KNOB_DISC[0]] * 3):
+        on_part |= (xx - x) ** 2 + (yy - y) ** 2 <= (d / 2 + 0.6) ** 2
+    for x, y in spec.LEDS:
+        on_part |= (xx - x) ** 2 + (yy - y) ** 2 <= (spec.LED_DIAMETER / 2 + 0.6) ** 2
+    body = ink & ~decal & on_part
+    unassigned = ink & ~decal & ~on_part
+    img = np.full((h, w, 3), 235, np.uint8)
+    img[lab != inks.NONE] = (200, 200, 200)
+    img[decal] = (0, 150, 60)
+    img[body] = (60, 110, 220)
+    img[unassigned] = (230, 30, 30)
+    Path(out_png).parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(img).save(out_png)
+    empty = [t.name for t in tiles.values() if sum(t.ink_px.values()) == 0]
+    return int(unassigned.sum()) / px_per_mm ** 2, empty
+
+
+def build_atlas(artwork="te"):
+    """-> (tiles by part name, atlas height, level-0 atlas, preview, fills).
+    artwork "te": TE's front drawing; "neutral": OFL lettering and generic icons."""
+    if artwork == "neutral":
+        from artwork import neutral
+        fills = neutral.fills(spec)
+    else:
+        fills, _ = svg_import.load()
+    tiles = decal_tiles()
+    level0, preview = keys_atlas.build(fills, tiles)
+    return {t.name: t for t in tiles}, level0.shape[0], level0, preview, fills
+
+
+def build(usdz, tiles, atlas_height):
+    old = model_space(legacy.extract_parts(usdz))
+    b = Builder()
+
+    def decal_uv(name):
+        tile = tiles[name]
+        # model metres -> reference mm (the inverse of X and Y) -> atlas UV
+        return lambda p: keys_atlas.uv(tile, atlas_height, p[0] * 1000.0 + 88.0, 120.0 - p[1] * 1000.0)
+    cream, green, gap = legacy.CREAM, legacy.GREEN, legacy.GAP
+
+    # Chassis: the dark-green shell, then the cream body in two steps: the
+    # upper section (ports, label plate, speaker, screen) and the lower deck.
+    x0, x1 = X(0.0), X(spec.WIDTH.mm)
+    r = spec.CORNER_RADIUS.mm / 1000
+    groove = spec.SHELL_GROOVE.mm / 1000
+    b.add("chassis_base", slab(x0, x1, Y(spec.DEPTH.mm), Y(0.0), Z(0.0), Z(spec.SHELL_TOP.mm), r, groove, 0.0005), green, 0.45)
+    # The upper section: full height behind the screen; under the screen it
+    # stops just below the icon plane, and the acrylic closes it (D5).
+    wy0, wy1 = spec.WINDOW[1], spec.WINDOW[3]
+    floor_z = spec.LCD_Z.mm - 0.25       # the chassis under the screen
+    well_z = spec.LCD_Z.mm - 0.15        # the backlit floor round the LCD
+    # Behind the screen the body is four overlapping pieces round the speaker's
+    # opening, sharp-cornered where they meet so no seam shows on the walls.
+    W, R1 = spec.WIDTH.mm, spec.CORNER_RADIUS.mm
+    shell, upper_mm = spec.SHELL_TOP.mm, spec.UPPER_TOP.mm
+    tf, bf = spec.TOP_FILLET.mm, spec.SHELL_GROOVE.mm
+    ov = 2 * tf
+    rx0, ry0, rx1, ry1 = spec.SPEAKER_RECESS
+    upper = slab4((0.0, 0.0, W, ry0), shell, upper_mm, (R1, R1, 0, 0), tf, bf)                 # the port strip
+    upper += slab4((0.0, ry0 - ov, rx0, wy0), shell, upper_mm, (0, 0, 0, 0), tf, bf)            # behind the label
+    upper += slab4((rx1, ry0 - ov, W, ry1 + ov), shell, upper_mm, (0, 0, 0, 0), tf, bf)         # right of the speaker
+    upper += slab4((rx0 - ov, ry1, W, wy0), shell, upper_mm, (0, 0, 0, 0), tf, bf)              # in front of it
+    # Under the screen the body is the acrylic block itself: TE's side drawings
+    # show it green from the shell to the top, and its front is the step.
+    acrylic = slab4((0.0, wy0 - 0.5, W, spec.STEP_Y.mm), shell, floor_z, (0, 0, R1, R1), 0.0, bf)
+    # The opening's floor, low enough that it reads as depth between the slats.
+    upper += slab4((rx0 - ov, ry0 - ov, rx1 + ov, ry1 + ov), shell, upper_mm - spec.SPEAKER_DEPTH.mm, (0, 0, 0, 0), 0.0, bf)
+    inset = 0.00002  # the deck's walls just inside the upper section's where they overlap
+    lower = slab(x0 + inset, x1 - inset, Y(spec.DEPTH.mm), Y(spec.STEP_Y.mm - 1.0), Z(spec.SHELL_TOP.mm), DECK, r,
+                 spec.TOP_FILLET.mm / 1000, groove)
+    b.add("display_block", acrylic, legacy.GREEN, 0.15)
+    for ps, ns in upper + lower:
+        target = "chassis_topPlate" if np.mean([n[2] for n in ns]) > 0.5 else "chassis_edgeBand"
+        b.add(target, [(ps, ns)], cream, 0.62)
+
+    cell = spec.CELL.mm
+    def cell_centre(col, row):
+        return X(spec.COLUMN_LEFT[col] + cell / 2), Y(spec.ROW_TOP[row] + cell / 2)
+
+    key_h = spec.KEY_HEIGHT.mm / 1000
+    taper = (cell - spec.KEY_TOP.mm) / 1000
+    fillet = spec.KEY_FILLET.mm / 1000
+    corner = spec.KEY_CORNER.mm / 1000
+    g = spec.GAP.mm / 1000
+
+    def rebuild_key(name, cx, cy, w, h, height, well=True, well_size=None):
+        body, _legend, colour = split_body_and_legend(old[name])
+        roughness = min(body[0][0][5], CAP_ROUGHNESS)
+        top_w, top_h = w - taper, h - taper
+        b.add(name, keycap(cx, cy, w, h, DECK, DECK + height, top_w, top_h, corner, fillet), colour, roughness,
+              uv=decal_uv(name))
+        if well:
+            ww, wh = well_size or (w, h)
+            b.add(name + "_well", frame(cx, cy, ww, wh, g, DECK + 0.00002, corner), gap, 0.7)
+
+    for name, col, row in spec.FULL_KEYS:
+        cx, cy = cell_centre(col, row)
+        rebuild_key(name, cx, cy, cell / 1000, cell / 1000, key_h)
+
+    for cap, plate, col, row in spec.FUNCTION_CELLS:
+        cx, cy = cell_centre(col, row)
+        top = spec.ROW_TOP[row]
+        cw, ch = spec.SHORT_CAP
+        rebuild_key(cap, cx, Y(top + 0.5 + ch / 2), cw / 1000, ch / 1000, key_h, well=False)
+        pw, ph = spec.PLATE
+        body, _legend, colour = split_body_and_legend(old[plate])
+        pz = DECK + spec.PLATE_HEIGHT.mm / 1000
+        pcy = Y(top + cell - ph / 2)
+        b.add(plate, keycap(cx, pcy, pw / 1000, ph / 1000, DECK, pz, pw / 1000 - 0.0002, ph / 1000 - 0.0002,
+                            corner, 0.00015, fillet_steps=3), colour, body[0][0][5], uv=decal_uv(plate))
+        b.add(cap + "_well", frame(cx, cy, cell / 1000, cell / 1000, g, DECK + 0.00002, corner), gap, 0.7)
+
+    sx0, sx1 = spec.SMALL_KEY_X
+    for name, (y0, y1) in spec.SMALL_KEY_Y.items():
+        w, h = (sx1 - sx0) / 1000, (y1 - y0) / 1000
+        rebuild_key(name, X((sx0 + sx1) / 2), Y((y0 + y1) / 2), w, h, spec.SMALL_KEY_HEIGHT.mm / 1000)
+
+    # Knobs: a coloured disc, a frosted stem, a flat coloured cap; X has a dark collar.
+    stem_colour = legacy.srgb("#EDEBE3")
+    knob_colours = {"knob_volume": legacy.KEY_WHITE, "knob_x": legacy.ORANGE, "knob_y": legacy.GREEN}
+    disc_d, disc_h = spec.KNOB_DISC
+    stem_d, stem_from, stem_to = spec.KNOB_STEM
+    cap_d, cap_top = spec.KNOB_CAP
+    for name, (kx, ky) in spec.KNOBS.items():
+        cx, cy = X(kx), Y(ky)
+        colour = knob_colours[name]
+        b.add(name, cylinder(cx, cy, DECK, DECK + disc_h / 1000, disc_d / 2000, 0.0006), colour, 0.45)
+        b.add(name, cylinder(cx, cy, DECK + stem_from / 1000, DECK + stem_to / 1000, stem_d / 2000, 0.0002), stem_colour, 0.3)
+        b.add(name, cylinder(cx, cy, DECK + stem_to / 1000, DECK + cap_top / 1000, cap_d / 2000, 0.0008), colour, 0.42)
+        if name == "knob_x":
+            b.add(name, cylinder(cx, cy, DECK + disc_h / 1000, DECK + disc_h / 1000 + 0.0008, stem_d / 2000 + 0.0006, 0.0002),
+                  gap, 0.6)
+
+    # The upper section's inserts, from the front drawing: the label plate and
+    # the port strip's coloured inserts stand 0.15 mm proud; their lettering is
+    # printed (face texture and keys atlas).
+    proud = UPPER_TOP_MM + spec.INSERT_PROUD.mm
+    b.add("brand_panel", ref_slab(spec.LABEL_PLATE, UPPER_TOP_MM - 0.2, proud, 0.6, 0.1), legacy.LABEL, 0.40)
+    tab_colours = {"port_output_tab": legacy.LABEL, "port_input_tab": legacy.ORANGE, "port_sync_tab": legacy.GREEN,
+                   "port_midi_tab": legacy.GREEN, "port_usb_tab": legacy.KEY_BEIGE}
+    for name, rect in spec.PORT_TABS.items():
+        b.add(name, ref_slab(rect, UPPER_TOP_MM - 0.2, proud, 0.4, 0.08), tab_colours[name], 0.45, uv=decal_uv(name))
+
+    # The screen (D5): the icon plane at z 14.4 (the LCD's own image), a
+    # backlit floor of the same green round it, a dark carrier ring under the
+    # acrylic's edge, and the 1 mm acrylic window on top (drawn last, blended).
+    old_lcd = np.array([c[0] for c in old["display_surface"]])
+    lcd = (old_lcd[:, 0].min() * 1000 + 88, 120 - old_lcd[:, 1].max() * 1000,
+           old_lcd[:, 0].max() * 1000 + 88, 120 - old_lcd[:, 1].min() * 1000)
+    lcd = (lcd[0], max(lcd[1], wy0 + spec.BEZEL_WIDTH.mm + 0.4), lcd[2], min(lcd[3], wy1 - spec.BEZEL_WIDTH.mm - 0.4))
+    # UVs as the old asset had them: u along +x, v = 0 at the step side.
+    lcd_uv = lambda p, lcd=lcd: ((p[0] * 1000 + 88 - lcd[0]) / (lcd[2] - lcd[0]), (lcd[3] - (120 - p[1] * 1000)) / (lcd[3] - lcd[1]))
+    b.add("display_surface", ref_quad(lcd, spec.LCD_Z.mm), legacy.LABEL, 0.4, uv=lcd_uv)
+    # The floor samples the LCD image's own border (its plain backlit green).
+    b.add("display_well", ref_quad(spec.WINDOW, well_z), legacy.LABEL, 0.4, uv=lambda p: (0.002, 0.5))
+    bw = spec.BEZEL_WIDTH.mm
+    wx0, _, wx1, _ = spec.WINDOW
+    for ring in ((wx0, wy0, wx1, wy0 + bw), (wx0, wy1 - bw, wx1, wy1), (wx0, wy0, wx0 + bw, wy1), (wx1 - bw, wy0, wx1, wy1)):
+        b.add("display_bezel", ref_slab(ring, floor_z, spec.GLASS_Z[0] - 0.05, 0.05), legacy.GREEN, 0.15)  # the acrylic block's rim
+    glass = legacy.srgb("#1E6B4F")
+    b.add("display_glass", ref_slab(spec.WINDOW, spec.GLASS_Z[0], spec.GLASS_Z[1], r * 1000, 0.15), glass, 0.05)
+
+    # The speaker (front drawing): eleven 2 mm slats flush with the top over a
+    # 2 mm deep opening, the dark cone behind them, the mic hole in the last slat.
+    backing = UPPER_TOP_MM - spec.SPEAKER_DEPTH.mm
+    b.add("speaker_panel", ref_quad(spec.SPEAKER_RECESS, backing + 0.01), legacy.KEY_BEIGE, 0.7)
+    cx, cy, cr = spec.SPEAKER_CONE
+    cone = []
+    up3 = (0.0, 0.0, 1.0)
+    angles = np.linspace(0, 2 * math.pi, 72, endpoint=False)
+    zc = Z(backing + 0.02)
+    for a0, a1 in zip(angles, np.roll(angles, -1)):
+        p0 = (X(cx + cr * math.cos(a0)), Y(cy + cr * math.sin(a0)), zc)
+        p1 = (X(cx + cr * math.cos(a1)), Y(cy + cr * math.sin(a1)), zc)
+        cone.append((((X(cx), Y(cy), zc), p1, p0), (up3, up3, up3)))
+    b.add("speaker_panel", cone, gap, 0.8)
+    for sy0, sy1 in spec.SLATS:
+        b.add("speaker_grille", ref_slab((rx0 - 0.3, sy0, rx1 + 0.3, sy1), backing, UPPER_TOP_MM, 0.0, 0.2), legacy.LABEL, 0.5)
+    mx, my, mr = spec.MIC
+    mic = []
+    zm = Z(UPPER_TOP_MM + 0.01)
+    for a0, a1 in zip(angles, np.roll(angles, -1)):
+        p0 = (X(mx + mr * math.cos(a0)), Y(my + mr * math.sin(a0)), zm)
+        p1 = (X(mx + mr * math.cos(a1)), Y(my + mr * math.sin(a1)), zm)
+        mic.append((((X(mx), Y(my), zm), p1, p0), (up3, up3, up3)))
+    b.add("mic_port", mic, gap, 0.8)
+
+    # The fader: a dark slot in the deck and a frosted stem for its knob.
+    fx, fy0, fy1, fw = spec.FADER_SLOT
+    up3 = (0.0, 0.0, 1.0)
+    zs = DECK + 0.00002
+    # stadium_xz draws a slot along its first axis: here that axis is y.
+    long = stadium_xz((fy0 + fy1) / 2, fx, fy1 - fy0, fw, 12)        # (y, x) pairs
+    slot = [(X(x), Y(y), zs) for y, x in long]
+    c = (X(fx), Y((fy0 + fy1) / 2), zs)
+    tris = []
+    for i in range(len(slot)):
+        a, b2 = slot[i], slot[(i + 1) % len(slot)]
+        tris.append(((c, a, b2), (up3, up3, up3)))
+    b.add("fader_track", tris, gap, 0.8)
+    cx, cy, cd = spec.FADER_CAP
+    b.add("fader_cap", cylinder(X(cx), Y(cy), DECK, DECK + spec.FADER_CAP_TOP.mm / 1000, cd / 2000, 0.0006), stem_colour, 0.3)
+
+    # The port wall: the openings read as dark holes on the wall, not cylinders
+    # standing off it; the power slider's orange tab stands out of its slot.
+    sx0, sz0, sx1, sz1 = spec.PORT_STRIP
+    b.add("ports_strip", wall_shape([(sx0, sz0), (sx1, sz0), (sx1, sz1), (sx0, sz1)], 0.03), cream, 0.62)
+    # The inserts wrap down the wall (top-edge drawing), from the shell to the top.
+    for name in spec.WRAPPED_TABS:
+        tx0, _, tx1, _ = spec.PORT_TABS[name]
+        b.add(name, slab(X(tx0), X(tx1), Y(0.0) - 0.0002, Y(0.0) + spec.INSERT_PROUD.mm / 1000,
+                         Z(spec.SHELL_TOP.mm), Z(UPPER_TOP_MM + spec.INSERT_PROUD.mm), 0.0002, 0.0001, 0.0),
+              tab_colours[name], 0.45)
+    collar = {"port_output_socket": tab_colours["port_output_tab"], "port_input_socket": tab_colours["port_input_tab"],
+              "port_sync_socket": tab_colours["port_sync_tab"], "port_midi_socket": tab_colours["port_midi_tab"]}
+    wall = spec.INSERT_PROUD.mm
+
+    def disc_xz(x, z, r, n=40):
+        return [(x + r * math.cos(a), z + r * math.sin(a)) for a in np.linspace(0, 2 * math.pi, n, endpoint=False)]
+    for name, xs in spec.JACKS.items():
+        for x in xs:
+            b.add(name, wall_shape(disc_xz(x, spec.JACK_Z, spec.JACK_COLLAR), wall + 0.05), collar[name], 0.4)
+            b.add(name, wall_shape(disc_xz(x, spec.JACK_Z, spec.JACK_HOLE, 24), wall + 0.1), gap, 0.8)
+    ux, uz, uw, uh = spec.USB
+    b.add("ports_usb", wall_shape(stadium_xz(ux, uz, uw, uh), 0.1), gap, 0.8)
+    px0, pz0, px1, pz1 = spec.POWER_RECESS
+    b.add("port_power_switch", wall_shape(stadium_xz((px0 + px1) / 2, (pz0 + pz1) / 2, px1 - px0, pz1 - pz0), 0.1), gap, 0.8)
+    kx0, kz0, kx1, kz1 = spec.POWER_KNOB
+    out = spec.POWER_SLIDER[1] + 1.0   # the front drawing's tab, less its 1 mm outline stroke
+    b.add("port_power_switch", slab(X(kx0), X(kx1), Y(0.0), Y(out), Z(kz0), Z(kz1), 0.0006, 0.0003, 0.0003),
+          legacy.ORANGE, 0.45)
+
+    # Everything else is carried over, row by row.
+    rebuilt = set(b.parts) | {n for n in old if n.endswith("_well")} | {"halo_ring", "port_power_tab"}
+    screen_front, screen_back = Y(spec.SCREEN_FRONT_Y), None
+    for name, corners in old.items():
+        if name in rebuilt:
+            continue
+        if name.startswith(legacy.LAMP_PREFIX):
+            b.add_corners(name, seat_lamp(name, carry(corners, "deck", 1.0)))
+            continue
+        if name not in spec.CARRY_OVER:
+            raise SystemExit(f"{name}: not rebuilt and not in spec.CARRY_OVER")
+        mode, scale = spec.CARRY_OVER[name]
+        remap = None
+        b.add_corners(name, carry(corners, mode, scale, remap))
+
+    identity = [1.0 if r == c else 0.0 for c in range(4) for r in range(4)]
+    parts = [("halo_ring", identity, [0.0, 0.0, 0.0], [], [])]
+    # Glass last: the renderer draws everything before it opaque, then it blended.
+    names = [n for n in b.parts if n != "display_glass"] + ["display_glass"]
+    for name in names:
+        parts.append(legacy.pack_part(name, IdentityMatrix(), b.parts[name]))
+    return parts
+
+
+class IdentityMatrix:
+    """What pack_part reads from a Gf.Matrix4d: m[r][c]."""
+    def __getitem__(self, r):
+        return [1.0 if r == c else 0.0 for c in range(4)]
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("usdz")
+    ap.add_argument("--out", default="assets/stage/EP40.hmesh")
+    ap.add_argument("--atlas", default="assets/stage/ep40_keys_sdf.htex")
+    ap.add_argument("--face", default="assets/stage/ep40_face_sdf.htex")
+    ap.add_argument("--artwork", choices=["te", "neutral"], default="te",
+                    help="te: TE's own vector artwork (DD-006g); neutral: OFL faces and generic icons (plan D11)")
+    ap.add_argument("--check", action="store_true",
+                    help="fail on drawing ink assigned to no decal and no part; overlay at build/model/check_overlay.png")
+    ap.add_argument("--preview", default="build/model/keys_atlas.png", help="review image of the atlas ('' for none)")
+    a = ap.parse_args()
+    tiles, atlas_height, level0, preview, fills = build_atlas(a.artwork)
+    for t in tiles.values():
+        if sum(t.ink_px.values()) == 0:
+            raise SystemExit(f"{t.name}: no legend ink inside its include rectangle")
+    parts = build(a.usdz, tiles, atlas_height)
+    data = legacy.to_v3(parts, Path(a.usdz).name, decal_parts=set(tiles))
+    Path(a.out).write_bytes(data)
+    import htex_io
+    from artwork import sdf
+    Path(a.atlas).write_bytes(htex_io.write_htex(sdf.mips(level0), 3, channels=b"GOWC", flags=2))
+    print(f"wrote {a.atlas}: {level0.shape[1]} x {level0.shape[0]}, {len(tiles)} tiles")
+    if a.check:
+        area, empty = check_artwork(fills, tiles, "build/model/check_overlay.png")
+        print(f"check: {area:.2f} mm2 of ink assigned to nothing; empty legends: {empty or 'none'}")
+        if area > 1.0 or empty:
+            raise SystemExit("check failed (see build/model/check_overlay.png)")
+    face0, face_preview, face_ink = build_face(fills)
+    if min(face_ink) == 0:
+        raise SystemExit("deck silkscreen: an ink is empty")
+    Path(a.face).write_bytes(htex_io.write_htex(sdf.mips(face0), 2, channels=b"GO__", flags=2))
+    print(f"wrote {a.face}: {face0.shape[1]} x {face0.shape[0]}, region {FACE_REGION} mm")
+    if a.preview:
+        from PIL import Image
+        Path(a.preview).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(preview).save(a.preview)
+        Image.fromarray(face_preview).save(Path(a.preview).with_name("face_atlas.png"))
+    tris = sum(len(p[4]) for p in parts) // 3
+    print(f"wrote {a.out}: {len(parts)} parts, {tris} triangles, {len(data)} bytes")
+
+
+if __name__ == "__main__":
+    main()

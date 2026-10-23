@@ -1,9 +1,8 @@
 #include "Stage/StageComponent.h"
 #include "Core/Ep40MidiMapping.h"
 #include "Core/ToneCurves.h"
-#include "Stage/FacePrint.h"
 
-#include <HaloAssets.h>
+#include <HaloStageAssets.h>
 
 using namespace juce::gl;
 
@@ -30,7 +29,7 @@ namespace halo
         const juce::Vector3D<float> defaultKeyDir = juce::Vector3D<float> (-0.45f, 1.0f, 0.55f).normalised();
 
         // Attribute and output names, bound by index (HaloMesh's vertex layout).
-        const std::initializer_list<const char*> partAttributes { "aPos", "aNormal", "aColour", "aEmissive", "aUV", "aMaterial" };
+        const std::initializer_list<const char*> partAttributes { "aPos", "aNormal", "aUV", "aBytes" };
 
         using Mat = juce::Matrix3D<float>;
 
@@ -108,19 +107,6 @@ namespace halo
         juce::Vector3D<float> linear (juce::Colour c)
         {
             return { tone::srgbDecode (c.getFloatRed()), tone::srgbDecode (c.getFloatGreen()), tone::srgbDecode (c.getFloatBlue()) };
-        }
-
-        // Anisotropic filtering where the driver has it (8x), for decals seen
-        // at grazing angles.
-        void enableAnisotropy()
-        {
-            constexpr GLenum maxAnisotropy = 0x84FF, textureMaxAnisotropy = 0x84FE; // EXT/ARB_texture_filter_anisotropic
-            if (! juce::OpenGLHelpers::isExtensionSupported ("GL_EXT_texture_filter_anisotropic")
-                && ! juce::OpenGLHelpers::isExtensionSupported ("GL_ARB_texture_filter_anisotropic"))
-                return;
-            GLfloat limit = 1.0f;
-            glGetFloatv (maxAnisotropy, &limit);
-            glTexParameterf (GL_TEXTURE_2D, textureMaxAnisotropy, std::min (8.0f, limit));
         }
     }
 
@@ -384,7 +370,7 @@ namespace halo
         {
             const bool ok = targets.create (true, 4, log)
                 && partProgram.build (shaders, log, "part (HDR)", "part.vert", "part.frag", true, partAttributes, { "fragColour", "floorOut" })
-                && depthProgram.build (shaders, log, "depth", "depth.vert", "depth.frag", true, { "aPos" }, { "fragColour" })
+                && depthProgram.build (shaders, log, "depth", "depth.vert", "depth.frag", true, partAttributes, { "fragColour" })
                 && cardProgram.build (shaders, log, "card (HDR)", "fullscreen.vert", "card.frag", true, {}, { "fragColour" })
                 && resolveProgram.build (shaders, log, "resolve", "fullscreen.vert", "resolve.frag", true, {}, { "deviceOut", "floorResolved" })
                 && compositeProgram.build (shaders, log, "composite", "fullscreen.vert", "composite.frag", true, {}, { "fragColour" })
@@ -401,7 +387,7 @@ namespace halo
             targets.release();
             const bool ok = targets.create (false, 1, log)
                 && partProgram.build (shaders, log, "part (LDR)", "part.vert", "part.frag", false, partAttributes, { "fragColour" })
-                && depthProgram.build (shaders, log, "depth", "depth.vert", "depth.frag", false, { "aPos" }, { "fragColour" })
+                && depthProgram.build (shaders, log, "depth", "depth.vert", "depth.frag", false, partAttributes, { "fragColour" })
                 && backgroundProgram.build (shaders, log, "background", "fullscreen.vert", "background.frag", false, {}, { "fragColour" })
                 && cardProgram.build (shaders, log, "card (LDR)", "fullscreen.vert", "card.frag", false, {}, { "fragColour" })
                 && fxaaProgram.build (shaders, log, "fxaa", "fullscreen.vert", "fxaa.frag", false, {}, { "fragColour" });
@@ -478,55 +464,44 @@ namespace halo
 
     void StageComponent::newOpenGLContextCreated()
     {
-        mesh = HaloMesh::parse (HaloAssets::EP40_hmesh, (size_t) HaloAssets::EP40_hmeshSize);
-        mesh.upload();
-        meshLoaded = ! mesh.parts.empty();
-        partToModel.assign (mesh.parts.size(), Mat());
-
-        auto indexOf = [this] (std::string_view name)
         {
-            for (size_t i = 0; i < mesh.parts.size(); ++i)
-                if (mesh.parts[i].name == name)
-                    return (int) i;
-            return -1;
-        };
-        for (size_t i = 0; i < 12; ++i) padParts[i] = indexOf (ep40::gridPartNames[i]);
-        for (size_t i = 0; i < 4; ++i) groupParts[i] = indexOf (ep40::groupPartNames[i]);
-        displayPart = indexOf ("display_surface");
-        ringPart = indexOf ("halo_ring");
-        platePart = indexOf ("chassis_topPlate");
-
-        // Bounds of the parts that cast shadows: everything with triangles except
-        // the halo ring (an anchor; it used to reach 1.4 mm below the case and
-        // made the device float). The floor sits at their lowest point, and the
-        // camera fits their box, knobs included.
+            std::string error;
+            meshLoaded = mesh.parse (HaloStageAssets::EP40_hmesh, (size_t) HaloStageAssets::EP40_hmeshSize, error);
+            if (! meshLoaded)
+                log.line ("mesh: EP40.hmesh rejected: " + juce::String (error));
+        }
+        if (meshLoaded)
+            mesh.upload();
         {
-            juce::Vector3D<float> lo (1e9f, 1e9f, 1e9f), hi (-1e9f, -1e9f, -1e9f);
-            for (size_t p = 0; p < mesh.parts.size(); ++p)
+            std::string error;
+            if (! keysAtlas.upload (HaloStageAssets::ep40_keys_sdf_htex, (size_t) HaloStageAssets::ep40_keys_sdf_htexSize, error))
+                log.line ("decals: ep40_keys_sdf.htex rejected: " + juce::String (error));
+            if (! faceAtlas.upload (HaloStageAssets::ep40_face_sdf_htex, (size_t) HaloStageAssets::ep40_face_sdf_htexSize, error))
+                log.line ("decals: ep40_face_sdf.htex rejected: " + juce::String (error));
+        }
+
+        // Slots: the pads in grid order, then the group pads (the converter and
+        // the legacy loader assign them by name). Each turns about its own pivot.
+        slotPivots.fill ({});
+        for (const auto& part : mesh.model.parts)
+            if (part.slot != 0 && part.slot < (int) slotPivots.size())
+                slotPivots[part.slot] = { part.pivot[0], part.pivot[1], part.pivot[2] };
+
+        // Bounds of the parts that cast shadows (the anchors, like halo_ring,
+        // do not): the floor sits at their lowest point, and the camera fits
+        // their box, knobs included.
+        {
+            const auto& lo = mesh.model.boundsMin;
+            const auto& hi = mesh.model.boundsMax;
+            if (lo[0] < hi[0])
             {
-                const auto& part = mesh.parts[p];
-                if ((int) p == ringPart || part.indices.empty())
-                    continue;
-                for (size_t v = 0; v < part.vertices.size(); v += MeshPart::floatsPerVertex)
-                {
-                    const float* m = part.partToModel.mat; // column-major
-                    const float x = part.vertices[v], y = part.vertices[v + 1], z = part.vertices[v + 2];
-                    const juce::Vector3D<float> q (m[0] * x + m[4] * y + m[8] * z + m[12],
-                                                   m[1] * x + m[5] * y + m[9] * z + m[13],
-                                                   m[2] * x + m[6] * y + m[10] * z + m[14]);
-                    lo = { std::min (lo.x, q.x), std::min (lo.y, q.y), std::min (lo.z, q.z) };
-                    hi = { std::max (hi.x, q.x), std::max (hi.y, q.y), std::max (hi.z, q.z) };
-                }
-            }
-            if (lo.x < hi.x)
-            {
-                groundZ = lo.z;
+                groundZ = lo[2];
                 // Model (x, y, z) -> world (x, z, -y).
-                deviceBox = { { lo.x, lo.z, -hi.y }, { hi.x, hi.z, -lo.y } };
+                deviceBox = { { lo[0], lo[2], -hi[1] }, { hi[0], hi[2], -lo[1] } };
             }
-            log.line ("bounds (mm): x " + juce::String (lo.x * 1000.0f, 2) + ".." + juce::String (hi.x * 1000.0f, 2)
-                      + " y " + juce::String (lo.y * 1000.0f, 2) + ".." + juce::String (hi.y * 1000.0f, 2)
-                      + " z " + juce::String (lo.z * 1000.0f, 2) + ".." + juce::String (hi.z * 1000.0f, 2)
+            log.line ("bounds (mm): x " + juce::String (lo[0] * 1000.0f, 2) + ".." + juce::String (hi[0] * 1000.0f, 2)
+                      + " y " + juce::String (lo[1] * 1000.0f, 2) + ".." + juce::String (hi[1] * 1000.0f, 2)
+                      + " z " + juce::String (lo[2] * 1000.0f, 2) + ".." + juce::String (hi[2] * 1000.0f, 2)
                       + "; floor at z " + juce::String (groundZ * 1000.0f, 2));
         }
 
@@ -538,7 +513,9 @@ namespace halo
             glGetIntegerv (GL_SAMPLES, &samples);
             log.line ("GL_RENDERER=" + str (GL_RENDERER) + " GL_VERSION=" + str (GL_VERSION)
                       + " GL_VENDOR=" + str (GL_VENDOR) + " GL_SAMPLES=" + juce::String (samples) + " (window framebuffer)");
-            log.line ("mesh: " + juce::String ((int) mesh.parts.size()) + " parts");
+            log.line ("mesh: .hmesh v" + juce::String ((int) mesh.model.version) + ", " + juce::String ((int) mesh.model.parts.size())
+                      + " parts, " + juce::String ((int) mesh.model.materials.size()) + " materials, "
+                      + juce::String ((int) (mesh.model.indices.size() / 3)) + " triangles");
         }
         stats.create();
         stats.tracksLookups = true;
@@ -567,26 +544,27 @@ namespace halo
             };
             for (const auto& e : entries)
             {
-                const auto* part = mesh.find (e.part);
+                const auto* part = mesh.model.find (e.part);
                 if (part == nullptr)
                     continue;
-                std::map<std::array<float, 3>, double> area;
-                const auto& v = part->vertices;
-                constexpr size_t n = MeshPart::floatsPerVertex;
-                for (size_t t = 0; t + 2 < part->indices.size(); t += 3)
+                std::map<int, double> area;
+                const auto& vs = mesh.model.vertices;
+                const auto& is = mesh.model.indices;
+                for (size_t t = part->firstIndex; t + 2 < (size_t) part->firstIndex + part->indexCount; t += 3)
                 {
-                    const float* a = &v[part->indices[t] * n];
-                    const float* b = &v[part->indices[t + 1] * n];
-                    const float* c = &v[part->indices[t + 2] * n];
-                    const juce::Vector3D<float> ab (b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-                    const juce::Vector3D<float> ac (c[0] - a[0], c[1] - a[1], c[2] - a[2]);
-                    area[{ a[6], a[7], a[8] }] += 0.5 * (double) (ab ^ ac).length();
+                    const auto& a = vs[is[t]];
+                    const auto& b = vs[is[t + 1]];
+                    const auto& c = vs[is[t + 2]];
+                    const juce::Vector3D<float> ab (b.position[0] - a.position[0], b.position[1] - a.position[1], b.position[2] - a.position[2]);
+                    const juce::Vector3D<float> ac (c.position[0] - a.position[0], c.position[1] - a.position[1], c.position[2] - a.position[2]);
+                    area[a.material] += 0.5 * (double) (ab ^ ac).length();
                 }
                 auto best = std::max_element (area.begin(), area.end(),
                                               [] (const auto& x, const auto& y) { return x.second < y.second; });
                 if (best == area.end())
                     continue;
-                swatches.push_back ({ e.name, { best->first[0], best->first[1], best->first[2] } });
+                const auto& base = mesh.model.materials[(size_t) best->first].base;
+                swatches.push_back ({ e.name, { base[0], base[1], base[2] } });
             }
             if (debugView == 5)
             {
@@ -611,12 +589,10 @@ namespace halo
         glBufferData (GL_ARRAY_BUFFER, sizeof (quad), quad, GL_STATIC_DRAW);
         glEnableVertexAttribArray (0);
         glVertexAttribPointer (0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof (float), nullptr);
-        glEnableVertexAttribArray (4);
-        glVertexAttribPointer (4, 2, GL_FLOAT, GL_FALSE, 5 * sizeof (float), (const void*) (3 * sizeof (float)));
-        glDisableVertexAttribArray (1); glVertexAttrib3f (1, 0, 0, 1);
-        glDisableVertexAttribArray (2); glVertexAttrib3f (2, 0, 0, 0);
-        glDisableVertexAttribArray (3); glVertexAttrib1f (3, 0);
-        glDisableVertexAttribArray (5); glVertexAttrib2f (5, 1, 0);
+        glEnableVertexAttribArray (2);
+        glVertexAttribPointer (2, 2, GL_FLOAT, GL_FALSE, 5 * sizeof (float), (const void*) (3 * sizeof (float)));
+        glDisableVertexAttribArray (1); glVertexAttrib2f (1, 0, 0);       // octahedral (0, 0) = +Z
+        glDisableVertexAttribArray (3); glVertexAttrib4f (3, 0, 0, 0, 255); // material 0, slot 0 (static)
         glBindVertexArray (0);
 
         // The shadow map samples its depth texture with hardware comparison. The
@@ -668,27 +644,10 @@ namespace halo
                 log.line ("map target incomplete (" + juce::String (width) + "x" + juce::String (height) + ")");
             glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) previous);
         };
+        depthMapsValid = false;
         makeTarget (shadowTarget, shadowMapSize, shadowMapSize, true);
         makeTarget (heightTarget, 1024, juce::roundToInt (1024.0f * heightHalfY / heightHalfX), false);
 
-        // The face silkscreen, mipmapped so small print stays clean at a distance.
-        const auto print = FacePrint::render();
-       #if JUCE_DEBUG
-        if (const auto dump = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_DUMP_PRINT", {}); dump.isNotEmpty())
-        {
-            juce::File file (dump);
-            file.deleteFile();
-            if (juce::FileOutputStream out (file); out.openedOk())
-                juce::PNGImageFormat().writeImageToStream (print, out);
-        }
-       #endif
-        printTexture.loadImage (print);
-        printTexture.bind();
-        glGenerateMipmap (GL_TEXTURE_2D);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        enableAnisotropy();
-        printTexture.unbind();
 
        #if JUCE_DEBUG
         runToneSelfTest();
@@ -700,8 +659,9 @@ namespace halo
     void StageComponent::openGLContextClosing()
     {
         mesh.release();
+        keysAtlas.release();
         displayTexture.release();
-        printTexture.release();
+        faceAtlas.release();
         releasePrograms();
         targets.release();
         environment.release();
@@ -743,12 +703,10 @@ namespace halo
                 anim.led *= std::exp (-dt / ledDecayTau);
         }
 
-        for (size_t p = 0; p < mesh.parts.size(); ++p)
-            partToModel[p] = mesh.parts[p].partToModel;
+        // Pad travel as slot offsets (model space, along -Z).
+        slotOffsets.fill ({});
         for (size_t i = 0; i < 12; ++i)
-            if (padParts[i] >= 0)
-                partToModel[(size_t) padParts[i]] = then (mesh.parts[(size_t) padParts[i]].partToModel,
-                                                          translation (0, 0, -padAnim[i].depth));
+            slotOffsets[1 + i] = { 0.0f, 0.0f, -padAnim[i].depth };
     }
 
     // Depth-only pass of the whole device into `target`. The key light's map works
@@ -768,18 +726,11 @@ namespace halo
 
         depthProgram.use();
         depthProgram.setMat4 ("uViewProj", viewProj.mat);
-        const auto toWorld = modelToWorld();
-        for (size_t p = 0; p < mesh.parts.size(); ++p)
-        {
-            if ((int) p == ringPart || mesh.parts[p].indices.empty()) // anchors never cast
-                continue;
-            const auto m = partsInWorld ? then (partToModel[p], toWorld) : partToModel[p];
-            depthProgram.setMat4 ("uModel", m.mat);
-            glBindVertexArray (mesh.parts[p].vao);
-            ++stats.geometryDraws;
-            glDrawElements (GL_TRIANGLES, (GLsizei) mesh.parts[p].indices.size(), GL_UNSIGNED_INT, nullptr);
-        }
-        glBindVertexArray (0);
+        setSlotUniforms (depthProgram);
+        const Mat identity;
+        depthProgram.setMat4 ("uModel", partsInWorld ? modelToWorld().mat : identity.mat);
+        ++stats.geometryDraws;
+        mesh.draw();
         glDisable (GL_POLYGON_OFFSET_FILL);
     }
 
@@ -902,42 +853,52 @@ namespace halo
         const auto green = linear (cueGreen.brighter (0.6f));
         partProgram.setMat4 ("uViewProj", viewProj.mat);
 
-        for (int p = 0; p < (int) mesh.parts.size(); ++p)
+        // Halo cues on the device, per slot: a struck pad's glow, the active group.
+        std::array<juce::Vector3D<float>, Hmesh::maxSlots> glow {};
+        for (size_t i = 0; i < 12; ++i)
+            glow[1 + i] = orange * (padAnim[i].led * 0.9f);
+        for (size_t g = 0; g < 4; ++g)
+            if (state.displayLive && state.activeGroup && (size_t) *state.activeGroup == g)
+                glow[13 + g] = green * 0.35f;
+        static const auto glowNames = []
         {
-            const auto& part = mesh.parts[(size_t) p];
-            if (p == ringPart || part.indices.empty()) // the ring is a floor pool now; anchors draw nothing
-                continue;
-            const auto& local = partToModel[(size_t) p];
-            juce::Vector3D<float> glow;
-            int kind = 0;
+            std::array<std::string, Hmesh::maxSlots> names;
+            for (size_t i = 0; i < names.size(); ++i)
+                names[i] = "uSlotGlow[" + std::to_string (i) + "]";
+            return names;
+        }();
+        for (size_t i = 0; i < glow.size(); ++i)
+            partProgram.set (glowNames[i].c_str(), glow[i].x, glow[i].y, glow[i].z);
 
-            for (size_t i = 0; i < 12; ++i)
-                if (padParts[i] == p)
-                    glow = orange * (padAnim[i].led * 0.9f);
+        // One draw: the LCD and the printed deck are told apart by their
+        // materials' flags, moving parts by their slots.
+        glActiveTexture (GL_TEXTURE0);
+        if (displayTexture.getTextureID() != 0)
+            displayTexture.bind();
+        partProgram.setMat4 ("uModel", toWorld.mat);
+        partProgram.set ("uKind", 0);
+        setSlotUniforms (partProgram);
+        ++stats.geometryDraws;
+        mesh.draw();
 
-            for (size_t g = 0; g < 4; ++g)
-                if (groupParts[g] == p && state.displayLive && state.activeGroup && (size_t) *state.activeGroup == g)
-                    glow = green * 0.35f;
-
-            if (p == displayPart && displayTexture.getTextureID() != 0)
-            {
-                kind = 1;
-                glActiveTexture (GL_TEXTURE0);
-                displayTexture.bind();
-            }
-            if (p == platePart)
-                kind = 4;
-
-            partProgram.setMat4 ("uModel", then (local, toWorld).mat);
-            partProgram.setMat4 ("uPartToModel", local.mat);
-            partProgram.set ("uKind", kind);
-            partProgram.set ("uGlow", glow.x, glow.y, glow.z);
-
-            glBindVertexArray (part.vao);
+        // The screen acrylic (D5), after everything opaque: it adds its
+        // reflection and lets the LCD through (rgb added, alpha = transmittance),
+        // leaving depth and the device mask's alpha alone.
+        if (mesh.hasGlass() && debugView == 0)
+        {
+            glEnable (GL_BLEND);
+            // Low tier: display values, so a screen blend (src x (1 - dst)) that
+            // rolls the sheen off over bright icons instead of clipping them.
+            if (tierName == "low")
+                glBlendFuncSeparate (GL_ONE_MINUS_DST_COLOR, GL_SRC_ALPHA, GL_ZERO, GL_ONE);
+            else
+                glBlendFuncSeparate (GL_ONE, GL_SRC_ALPHA, GL_ZERO, GL_ONE);
+            glDepthMask (GL_FALSE);
             ++stats.geometryDraws;
-            glDrawElements (GL_TRIANGLES, (GLsizei) part.indices.size(), GL_UNSIGNED_INT, nullptr);
+            mesh.drawGlass();
+            glDepthMask (GL_TRUE);
+            glDisable (GL_BLEND);
         }
-        glBindVertexArray (0);
     }
 
     void StageComponent::renderOpenGL()
@@ -1057,6 +1018,24 @@ namespace halo
         });
     }
 
+    void StageComponent::setSlotUniforms (GlProgram& program)
+    {
+        static const auto names = []
+        {
+            std::array<std::array<std::string, 3>, Hmesh::maxSlots> n;
+            for (size_t i = 0; i < n.size(); ++i)
+                n[i] = { "uSlotOffset[" + std::to_string (i) + "]", "uSlotRot[" + std::to_string (i) + "]",
+                         "uSlotPivot[" + std::to_string (i) + "]" };
+            return n;
+        }();
+        for (size_t i = 0; i < names.size(); ++i)
+        {
+            program.set (names[i][0].c_str(), slotOffsets[i].x, slotOffsets[i].y, slotOffsets[i].z);
+            program.set (names[i][1].c_str(), 0.0f, 0.0f, 0.0f, 1.0f); // pads travel straight down: no rotation yet
+            program.set (names[i][2].c_str(), slotPivots[i].x, slotPivots[i].y, slotPivots[i].z);
+        }
+    }
+
     void StageComponent::setPartUniforms (const StageView& camera, const Mat& lightViewProj)
     {
         glActiveTexture (GL_TEXTURE1);
@@ -1064,14 +1043,17 @@ namespace halo
         glActiveTexture (GL_TEXTURE2);
         glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
         glActiveTexture (GL_TEXTURE3);
-        glBindTexture (GL_TEXTURE_2D, printTexture.getTextureID());
+        glBindTexture (GL_TEXTURE_2D, faceAtlas.texture);
         glActiveTexture (GL_TEXTURE0);
 
         partProgram.use();
         partProgram.set ("uTexture", 0);
         partProgram.set ("uShadowMap", 1);
         partProgram.set ("uHeightMap", 2);
-        partProgram.set ("uPrint", 3);
+        partProgram.set ("uFaceAtlas", 3);
+        partProgram.set ("uFaceAtlasOn", faceAtlas.valid() ? 1 : 0);
+        // tools/model/build_ep40.py FACE_REGION: the whole top, port edge to front edge, reference mm.
+        partProgram.set ("uFaceRect", 0.0f, 0.0f, 176.0f, 240.0f);
         partProgram.set ("uEye", camera.eye.x, camera.eye.y, camera.eye.z);
         partProgram.setMat4 ("uLightViewProj", lightViewProj.mat);
         partProgram.set ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));
@@ -1083,6 +1065,14 @@ namespace halo
         glActiveTexture (GL_TEXTURE5);
         glBindTexture (GL_TEXTURE_2D, environment.brdfLut());
         glActiveTexture (GL_TEXTURE0);
+        glActiveTexture (GL_TEXTURE6);
+        glBindTexture (GL_TEXTURE_2D, mesh.materials);
+        glActiveTexture (GL_TEXTURE7);
+        glBindTexture (GL_TEXTURE_2D, keysAtlas.texture);
+        glActiveTexture (GL_TEXTURE0);
+        partProgram.set ("uMaterials", 6);
+        partProgram.set ("uKeyAtlas", 7);
+        partProgram.set ("uKeyAtlasOn", keysAtlas.valid() ? 1 : 0);
         partProgram.set ("uEnv", 4);
         partProgram.set ("uBrdfLut", 5);
         partProgram.set ("uEnvMaxMip", environment.maxMip());
@@ -1125,10 +1115,24 @@ namespace halo
         const auto lightViewProj = keyLightViewProj (keyDirection);
         animatePads (state, dt);
         glDisable (GL_BLEND);
-        drawDepth (shadowTarget, lightViewProj, true);
-        drawDepth (heightTarget, heightProjection (groundZ), false);
-        glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
-        glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
+        std::array<float, 3 + 3 * Hmesh::maxSlots> inputs {};
+        inputs[0] = keyDirection.x; inputs[1] = keyDirection.y; inputs[2] = keyDirection.z;
+        for (size_t i = 0; i < slotOffsets.size(); ++i)
+        {
+            inputs[3 + 3 * i] = slotOffsets[i].x;
+            inputs[4 + 3 * i] = slotOffsets[i].y;
+            inputs[5 + 3 * i] = slotOffsets[i].z;
+        }
+        if (! depthMapsValid || inputs != depthInputs)
+        {
+            drawDepth (shadowTarget, lightViewProj, true);
+            drawDepth (heightTarget, heightProjection (groundZ), false);
+            glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
+            glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
+            depthInputs = inputs;
+            depthMapsValid = true;
+            ++stats.depthRenders;
+        }
         glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer); // the passes below output here
 
         const auto frame = targets.prepare (w, h, nowSeconds, log);

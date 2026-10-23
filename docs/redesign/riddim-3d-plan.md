@@ -1400,3 +1400,199 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   without the sheen; `compare_shots.py glass` reports the sheen's lift, its peak and the LCD's
   fine detail under it. Now: peak channel 241-242 (no clipping), mean lift 20-22 / 255, LCD detail
   under the sheen 82-88 % of the bare screen in all eight shots (target >= 60 %).
+
+### M4 (hmesh v3 and single draw)
+
+- `assets/stage/EP40.hmesh` v3 (1.97 MB, was 3.4 MB as v2): 19 materials, 45,724 vertices, 71,786
+  triangles, 16 slots. The converter is byte-deterministic (two runs, same SHA-256 546908ae...).
+  Deviation: the v3 header is the shared 32-byte chunk-container header with bounds in a `HEAD`
+  chunk (one parser for every data file), and a material record is 72 bytes (the plan's fields do
+  not fit in 64).
+- The stage draws the device in **one** call (geometry draws per frame: 3 in all, shadow + height
+  + main, was 357); pads move by slot uniforms in the vertex shaders; the LCD and the printed deck
+  are found by material flags. The v2 asset is deleted.
+- `m4` against the pre-M4 renderer in the same app (`hero`, `keys`, `low`, `top`, `card`, both
+  looks): mean ΔE 0.00 everywhere, worst pixel 1.44 (limit: mean < 1, nothing above 3).
+- Tests: `HmeshFormatTests` (round trip, every rejection, unknown chunks, legacy v1/v2, 2000
+  corruptions, the shipped asset's contract names, slots and anchors); Python `test_hmesh_io`
+  (round trip, byte determinism, octahedral normals, shipped asset).
+
+### M5a/M5b geometry (keys, step, function cells, knobs) - shots verified
+
+- `tools/model/build_ep40.py` rebuilds the body and every key from `tools/model/ep40/spec.py`
+  (each value tagged with its source; all heights measured from TE's side drawings at 0.600 mm
+  per unit): a 3.17 mm shell band, the deck at 12.83 mm, the upper body stepped up to 15.96 mm
+  from y 104, 3.21 mm keys with 0.7 mm top fillets in near-black apertures, function cells as a
+  short cap over a flat 0.2 mm plate, small keys, and knob towers (16 mm disc, 8.07 mm stem, cap
+  top at 11.2 mm). Display, label plate, speaker and port tabs are carried over from the old
+  asset, scaled onto the new heights. `lint.py`: 0 failures, 81,418 triangles.
+- Shots `m5` (hero, keys, low, edge, top, hit; dark and paper) all render; the device now reads
+  as the low, stepped EP-40 rather than the tall Blender block. Compared with `m4` it is a new
+  model by design, so no pixel diff is gated.
+- Highlight on the caps: the specular anti-aliasing widened a 1-2 px fillet to roughness ~0.65,
+  so no edge caught the key. The widening is capped at 0.04 (was 0.18) and caps are satin 0.30
+  (was 0.45). `regions` on `m5r2` hero: PLAY 1.33 (ok); RECORD 1.11 (still under 1.25: its top
+  already sits on the tone shoulder at R 245, so the line of light cannot add much luminance).
+  Deck L* 85.8, gaps 9.3 (both ok). The `small` shot shows no fillet sparkle.
+- Glass sheen re-check (`m5glass`, hero and keys, both looks): peak channel 241-242, LCD detail
+  under the sheen 85-87 % of bare (ok).
+- Open for G2: pad 7's carried-over legend reads as "=", cap and plate legends are too small to
+  read and not TE's lettering (decal atlas, M5b remainder), the VOLUME label sits partly under
+  its knob.
+
+### M5b remainder: the keys' decal atlas (TE's own legends)
+
+- `tools/model/artwork/` (`svg_import`, `raster`, `inks`, `sdf`, `atlas`): TE's front drawing is
+  flattened into reference-mm polygons (fills only; strokes, outlines and the frame dropped),
+  rasterised in painter's order with each path's own fill rule at 48 px/mm, classified into the
+  four inks, and cut into one tile per decal part (20 full keys, 7 short caps, 7 plates, 3 small
+  keys). Per tile only ink inside the part's include rectangle that differs from the cap colour
+  is kept. SDF per ink (R green, G orange, B white, A charcoal), +-8 texels, compiler-built mips.
+- `assets/stage/ep40_keys_sdf.htex`: 2048 x 592 RGBA8 at 12 texels/mm (6.4 MB with mips).
+  Deviation: the plan's 2048 squared at 16 px/mm would be 22 MB embedded for no visible gain; the
+  four-tap shader keeps 0.3 mm strokes legible at `top` framing. Review image:
+  `build/model/keys_atlas.png`.
+- Caps carry planar UVs of their rest-pose XY into their tile and vertex mask bit 0;
+  `part.frag` prints the four inks (coverage from the SDF over one pixel, four sub-pixel taps,
+  roughness +0.08 under ink); `Source/Stage/DecalAtlas.{h,cpp}` uploads it raw with its mips and
+  8x anisotropy. The carried-over geometric legends are gone (81,418 -> 63,318 triangles).
+- Every pad now shows TE's chunky numerals, the conga, headstock, keys and ball, and every
+  function cap and plate its lettering (`m5b` shots). `build_ep40.py` fails if any decal tile is
+  empty; `HaloTests` checks the atlas (RGBA8 SDF, full mip chain) and ink under every pad top.
+- Measured (`m5b` hero, both looks): deck L* 85.8, gaps 9.3, PLAY 1.34 ok, RECORD 1.11 (open).
+
+### M7 (partial): the deck silkscreen from TE's drawing; FacePrint.h deleted
+
+- `tools/model/artwork/face.py`: the deck from the step (y 104) to the front edge, cut from the
+  same front drawing, minus every key, plate, small key, knob disc, the screen edge and the
+  drawn fader slot (its tick stays). Two inks (R green, G orange), SDF +-8 texels, mips.
+  `assets/stage/ep40_face_sdf.htex`: 1408 x 1088 RG8 at 8 texels/mm (4.1 MB with mips).
+- `part.frag` prints it on the deck's decal target (model XY -> reference mm -> `uFaceRect`)
+  with the same four-tap SDF coverage as the keys (`inkCover`). `Source/Stage/FacePrint.h`
+  (the JUCE-font stand-in) is deleted: VOLUME, LIVE, BPM / METRONOME, GAIN, SWING, the parameter
+  names, X and Y are now TE's own lettering and positions.
+- Raster speed-up: each subpath is drawn only into its own pixel box (keys atlas unchanged but
+  for 1-LSB rounding on one texel in a million).
+- Not yet: the label plate (RIDDIM wordmark), port strip and side-wall icon are still the
+  carried-over geometry; neutral mode (`artwork/neutral.py`) not started; the LEVEL/PITCH
+  readability gate (L* difference >= 30) not measured.
+- Label plate (shots pending): the face texture now starts at the label plate (y 8); above
+  the step only the drawn plate (0..119.55 x 8.57..56.50 mm) is printed, so RIDDIM, SUPERTONE
+  and ORIGINAL LAYERING MACHINE are TE's own wordmark and lettering. `brand_panel` keeps its
+  body only and its material is a decal target (53,915 triangles). Face texture 1408 x 1856 RG8
+  (7 MB with mips). Verified in `m7b` (hero, top, keys, low; both looks): the wordmark,
+  SUPERTONE and the strapline sit where `c_top.png` has them.
+
+### M5 follow-up: the cap highlight gate, re-measured
+
+- `regions` now gates the light the fillet adds in **linear** luminance (p99.5 minus median
+  over the cap) instead of the display-value peak/median ratio. Reason, measured on TE's own
+  photo `c_keys.png` with the same method: SAMPLE's (orange) edge shows a 1.14 ratio but
+  +0.076 linear, TIMING's (green) 1.73 and +0.107. The same line of light adds the same radiance
+  to every cap, so a display ratio of 1.25 is out of reach for a bright saturated orange even in
+  the photograph. The new gate is >= 0.06 (TE photo 0.076-0.107); the old ratio is still printed.
+- Now: PLAY +0.079 at `hero` (ok), RECORD **+0.046 (still fails)**; at `keys` +0.051 / +0.052.
+- Tried and rejected (each moves RECORD only to +0.050-0.058): orange albedo #E24C10, the
+  photo-calibrated #FC4609 (same deck-to-photo rule as the cream), cap roughness 0.22. The
+  shortfall is the studio's rim reflection: at hero elevation the cap tops mirror the bright
+  back of the studio (Fresnel ~0.045 x radiance ~1.2), a white veil of ~+0.055 linear that lifts
+  RECORD from TE's (240, 67, 9) to (245, 111, 80) and leaves its red channel on the tone
+  shoulder. Reducing that veil is a look decision (rim intensity / studio layout) for the owner;
+  TE's own angled photo (a print, product page) also shows RECORD and SAMPLE salmon at angle.
+- Short-cap lettering: TE's face is light. In the angled product photo SOUND, MAIN and EDIT are
+  barely legible at that distance, so the SDF is printed at its true weight (no bias).
+
+### M6 (partial): the upper section from TE's drawing, and the screen per D5
+
+- `spec.py` gains the upper section's rectangles, read from the front drawing's fills: label
+  plate, speaker panel, mic hole, the screen window (edge to edge, y 56.5 to the step), the
+  port-strip inserts and the power slider.
+- **Screen (D5):** the upper body stops under the window; the LCD image is a plane at z 14.4;
+  round it a backlit floor samples the LCD image's own border green; a dark 0.8 mm carrier ring
+  sits under the acrylic's edge; `display_glass` (z 15.0-16.0, kind glass, material flag glass)
+  is the last range of the index buffer. The renderer draws everything else opaque (shadow,
+  height and main passes), then the glass once, blended `ONE, SRC_ALPHA` (alpha kept), with no
+  depth write: its sheen (same `uGlassSheen` / `uGlassPeak` roll-off as before) and tinted edges
+  over the recessed LCD, so the icons now sit 1.6 mm under the window and shift against its
+  frame when the camera moves. Geometry draws per frame: 4 (was 3).
+- **Label plate and port strip:** `brand_panel` is a 0.15 mm proud plate at the drawing's
+  rectangle (its lettering in the face texture); the port inserts (OUTPUT white, INPUT orange,
+  SYNC / MIDI green, USB beige) are 0.15 mm proud slabs with their lettering as decals in the
+  keys atlas (42 tiles, 2048 x 704); POWER and the strip are printed by the face texture, which
+  now covers the whole top (1408 x 1920 RG8). The carried tabs (1.4 mm proud, 3D lettering) and
+  `port_power_tab` are gone. The carried speaker is fitted onto the drawn panel (it sat 5 mm
+  toward the screen) and the mic hole moved to the drawing's position.
+- Glass re-check (`m6glass`, hero and keys, both looks): peak channel 241-244, LCD detail under
+  the sheen 78-81 % of bare (ok); mean lift 31-35 / 255 (was 20-22: the window now spans the
+  full width and its edges show). Low tier: the blended sheen reads stronger than High.
+- Lint 0 failures, 62,128 triangles; HaloTests pass.
+- Not yet (M6): jack, USB-C and power-recess openings in the port wall, the speaker rebuilt flush
+  (its carried slats still stand ~0.6 mm proud), the fader, LEDs re-seated, the side seam where
+  the window band meets the rear body.
+
+### Review decisions (coordinator, delegated by the owner)
+
+- **RECORD highlight gate: waived: matches reference photo.** RECORD's fillet adds +0.046 linear
+  at `hero` (gate 0.06). TE's own angled product photo shows RECORD and SAMPLE with the same
+  salmon cast; the studio rim / veil is kept as it is and is not reduced to pass the gate.
+- **Screen haze after ad5d8cd (fixed).** The window read milky (mean lift 31-35 / 255). Cause:
+  the acrylic slab's underside, seen through its top, was drawn too (two-sided lighting flips
+  its normal up), so the sheen was added twice. The glass pass now drops faces whose model
+  normal points down. The Low tier added the sheen tone mapped on its own (the curve's toe made
+  it several times too strong); it now adds the increment the sheen makes over the LCD's
+  backlight level, screen-blended (`ONE_MINUS_DST_COLOR`) so bright icons roll off instead of
+  clipping.
+  - High (`m6glass2`, hero and keys, both looks): mean lift 19.8-21.8, peak 240-241, LCD detail
+    under the sheen 83-87 % (targets <= 24 and >= 82 %).
+  - Low (`m6glow`): mean lift 18.9-21.1, peak 227-233, detail 92-94 %.
+  - The 1.6 mm parallax and the tinted window edges are unchanged.
+
+### M6 remainder: port wall, speaker, fader, LEDs, the acrylic block
+
+- **Port wall** from TE's top-edge drawing (6903449b..., 0.238 mm per unit, mirrored as seen
+  from behind): six 3.5 mm jacks with coloured collars (OUTPUT 16, INPUT 48, SYNC 72 / 80,
+  MIDI 88 / 96 mm), USB-C at 136, the power slot 155-165 with the orange slider standing out
+  3.8 mm. The OUTPUT, INPUT and SYNC / MIDI inserts wrap from the top down the wall as drawn
+  (the carried jacks were at 16 / 43 / 67 / 91 and stood 4 mm off the wall).
+- **Speaker** from the front drawing: eleven 2 mm slats flush with the top at a 4 mm pitch
+  over a 2 mm opening, the dark 40 mm cone behind them, the mic hole in the last slat. The
+  upper body is now four overlapping pieces round the opening (`slab4`, per-corner radii,
+  overlapping by twice the fillet so no groove shows), which also removed the seam on the side
+  walls where the screen band met the rear body.
+- **Fader:** a dark 2.5 mm slot (front drawing) and a frosted 7.9 mm stem, 9 mm tall (estimate,
+  from TE's angled photo). **LEDs:** the 18 carried lamps moved (<= 0.4 mm) onto the drawing's
+  rings at 2.15 mm.
+- **Acrylic block:** TE's side drawings show the screen band green from the shell to the top;
+  under the screen the body is now the green acrylic block (`display_block`) and its rim.
+- `CARRY_OVER` is empty: every part is built from the drawings except the LED lamps' own
+  geometry. Lint 0 failures, 78,184 triangles.
+- Parallax (M6 accept): by construction the icon plane is 1.6 mm under the window top and
+  shifts against its frame between yaw settings; not measured with an image test.
+- Not done: the battery icon on the -X wall and the five small discs TE draws on the side walls
+  (their meaning is unclear from the drawing).
+- **LEVEL / PITCH readability (M7 gate):** at `hero` the darkest LEVEL strokes are dL* 29-30
+  against the deck (gate >= 30, borderline); PITCH could not be isolated from the key behind it
+  with a box measurement. TE's lettering is thin at that distance; it is printed at its true
+  weight.
+
+### M7 remainder: --check and neutral mode; M8 (started): cached depth maps
+
+- `build_ep40.py --check` rasterises TE's front drawing and classifies every inked pixel:
+  decal ink (inside a tile's include rectangle and not its cap's colour, or printed by the face
+  texture), a part's own colour (caps, plates, knobs, inserts, slider, fader slot, LEDs, screen,
+  speaker, label plate), or unassigned. It fails above 1 mm2 unassigned or on an empty legend;
+  now 0.06 mm2 (raster edge slivers). Overlay: `build/model/check_overlay.png`.
+- `--artwork neutral` (`artwork/neutral.py`, D11): the same layout set in Inter Tight and
+  Lexend Exa (OFL, `assets/fonts`) with generic group icons and Halo's own label plate, through
+  the same atlas and face pipeline (tiles keep every ink when the artwork paints no cap colour).
+  The TE build is byte-identical to before. Shot `m7neutral`: no TE lettering, numerals,
+  illustrations or wordmark on the keys, deck, inserts or label. The LCD's icon art is the
+  display texture's (M9) and is not covered by this switch yet.
+- Not done in M7: the -X wall battery icon; the per-frame legend flicker test; the DD-006g line
+  in `docs/plan.md` (that file has no decision log; DD-006g stays recorded in D11 here).
+- **M8, cached depth maps:** the shadow and height maps depend only on the key direction and
+  the slots' offsets, so they are re-rendered only when one changes. Camera orbits re-render
+  nothing; `HALO_STAGE_STATS` reports `depth_renders` (1 in 280 frames at rest, hero, Debug
+  GPU p50 0.229 ms). Stage pixels identical to the uncached build.
+- M8 not done: baked vertex and deck AO (and deleting the height-map AO), PCSS-lite and the
+  analytic contact term, PA66 grain, glass clearcoat and stem transmission, floor reflection.

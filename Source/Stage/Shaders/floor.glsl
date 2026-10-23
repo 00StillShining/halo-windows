@@ -5,7 +5,7 @@
 // Distance from the case's rounded footprint (0 inside).
 float footprintGap (vec2 modelXY, vec2 deviceSize)
 {
-    const float corner = 0.0052;
+    const float corner = 0.001; // the case's nearly sharp vertical edges (spec.CORNER_RADIUS)
     vec2 q = abs (modelXY) - (deviceSize * 0.5 - corner);
     return max (length (max (q, 0.0)) + min (max (q.x, q.y), 0.0) - corner, 0.0);
 }
