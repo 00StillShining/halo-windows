@@ -88,6 +88,13 @@ PORT_TABS = {                                     # coloured inserts on the port
     "port_usb_tab": (127.60, 0.53, 143.60, 8.57),
 }
 POWER_SLIDER = (153.6, -4.8, 161.5, 0.9)          # svg-path: the orange slider, past the port edge
+# The port wall (y = 0), x and z in reference mm. Positions as the old asset had
+# them ("carried": its Blender sockets), pending the top-edge drawing (6903449b...).
+JACKS = {"port_output_socket": 16.4, "port_input_socket": 43.1, "port_sync_socket": 67.2, "port_midi_socket": 90.6}
+JACK_Z, JACK_RADIUS = 8.5, 3.2                    # carried: 6.4 mm openings
+USB = (125.65, 9.0, 9.0, 3.4)                     # carried centre; USB-C opening 9.0 x 3.4 (estimate)
+POWER_RECESS = (151.0, 6.75, 164.0, 11.25)        # carried: the slider's slot
+PORT_STRIP = (7.0, 6.0, 169.0, 12.0)              # carried: the strip round the openings
 INSERT_PROUD = Value(0.15, "plan")                # label plate and port inserts stand proud
 LCD_Z = Value(14.4, "plan")                       # D5: the icon plane
 GLASS_Z = (15.0, 16.0)                            # D5: the acrylic's underside and top (plan)
@@ -101,9 +108,6 @@ OLD_PLATE_TOP = 9.4
 CARRY_OVER = {
     "speaker_panel": ("upper", 0.5), "speaker_grille": ("upper", 0.5), "mic_port": ("upper", 0.5),
     "fader_track": ("deck", 1.0), "fader_cap": ("deck", 1.0),
-    "ports_strip": ("none", 1.0), "ports_usb": ("none", 1.0), "port_power_switch": ("none", 1.0),
-    "port_output_socket": ("none", 1.0), "port_input_socket": ("none", 1.0), "port_sync_socket": ("none", 1.0),
-    "port_midi_socket": ("none", 1.0),
 }
 # The carried-over screen band reaches 3 mm past the step; it is pulled back to
 # end at the step (its back edge, by the label plate, stays put).

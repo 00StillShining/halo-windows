@@ -143,6 +143,30 @@ def ref_slab(rect, z0_mm, z1_mm, corner_mm=0.3, fillet_mm=0.0):
     return slab(X(x0), X(x1), Y(y1), Y(y0), Z(z0_mm), Z(z1_mm), corner_mm / 1000, fillet_mm / 1000, 0.0)
 
 
+def wall_shape(outline_xz, proud_mm):
+    """A flat shape on the port wall (reference y = 0), facing out (+Y model):
+    outline as (x_mm, z_mm) points round a convex shape."""
+    y = Y(0.0) + proud_mm / 1000
+    out = (0.0, 1.0, 0.0)
+    pts = [(X(x), y, Z(z)) for x, z in outline_xz]
+    cx = sum(p[0] for p in pts) / len(pts)
+    cz = sum(p[2] for p in pts) / len(pts)
+    c = (cx, y, cz)
+    # Counter-clockwise seen from outside (+Y): outlines run counter-clockwise in (x, z), so reverse.
+    return [((c, pts[(i + 1) % len(pts)], pts[i]), (out, out, out)) for i in range(len(pts))]
+
+
+def stadium_xz(cx, cz, w, h, steps=10):
+    """A rounded slot (w x h mm, ends of radius h / 2) as wall outline points."""
+    r = h / 2
+    pts = []
+    for side, x0 in ((-1, cx + w / 2 - r), (1, cx - w / 2 + r)):
+        for i in range(steps + 1):
+            a = math.pi * (-0.5 + i / steps) if side < 0 else math.pi * (0.5 + i / steps)
+            pts.append((x0 + r * math.cos(a), cz + r * math.sin(a)))
+    return pts
+
+
 def ref_quad(rect, z_mm):
     """An upward-facing rectangle at z (two triangles, counter-clockwise from above)."""
     x0, y0, x1, y1 = rect
@@ -418,6 +442,23 @@ def build(usdz, tiles, atlas_height):
         b.add("display_bezel", ref_slab(ring, floor_z, spec.GLASS_Z[0] - 0.05, 0.05), legacy.FRAME, 0.35)
     glass = legacy.srgb("#1E6B4F")
     b.add("display_glass", ref_slab(spec.WINDOW, spec.GLASS_Z[0], spec.GLASS_Z[1], r * 1000, 0.15), glass, 0.05)
+
+    # The port wall: the openings read as dark holes on the wall, not cylinders
+    # standing off it; the power slider's orange tab stands out of its slot.
+    sx0, sz0, sx1, sz1 = spec.PORT_STRIP
+    b.add("ports_strip", wall_shape([(sx0, sz0), (sx1, sz0), (sx1, sz1), (sx0, sz1)], 0.05), cream, 0.62)
+    for name, x in spec.JACKS.items():
+        ring = [(x + spec.JACK_RADIUS * math.cos(a), spec.JACK_Z + spec.JACK_RADIUS * math.sin(a))
+                for a in np.linspace(0, 2 * math.pi, 40, endpoint=False)]
+        b.add(name, wall_shape(ring, 0.1), gap, 0.7)
+    ux, uz, uw, uh = spec.USB
+    b.add("ports_usb", wall_shape(stadium_xz(ux, uz, uw, uh), 0.1), gap, 0.7)
+    px0, pz0, px1, pz1 = spec.POWER_RECESS
+    b.add("port_power_switch", wall_shape(stadium_xz((px0 + px1) / 2, (pz0 + pz1) / 2, px1 - px0, pz1 - pz0), 0.1), gap, 0.7)
+    tx0, ty0, tx1, _ = spec.POWER_SLIDER
+    tz = (pz0 + pz1) / 2
+    b.add("port_power_switch", slab(X(tx0), X(tx1), Y(0.0), Y(ty0), Z(tz - 1.6), Z(tz + 1.6), 0.0006, 0.0003, 0.0003),
+          legacy.ORANGE, 0.45)
 
     # Everything else is carried over, row by row.
     rebuilt = set(b.parts) | {n for n in old if n.endswith("_well")} | {"halo_ring", "port_power_tab"}
