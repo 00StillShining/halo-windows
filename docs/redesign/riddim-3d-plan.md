@@ -1546,3 +1546,31 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
     under the sheen 83-87 % (targets <= 24 and >= 82 %).
   - Low (`m6glow`): mean lift 18.9-21.1, peak 227-233, detail 92-94 %.
   - The 1.6 mm parallax and the tinted window edges are unchanged.
+
+### M6 remainder: port wall, speaker, fader, LEDs, the acrylic block
+
+- **Port wall** from TE's top-edge drawing (6903449b..., 0.238 mm per unit, mirrored as seen
+  from behind): six 3.5 mm jacks with coloured collars (OUTPUT 16, INPUT 48, SYNC 72 / 80,
+  MIDI 88 / 96 mm), USB-C at 136, the power slot 155-165 with the orange slider standing out
+  3.8 mm. The OUTPUT, INPUT and SYNC / MIDI inserts wrap from the top down the wall as drawn
+  (the carried jacks were at 16 / 43 / 67 / 91 and stood 4 mm off the wall).
+- **Speaker** from the front drawing: eleven 2 mm slats flush with the top at a 4 mm pitch
+  over a 2 mm opening, the dark 40 mm cone behind them, the mic hole in the last slat. The
+  upper body is now four overlapping pieces round the opening (`slab4`, per-corner radii,
+  overlapping by twice the fillet so no groove shows), which also removed the seam on the side
+  walls where the screen band met the rear body.
+- **Fader:** a dark 2.5 mm slot (front drawing) and a frosted 7.9 mm stem, 9 mm tall (estimate,
+  from TE's angled photo). **LEDs:** the 18 carried lamps moved (<= 0.4 mm) onto the drawing's
+  rings at 2.15 mm.
+- **Acrylic block:** TE's side drawings show the screen band green from the shell to the top;
+  under the screen the body is now the green acrylic block (`display_block`) and its rim.
+- `CARRY_OVER` is empty: every part is built from the drawings except the LED lamps' own
+  geometry. Lint 0 failures, 78,184 triangles.
+- Parallax (M6 accept): by construction the icon plane is 1.6 mm under the window top and
+  shifts against its frame between yaw settings; not measured with an image test.
+- Not done: the battery icon on the -X wall and the five small discs TE draws on the side walls
+  (their meaning is unclear from the drawing).
+- **LEVEL / PITCH readability (M7 gate):** at `hero` the darkest LEVEL strokes are dL* 29-30
+  against the deck (gate >= 30, borderline); PITCH could not be isolated from the key behind it
+  with a box measurement. TE's lettering is thin at that distance; it is printed at its true
+  weight.

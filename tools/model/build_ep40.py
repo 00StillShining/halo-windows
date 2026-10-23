@@ -402,12 +402,15 @@ def build(usdz, tiles, atlas_height):
     upper += slab4((0.0, ry0 - ov, rx0, wy0), shell, upper_mm, (0, 0, 0, 0), tf, bf)            # behind the label
     upper += slab4((rx1, ry0 - ov, W, ry1 + ov), shell, upper_mm, (0, 0, 0, 0), tf, bf)         # right of the speaker
     upper += slab4((rx0 - ov, ry1, W, wy0), shell, upper_mm, (0, 0, 0, 0), tf, bf)              # in front of it
-    upper += slab4((0.0, wy0 - 0.5, W, spec.STEP_Y.mm), shell, floor_z, (0, 0, R1, R1), 0.0, bf)  # under the screen
+    # Under the screen the body is the acrylic block itself: TE's side drawings
+    # show it green from the shell to the top, and its front is the step.
+    acrylic = slab4((0.0, wy0 - 0.5, W, spec.STEP_Y.mm), shell, floor_z, (0, 0, R1, R1), 0.0, bf)
     # The opening's floor, low enough that it reads as depth between the slats.
     upper += slab4((rx0 - ov, ry0 - ov, rx1 + ov, ry1 + ov), shell, upper_mm - spec.SPEAKER_DEPTH.mm, (0, 0, 0, 0), 0.0, bf)
     inset = 0.00002  # the deck's walls just inside the upper section's where they overlap
     lower = slab(x0 + inset, x1 - inset, Y(spec.DEPTH.mm), Y(spec.STEP_Y.mm - 1.0), Z(spec.SHELL_TOP.mm), DECK, r,
                  spec.TOP_FILLET.mm / 1000, groove)
+    b.add("display_block", acrylic, legacy.GREEN, 0.15)
     for ps, ns in upper + lower:
         target = "chassis_topPlate" if np.mean([n[2] for n in ns]) > 0.5 else "chassis_edgeBand"
         b.add(target, [(ps, ns)], cream, 0.62)
@@ -495,7 +498,7 @@ def build(usdz, tiles, atlas_height):
     bw = spec.BEZEL_WIDTH.mm
     wx0, _, wx1, _ = spec.WINDOW
     for ring in ((wx0, wy0, wx1, wy0 + bw), (wx0, wy1 - bw, wx1, wy1), (wx0, wy0, wx0 + bw, wy1), (wx1 - bw, wy0, wx1, wy1)):
-        b.add("display_bezel", ref_slab(ring, floor_z, spec.GLASS_Z[0] - 0.05, 0.05), legacy.FRAME, 0.35)
+        b.add("display_bezel", ref_slab(ring, floor_z, spec.GLASS_Z[0] - 0.05, 0.05), legacy.GREEN, 0.15)  # the acrylic block's rim
     glass = legacy.srgb("#1E6B4F")
     b.add("display_glass", ref_slab(spec.WINDOW, spec.GLASS_Z[0], spec.GLASS_Z[1], r * 1000, 0.15), glass, 0.05)
 
