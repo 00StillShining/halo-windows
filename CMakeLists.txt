@@ -74,7 +74,7 @@ target_sources(Halo PRIVATE
     Source/Stage/DisplayRenderer.cpp
     Source/Stage/StageComponent.cpp
     Source/UI/HaloLookAndFeel.cpp
-    Source/UI/BackupsPanel.cpp)
+)
 
 # The 3D stage's own sources (docs/redesign/riddim-3d-plan.md), kept apart from
 # the list above so stage and UI work merge without touching the same lines.
@@ -257,6 +257,7 @@ target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
     Source/UI/Pages/LoadPage.cpp
     Source/UI/Pages/CapturePage.cpp
     Source/UI/Pages/RackPage.cpp
+    Source/UI/Pages/BackupsPage.cpp
     Source/UI/Design/WriteGateDevice.cpp
     Source/UI/Design/Gallery.cpp
     Source/UI/Design/GalleryEncoders.cpp

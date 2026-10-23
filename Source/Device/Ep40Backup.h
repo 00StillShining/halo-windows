@@ -58,6 +58,12 @@ namespace halo
         bool isRunning() const noexcept { return running; }
         double progress() const noexcept { return fraction; }
         const juce::String& status() const noexcept { return statusLine; }
+        // The run as items (9 projects, then every sound), for BACKUPS' dot
+        // matrix: how many are behind us, which one is in flight, how many in all.
+        int itemsDone() const noexcept { return currentItem; }
+        int itemsTotal() const noexcept { return 9 + itemCount; }
+        // Seconds left by bytes so far; negative until the first sound lands.
+        double secondsLeft() const;
 
     private:
         void timerCallback() override { rescanAsync(); }
@@ -74,6 +80,7 @@ namespace halo
         juce::String statusLine;
         juce::int64 totalBytes = 0, doneBytes = 0;
         int projectsSaved = 0, soundsSaved = 0;
+        int currentItem = 0, itemCount = 0;
         juce::StringArray problems;
         double startedAt = 0.0;
         int generation = 0;

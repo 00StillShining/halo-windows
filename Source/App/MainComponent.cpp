@@ -14,22 +14,6 @@ namespace halo
         {
             return juce::Rectangle<float> (r.x, r.y, r.w, r.h).toNearestInt();
         }
-
-        // Which milestone rebuilds each legacy page (plan section 6).
-        const char* arrivesIn (AppMode m)
-        {
-            switch (m)
-            {
-                case AppMode::edit:    return "R7";
-                case AppMode::load:    return "R8";
-                case AppMode::capture: return "R9";
-                case AppMode::rack:    return "R10";
-                case AppMode::backups: return "R11";
-                case AppMode::play:
-                case AppMode::chop:
-                default:               return "";
-            }
-        }
     }
 
     MainComponent::MainComponent (AppModel& m)
@@ -47,10 +31,8 @@ namespace halo
         // Desktop windows (popup menus, alert windows, tooltips) get it too.
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
 
-        for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &playPage, &plate, &deck, &lane, &softKeys })
+        for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &playPage, &deck, &lane, &softKeys })
             addAndMakeVisible (c);
-        for (auto* p : std::initializer_list<juce::Component*> { &backupsPanel })
-            addChildComponent (p);
         lane.setContent ([this] (juce::Graphics& g, juce::Rectangle<float> r)
         {
             if (model.mode() == AppMode::play)
@@ -65,6 +47,8 @@ namespace halo
                 capturePage.paintLane (g, r, frame.density != layout::Density::regular);
             else if (model.mode() == AppMode::rack)
                 rackPage.paintLane (g, r, frame.density != layout::Density::regular);
+            else if (model.mode() == AppMode::backups)
+                backupsPage.paintLane (g, r, frame.density != layout::Density::regular);
         });
         playPage.onLaneChanged = [this] { lane.repaint(); };
         // One camera, one readout: drags on the stage move the ORBIT cell too.
@@ -77,6 +61,7 @@ namespace halo
         addChildComponent (loadPage);
         addChildComponent (capturePage);
         addChildComponent (rackPage);
+        addChildComponent (backupsPage);
         rackPage.onFocusChanged = [this] { boundMode.reset(); updateBindings(); };
         // trim <-> shape latched on the page: the encoders swap pages.
         editPage.onPageChanged = [this] { boundMode.reset(); updateBindings(); };
@@ -130,36 +115,16 @@ namespace halo
     {
         const auto mode = model.mode();
         const bool play = keymap::showsStage (mode);
-        const bool chop = keymap::showsChop (mode);
         // U12: the stage renders only in PLAY (hidden, its GL context detaches),
         // and hides under a confirm card (H6: nothing JUCE paints sits over it).
         stage.setVisible (play && ! cardOpen);
-        playPage.setVisible (play);
-        chopPage.setVisible (chop);
-        const bool edit = mode == AppMode::edit;
-        editPage.setVisible (edit);
-        const bool load = mode == AppMode::load;
-        loadPage.setVisible (load);
-        const bool capture = mode == AppMode::capture;
-        capturePage.setVisible (capture);
-        const bool rackMode = mode == AppMode::rack;
-        rackPage.setVisible (rackMode);
-        for (auto m : { AppMode::backups })
-            legacyPanel (m)->setVisible (m == mode);
-        plate.setVisible (! play && ! chop && ! edit && ! load && ! capture && ! rackMode);
-        plate.setMode (mode);
+        for (auto m : { AppMode::play, AppMode::load, AppMode::edit, AppMode::capture, AppMode::rack, AppMode::backups, AppMode::chop })
+            pageFor (m)->setVisible (m == mode);
         statusStrip.setMonitorOwnedByEncoder (play);
         updateBindings();
-        if (chop && ! chopPage.hasKeyboardFocus (true) && ! cardOpen)
-            chopPage.grabKeyboardFocus();
-        if (edit && ! editPage.hasKeyboardFocus (true) && ! cardOpen)
-            editPage.grabKeyboardFocus();
-        if (load && ! loadPage.hasKeyboardFocus (true) && ! cardOpen)
-            loadPage.grabKeyboardFocus();
-        if (capture && ! capturePage.hasKeyboardFocus (true) && ! cardOpen)
-            capturePage.grabKeyboardFocus();
-        if (rackMode && ! rackPage.hasKeyboardFocus (true) && ! cardOpen)
-            rackPage.grabKeyboardFocus();
+        // Each page takes the keys while it shows (not under a confirm card).
+        if (auto* page = pageFor (mode); page != nullptr && ! play && ! cardOpen && ! page->hasKeyboardFocus (true))
+            page->grabKeyboardFocus();
         if (mode != shownMode)
         {
             shownMode = mode;
@@ -174,8 +139,6 @@ namespace halo
         if (mode == boundMode)
             return;
         boundMode = mode;
-        // Pages not rebuilt yet show dead cells until they land (honest: their
-        // controls are the docked panel's, unchanged).
         if (mode == AppMode::play)
             bus.setBindings (playBindings (model, stage));
         else if (mode == AppMode::chop)
@@ -188,6 +151,8 @@ namespace halo
             bus.setBindings (capturePage.bindings());
         else if (mode == AppMode::rack)
             bus.setBindings (rackPage.bindings());
+        else if (mode == AppMode::backups)
+            bus.setBindings (backupsPage.bindings());
         else
             bus.setBindings ({});
         updateHint();
@@ -210,8 +175,8 @@ namespace halo
             hint = "item, filter, grab length, level" + dot + "level press records";
         else if (model.mode() == AppMode::rack)
             hint = "the encoders follow the focused module" + dot + "shift + echo tone: wow";
-        else
-            hint = "encoders arrive with this page" + dot + "use the panel on the right";
+        else if (model.mode() == AppMode::backups)
+            hint = "shelf picks a cassette" + dot + "the other cells only read";
         softKeys.setHint (hint);
     }
 
@@ -224,17 +189,17 @@ namespace halo
         lane.repaint();
     }
 
-    juce::Component* MainComponent::legacyPanel (AppMode m) noexcept
+    juce::Component* MainComponent::pageFor (AppMode m) noexcept
     {
         switch (m)
         {
-            case AppMode::backups: return &backupsPanel;
-            case AppMode::play:
-            case AppMode::chop:
-            case AppMode::edit:
-            case AppMode::load:
-            case AppMode::capture:
-            case AppMode::rack:
+            case AppMode::play:    return &playPage;
+            case AppMode::load:    return &loadPage;
+            case AppMode::edit:    return &editPage;
+            case AppMode::capture: return &capturePage;
+            case AppMode::rack:    return &rackPage;
+            case AppMode::backups: return &backupsPage;
+            case AppMode::chop:    return &chopPage;
             default:               return nullptr;
         }
     }
@@ -242,64 +207,30 @@ namespace halo
     void MainComponent::layoutBody()
     {
         const auto body = toInt (frame.body);
-        const auto mode = model.mode();
-        dock = {};
-        if (keymap::showsChop (mode))
+        switch (model.mode())
         {
-            chopPage.setBounds (body);
-            chopPage.setFrame (frame);
-            return;
+            case AppMode::chop:    chopPage.setBounds (body);    chopPage.setFrame (frame);    return;
+            case AppMode::edit:    editPage.setBounds (body);    editPage.setFrame (frame);    return;
+            case AppMode::load:    loadPage.setBounds (body);    loadPage.setFrame (frame);    return;
+            case AppMode::capture: capturePage.setBounds (body); capturePage.setFrame (frame); return;
+            case AppMode::rack:    rackPage.setBounds (body);    rackPage.setFrame (frame);    return;
+            case AppMode::backups: backupsPage.setBounds (body); backupsPage.setFrame (frame); return;
+            case AppMode::play:
+            default:
+                break;
         }
-        if (mode == AppMode::edit)
+        playPage.setBounds (body);
+        playPage.setFrame (frame);
+       #if JUCE_DEBUG
+        // H6: no JUCE child may overlap the GL child window.
+        if (stage.isVisible())
         {
-            editPage.setBounds (body);
-            editPage.setFrame (frame);
-            return;
+            const auto glRect = stage.getBounds() + playPage.stageFrame().getPosition() + playPage.getPosition();
+            for (auto* c : getChildren())
+                if (c != &playPage && c->isVisible() && c != &tooltips)
+                    jassert (! c->getBounds().intersects (glRect));
         }
-        if (mode == AppMode::load)
-        {
-            loadPage.setBounds (body);
-            loadPage.setFrame (frame);
-            return;
-        }
-        if (mode == AppMode::capture)
-        {
-            capturePage.setBounds (body);
-            capturePage.setFrame (frame);
-            return;
-        }
-        if (mode == AppMode::rack)
-        {
-            rackPage.setBounds (body);
-            rackPage.setFrame (frame);
-            return;
-        }
-        if (keymap::showsStage (mode))
-        {
-            playPage.setBounds (body);
-            playPage.setFrame (frame);
-           #if JUCE_DEBUG
-            // H6: no JUCE child may overlap the GL child window.
-            if (stage.isVisible())
-            {
-                const auto glRect = stage.getBounds() + playPage.stageFrame().getPosition() + playPage.getPosition();
-                for (auto* c : getChildren())
-                    if (c != &playPage && c->isVisible() && c != &tooltips)
-                        jassert (! c->getBounds().intersects (glRect));
-            }
-           #endif
-            return;
-        }
-        // Today's panels keep their width (37% of the window, 520-640; RACK
-        // 420), docked at the right of the body beside the honest plate.
-        auto rest = body;
-        const int width = mode == AppMode::rack ? 420 : juce::jlimit (520, 640, (int) ((float) getWidth() * 0.37f));
-        dock = rest.removeFromRight (juce::jmin (width, body.getWidth() - 320));
-        if (auto* panel = legacyPanel (mode))
-            panel->setBounds (dock.withTrimmedLeft (1));
-        rest.removeFromRight (8);
-        plate.setBounds (rest);
-        repaint (dock);
+       #endif
     }
 
     void MainComponent::resized()
@@ -342,32 +273,6 @@ namespace halo
         g.fillRoundedRectangle (glass.expanded (1.0f), 13.0f);
         g.setColour (t.scr.bg);
         g.fillRoundedRectangle (glass, 12.0f);
-        // The legacy dock's own ground (the old rail drew it).
-        if (! dock.isEmpty())
-        {
-            g.setColour (legacyColours().paperHigh);
-            g.fillRect (dock);
-            paint::hairlineV (g, (float) dock.getX(), (float) dock.getY(), (float) dock.getBottom(), t.scr.rule);
-        }
-    }
-
-    void MainComponent::LegacyPlate::paint (juce::Graphics& g)
-    {
-        const auto& t = theme();
-        auto r = getLocalBounds().toFloat();
-        g.setColour (t.scr.panel);
-        g.fillRoundedRectangle (r, 4.0f);
-        paint::hatch (g, r, t.scr.rule, 9.0f, 1.0f);
-        auto centre = r.withSizeKeepingCentre (juce::jmin (r.getWidth() - 40.0f, 360.0f), 120.0f);
-        const Pict icons[] { Pict::play, Pict::load, Pict::edit, Pict::capture, Pict::rack, Pict::backup, Pict::chop };
-        pictograms::draw (g, icons[(size_t) mode], centre.removeFromTop (40.0f).withSizeKeepingCentre (32.0f, 32.0f), t.scr.mute, 1.5f);
-        centre.removeFromTop (10.0f);
-        paint::text (g, juce::String (keymap::modeWord (mode)).toUpperCase(), centre.removeFromTop (20.0f), HaloFonts::font (Role::label),
-                     t.scr.dim, juce::Justification::centred);
-        paint::text (g, juce::String ("page not rebuilt yet") + dot + "arrives in " + arrivesIn (mode), centre.removeFromTop (20.0f),
-                     HaloFonts::font (Role::ui), t.scr.dim, juce::Justification::centred);
-        paint::text (g, "today's controls are on the right, unchanged", centre.removeFromTop (20.0f), HaloFonts::font (Role::ui),
-                     t.scr.dim, juce::Justification::centred);
     }
 
     void MainComponent::modifierKeysChanged (const juce::ModifierKeys& mods)

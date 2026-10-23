@@ -207,6 +207,22 @@ namespace halo::layout
         return std::max (16.0f, wrappedHeight (fontmetrics::kBodyStrong, text, (width - 24.0f - 26.0f) * 0.98f, line)) + 18.0f;
     }
 
+    // ---- BACKUPS --------------------------------------------------------------------
+    BackupsLayout backupsLayout (const Frame& f, float explainerHeight)
+    {
+        BackupsLayout k;
+        const auto& b = f.body;
+        float plateH = f.density == Density::regular ? 120.0f : f.density == Density::compact ? 104.0f : 88.0f;
+        const float explainer = explainerHeight;
+        // The plate shrinks to 88 before the canvas drops under its minimum.
+        if (b.h - plateH - 10.0f - 8.0f - explainer < BackupsLayout::minCanvas)
+            plateH = std::max (88.0f, b.h - 10.0f - 8.0f - explainer - BackupsLayout::minCanvas);
+        k.plate = { b.x, b.y, b.w, plateH };
+        k.explainer = { b.x, b.bottom() - explainer, b.w, explainer };
+        k.canvas = { b.x, k.plate.bottom() + 10.0f, b.w, k.explainer.y - 8.0f - (k.plate.bottom() + 10.0f) };
+        return k;
+    }
+
     // ---- RACK -----------------------------------------------------------------------
     RackLayout rackLayout (const Frame& f)
     {

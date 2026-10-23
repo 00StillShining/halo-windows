@@ -302,3 +302,21 @@ TEST_CASE ("layout: RACK's four tiles fit the chain at every minimum size")
     CHECK (big.tiles[0].w >= 240.0f);
     CHECK (big.tiles[0].h >= 280.0f);
 }
+
+TEST_CASE ("layout: BACKUPS keeps its plate the largest element and a shelf row at every minimum size")
+{
+    const std::string explainer = "Copies every sound (bit-exact WAV + its settings) and all 9 projects to Documents\\Halo\\Backups. "
+                                  "Read-only: nothing on the EP-40 changes. A full backup takes a while (about 1 MB every 12 s over USB MIDI); "
+                                  "keep the EP-40 connected and awake.";
+    for (auto size : { std::pair { 1440.0f, 900.0f }, std::pair { 1180.0f, 720.0f }, std::pair { 1180.0f, 660.0f } })
+    {
+        INFO ("size " << size.first << " x " << size.second);
+        const auto f = frame (size.first, size.second);
+        const float h = wrappedHeight (halo::fontmetrics::kBody, explainer, f.body.w * 0.62f, 19.0f);
+        const auto k = backupsLayout (f, h);
+        CHECK (k.plate.h >= 88.0f);
+        CHECK (k.canvas.h >= BackupsLayout::cassetteH);
+        CHECK (k.canvas.bottom() <= k.explainer.y);
+        CHECK (f.body.contains (k.explainer));
+    }
+}

@@ -87,8 +87,8 @@ namespace halo
        #if JUCE_DEBUG
         // Shots: HALO_UI_POSE=module:1..4 focuses a module, sync:1 shows SYNC,
         // allon:1 switches every module on (the page's own state only).
-        if (const int m = DevPose::get ("module"); m >= 1 && m <= 4)
-            focused = m - 1;
+        if (const int posed = DevPose::get ("module"); posed >= 1 && posed <= 4)
+            focused = posed - 1;
         if (DevPose::get ("sync") == 1)
             model.rack().setSync (true);
         if (DevPose::get ("allon") == 1)

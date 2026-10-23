@@ -160,6 +160,8 @@ namespace halo
         cancelled = false;
         problems.clear();
         projectsSaved = soundsSaved = 0;
+        currentItem = 0;
+        itemCount = (int) lib.sounds().size();
         doneBytes = 0;
         totalBytes = 0;
         for (const auto& s : lib.sounds())
@@ -182,6 +184,7 @@ namespace halo
         if (project > 9)
             return nextSound (0);
 
+        currentItem = project - 1;
         setStatus ("Saving project " + juce::String (project) + " of 9...");
         lib.downloadRaw (te::projectFid (project), [this, project] (std::optional<te::Bytes> tar, juce::String error)
         {
@@ -208,6 +211,7 @@ namespace halo
             return finish (problems.isEmpty(), {});
 
         const auto sound = sounds[index];
+        currentItem = 9 + (int) index;
         fraction = totalBytes > 0 ? (double) doneBytes / (double) totalBytes : 0.0;
         const double elapsed = (juce::Time::getMillisecondCounterHiRes() - startedAt) / 1000.0;
         juce::String eta;
@@ -238,9 +242,19 @@ namespace halo
         });
     }
 
+    double Ep40Backup::secondsLeft() const
+    {
+        if (! running || doneBytes <= 0)
+            return -1.0;
+        const double elapsed = (juce::Time::getMillisecondCounterHiRes() - startedAt) / 1000.0;
+        return elapsed / (double) doneBytes * (double) (totalBytes - doneBytes);
+    }
+
     void Ep40Backup::finish (bool ok, const juce::String& message)
     {
         running = false;
+        if (ok)
+            currentItem = itemsTotal();
         fraction = ok ? 1.0 : fraction;
         const auto& info = lib.info();
 

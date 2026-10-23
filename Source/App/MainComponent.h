@@ -11,7 +11,7 @@
 #include "UI/Design/Primitives/StatusStrip.h"
 #include "UI/Design/WriteGate.h"
 #include "UI/HaloLookAndFeel.h"
-#include "UI/BackupsPanel.h"
+#include "UI/Pages/BackupsPage.h"
 #include "UI/Pages/CapturePage.h"
 #include "UI/Pages/ChopPage.h"
 #include "UI/Pages/EditPage.h"
@@ -26,8 +26,7 @@ namespace halo
     // The window (docs/redesign/plan.md section 3.1): one slab of black glass
     // (status strip, page body, lane, parameter strip, soft keys) set into a
     // graphite deck (mode keys, SHIFT, REC, four colour encoders). The 3D stage
-    // shows only in PLAY; CHOP is a mode; pages not rebuilt yet stay docked at
-    // the right of the body beside an honest "not rebuilt yet" plate.
+    // shows only in PLAY; CHOP is a mode; every page fills the body.
     class MainComponent : public juce::Component, private AppModel::Listener, private juce::Timer
     {
     public:
@@ -48,19 +47,8 @@ namespace halo
         void updateBindings();
         void updateHint();
         void layoutBody();
-        juce::Component* legacyPanel (AppMode) noexcept;
+        juce::Component* pageFor (AppMode) noexcept;
         float physicalScale() const;
-
-        // A dim plate where a page that hasn't been rebuilt yet will go.
-        class LegacyPlate : public juce::Component
-        {
-        public:
-            void setMode (AppMode m) { mode = m; repaint(); }
-            void paint (juce::Graphics&) override;
-
-        private:
-            AppMode mode = AppMode::load;
-        };
 
         AppModel& model;
         HaloLookAndFeel lookAndFeel;
@@ -74,15 +62,12 @@ namespace halo
         StatusStrip statusStrip { model };
         StageComponent stage { model };
         PlayPage playPage { model, stage };
-        // Pages not rebuilt yet: today's panels, docked at the right of the body.
-        BackupsPanel backupsPanel { model };
-        juce::Rectangle<int> dock;
         ChopPage chopPage { model, writeGate };
         EditPage editPage { model, writeGate };
         LoadPage loadPage { model, writeGate };
         CapturePage capturePage { model };
         RackPage rackPage { model };
-        LegacyPlate plate;
+        BackupsPage backupsPage { model };
         Deck deck { model, bus };
         Lane lane { bus };
         juce::OwnedArray<ParamCell> cells;

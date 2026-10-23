@@ -123,6 +123,16 @@ namespace halo::layout
     };
     RackLayout rackLayout (const Frame&);
 
+    // ---- BACKUPS (plan section 3.12) -------------------------------------------
+    // The hero lock plate (the largest element), the canvas (the progress
+    // while running, else the cassette shelf) and the explainer.
+    struct BackupsLayout
+    {
+        Rect plate, canvas, explainer;
+        static constexpr float cassetteW = 200.0f, cassetteH = 120.0f, minCanvas = 120.0f;
+    };
+    BackupsLayout backupsLayout (const Frame&, float explainerHeight);
+
     // A greedy word wrap with the generated metrics: the height a paragraph
     // needs at this width (lineHeight per line).
     float wrappedHeight (const fontmetrics::Role&, std::string_view utf8, float width, float lineHeight);
