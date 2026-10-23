@@ -41,6 +41,7 @@ target_sources(HaloCore PRIVATE
     Source/Core/HenvFormat.cpp
     Source/Core/HmeshFormat.cpp
     Source/Core/HtexFormat.cpp
+    Source/Core/LcdState.cpp
     Source/Core/StageCamera.cpp)
 if(MSVC)
     target_compile_options(HaloCore PRIVATE /W4 /permissive-)
@@ -176,7 +177,8 @@ target_sources(HaloTests PRIVATE
     Tests/ToneCurvesTests.cpp
     Tests/HenvFormatTests.cpp
     Tests/HtexFormatTests.cpp
-    Tests/HmeshFormatTests.cpp)
+    Tests/HmeshFormatTests.cpp
+    Tests/LcdStateTests.cpp)
 target_compile_definitions(HaloTests PRIVATE HALO_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 # The Mac app (its own repo) sits beside this one as the reference spec; when it
 # is there, the entity-name test cross-checks the frozen contract against it.
@@ -294,3 +296,20 @@ target_link_libraries(HaloUiTests PRIVATE
     juce::juce_recommended_config_flags
     juce::juce_recommended_warning_flags)
 add_test(NAME HaloUiTests COMMAND HaloUiTests)
+
+# HaloLcdPreview: the replica LCD texture for a few states, to PNG, no window
+# (plan M9 review tool): HaloLcdPreview <out-dir>.
+juce_add_console_app(HaloLcdPreview PRODUCT_NAME "HaloLcdPreview")
+target_sources(HaloLcdPreview PRIVATE
+    Tests/Stage/LcdPreviewMain.cpp
+    Source/Stage/DisplayRenderer.cpp)
+target_compile_definitions(HaloLcdPreview PRIVATE
+    JUCE_WEB_BROWSER=0
+    JUCE_USE_CURL=0
+    JUCE_DISPLAY_SPLASH_SCREEN=0)
+target_link_libraries(HaloLcdPreview PRIVATE
+    HaloCore
+    HaloAssets
+    juce::juce_gui_basics
+    juce::juce_recommended_config_flags
+    juce::juce_recommended_warning_flags)
