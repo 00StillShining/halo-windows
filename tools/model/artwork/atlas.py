@@ -71,8 +71,9 @@ def build(fills, tiles):
         yy, xx = np.mgrid[0:h, 0:w]
         mx, my = rect[0] + (xx + 0.5) / HI_RES, rect[1] + (yy + 0.5) / HI_RES
         include = (mx >= x0 + t.inset[0]) & (mx <= x1 - t.inset[0]) & (my >= y0 + t.inset[1]) & (my <= y1 - t.inset[1])
+        # The cap colour as drawn; NONE when the artwork paints only lettering
+        # (neutral mode), so every ink is kept.
         counts = np.bincount(lab[include], minlength=6)
-        counts[inks.NONE] = 0
         t.base = int(counts.argmax())
         t.ink_px = {}
         ox, oy = t.origin

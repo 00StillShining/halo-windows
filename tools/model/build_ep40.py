@@ -431,9 +431,14 @@ def check_artwork(fills, tiles, out_png, px_per_mm=6):
     return int(unassigned.sum()) / px_per_mm ** 2, empty
 
 
-def build_atlas():
-    """-> (tiles by part name, atlas height, level-0 atlas, preview)."""
-    fills, _ = svg_import.load()
+def build_atlas(artwork="te"):
+    """-> (tiles by part name, atlas height, level-0 atlas, preview, fills).
+    artwork "te": TE's front drawing; "neutral": OFL lettering and generic icons."""
+    if artwork == "neutral":
+        from artwork import neutral
+        fills = neutral.fills(spec)
+    else:
+        fills, _ = svg_import.load()
     tiles = decal_tiles()
     level0, preview = keys_atlas.build(fills, tiles)
     return {t.name: t for t in tiles}, level0.shape[0], level0, preview, fills
@@ -677,11 +682,13 @@ def main():
     ap.add_argument("--out", default="assets/stage/EP40.hmesh")
     ap.add_argument("--atlas", default="assets/stage/ep40_keys_sdf.htex")
     ap.add_argument("--face", default="assets/stage/ep40_face_sdf.htex")
+    ap.add_argument("--artwork", choices=["te", "neutral"], default="te",
+                    help="te: TE's own vector artwork (DD-006g); neutral: OFL faces and generic icons (plan D11)")
     ap.add_argument("--check", action="store_true",
                     help="fail on drawing ink assigned to no decal and no part; overlay at build/model/check_overlay.png")
     ap.add_argument("--preview", default="build/model/keys_atlas.png", help="review image of the atlas ('' for none)")
     a = ap.parse_args()
-    tiles, atlas_height, level0, preview, fills = build_atlas()
+    tiles, atlas_height, level0, preview, fills = build_atlas(a.artwork)
     for t in tiles.values():
         if sum(t.ink_px.values()) == 0:
             raise SystemExit(f"{t.name}: no legend ink inside its include rectangle")
