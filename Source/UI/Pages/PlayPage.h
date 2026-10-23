@@ -40,6 +40,8 @@ namespace halo
 
         void paint (juce::Graphics&) override;
         void resized() override;
+        // The 30 Hz poll runs only while PLAY shows.
+        void visibilityChanged() override { if (isVisible()) startTimerHz (30); else stopTimer(); }
         void mouseUp (const juce::MouseEvent&) override;
 
     private:

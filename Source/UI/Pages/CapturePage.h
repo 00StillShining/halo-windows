@@ -3,6 +3,7 @@
 #include "App/AppModel.h"
 #include "Core/UiLayout.h"
 #include "UI/Design/EncoderBus.h"
+#include "UI/Design/Motion.h"
 #include "UI/Design/Primitives/ActionKey.h"
 #include "UI/Design/Primitives/StepKeyRow.h"
 
@@ -72,6 +73,7 @@ namespace halo
         std::vector<int> view;      // indices into model.library().items()
         juce::String message;
         bool dropHover = false;
-        double reelAngle = 0.0;
+        Spinner reels;            // tape: spins up on rec, runs down after
+        void updateTimer();
     };
 }

@@ -66,6 +66,14 @@ namespace halo::windowsChrome
         previousProc = reinterpret_cast<WNDPROC> (SetWindowLongPtrW (hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR> (&filterProc)));
     }
 
+    bool animationsEnabled()
+    {
+        BOOL on = TRUE;
+        if (! SystemParametersInfoW (SPI_GETCLIENTAREAANIMATION, 0, &on, 0))
+            return true;
+        return on != FALSE;
+    }
+
     void removeBareAltFilter (void* nativeHandle)
     {
         auto hwnd = static_cast<HWND> (nativeHandle);
@@ -81,5 +89,6 @@ namespace halo::windowsChrome
     void useDarkTitleBar (void*, bool) {}
     void installBareAltFilter (void*) {}
     void removeBareAltFilter (void*) {}
+    bool animationsEnabled() { return true; }
 }
 #endif

@@ -3,6 +3,7 @@
 #include "App/AppModel.h"
 #include "Core/UiLayout.h"
 #include "UI/Design/EncoderBus.h"
+#include "UI/Design/Motion.h"
 #include "UI/Design/Primitives/ActionKey.h"
 #include "UI/Design/Primitives/Notice.h"
 #include "UI/Design/Primitives/StepKeyRow.h"
@@ -56,7 +57,13 @@ namespace halo
         layout::Frame frame;
         layout::RackLayout L;
         int focused = echo;
-        double phase = 0.0;
+        // Signal-driven motion: reels turn with the echo, rings travel at a
+        // speed set by the pre-rack level, the spring jiggles and the cone
+        // pumps with the output. All still under reduced motion.
+        Spinner echoReels;
+        double ringPhase = 0.0, springPhase = 0.0, conePhase = 0.0;
+        float drive = 0.0f;                 // 0...1 from the meters, smoothed
+        bool live() const;
 
         StepKeyRow divisions;
         ActionKey tapKey { "tap" };

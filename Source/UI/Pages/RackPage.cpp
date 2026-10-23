@@ -96,7 +96,12 @@ namespace halo
                 onFlag (i).store (true);
        #endif
         refresh();
-        startTimerHz (30);
+        startTimerHz (2);
+    }
+
+    bool RackPage::live() const
+    {
+        return model.monitor().isRunning() && params.engaged.load();
     }
 
     RackPage::~RackPage()
@@ -177,8 +182,23 @@ namespace halo
     void RackPage::timerCallback()
     {
         model.rack().updateClockBpm (model.clockBpm());
-        if (model.monitor().isRunning() && params.engaged.load())
-            phase += 1.0 / 30.0;
+        const bool on = live();
+        const double dt = 1.0 / (on ? 30.0 : 2.0);
+        // Drive: the pre-rack peak, -48...0 dB -> 0...1, smoothed.
+        const float db = model.preRackLevels().peakL;
+        const float target = on && std::isfinite (db) ? juce::jlimit (0.0f, 1.0f, (db + 48.0f) / 48.0f) : 0.0f;
+        drive += (target - drive) * (float) (1.0 - std::exp (-dt / 0.12));
+        const bool coasting = echoReels.step (on && params.echoOn.load() ? 1.2 + 2.0 * drive : 0.0, dt);
+        if (! motion::reduced())
+        {
+            ringPhase += dt * (0.25 + 1.2 * drive);
+            springPhase += dt * (2.0 + 10.0 * drive);
+            conePhase += dt * (4.0 + 8.0 * drive);
+        }
+        // 30 Hz while the rack is live (meters, machines) or reels coast; else a 2 Hz poll.
+        const int hz = on || coasting ? 30 : 2;
+        if (getTimerInterval() != 1000 / hz)
+            startTimerHz (hz);
         repaint();
     }
 
@@ -313,7 +333,7 @@ namespace halo
                     g.drawEllipse (juce::Rectangle<float> (rr * 0.5f, rr * 0.5f).withCentre (rc), 1.4f);
                     for (int k = 0; k < 3; ++k)
                     {
-                        const float a = (float) (phase * 2.0) + juce::MathConstants<float>::twoPi * (float) k / 3.0f;
+                        const float a = (float) echoReels.angle + juce::MathConstants<float>::twoPi * (float) k / 3.0f;
                         g.drawLine ({ rc.getPointOnCircumference (rr * 0.25f, a), rc.getPointOnCircumference (rr * 0.85f, a) }, 1.4f);
                     }
                 }
@@ -323,9 +343,9 @@ namespace halo
                 const int rings = 1 + (int) (fb * 4.0f);
                 for (int k = 0; k < rings; ++k)
                 {
-                    const float prog = (float) std::fmod (phase * (live ? 0.6 : 0.0) + (double) k / rings, 1.0);
+                    const float prog = (float) std::fmod ((live ? ringPhase : 0.0) + (double) k / rings, 1.0);
                     const float rad = 8.0f + prog * s * 0.32f;
-                    g.setColour (line.withAlpha (live ? (1.0f - prog) : 0.35f + 0.15f * (float) k));
+                    g.setColour (line.withAlpha (live && ! motion::reduced() ? (1.0f - prog) : 0.35f + 0.15f * (float) k));
                     juce::Path arc;
                     arc.addCentredArc (head.x, head.y, rad, rad * 0.55f, 0.0f, juce::MathConstants<float>::pi * 0.55f,
                                        juce::MathConstants<float>::pi * 1.45f, true);
@@ -344,7 +364,7 @@ namespace halo
                 for (int i = 0; i <= turns * 16; ++i)
                 {
                     const float u = (float) i / (float) (turns * 16);
-                    const float wob = live ? 0.08f * (float) std::sin (phase * 9.0 + u * 20.0) : 0.0f;
+                    const float wob = live ? (0.04f + 0.18f * drive) * (float) std::sin (springPhase + u * 20.0) : 0.0f;
                     coil.lineTo (x0 + (x1 - x0) * u, c.y + amp * ((float) std::sin (u * juce::MathConstants<float>::twoPi * (float) turns) + wob));
                 }
                 g.strokePath (coil, juce::PathStrokeType (1.4f));
@@ -387,7 +407,7 @@ namespace halo
             {
                 // A speaker cone; the surround breathes with the amount.
                 const float rr = s * 0.3f;
-                const float breathe = live ? 1.0f + 0.03f * params.lowAmount.load() * (float) std::sin (phase * 12.0) : 1.0f;
+                const float breathe = live ? 1.0f + (0.01f + 0.06f * drive) * params.lowAmount.load() * (float) std::sin (conePhase) : 1.0f;
                 g.drawEllipse (juce::Rectangle<float> (rr * 2.0f, rr * 2.0f).withCentre (c), 1.6f);
                 g.drawEllipse (juce::Rectangle<float> (rr * 1.6f * breathe, rr * 1.6f * breathe).withCentre (c), 1.3f);
                 g.drawEllipse (juce::Rectangle<float> (rr * 0.6f, rr * 0.6f).withCentre (c), 1.4f);

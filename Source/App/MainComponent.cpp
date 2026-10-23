@@ -1,4 +1,5 @@
 #include "App/MainComponent.h"
+#include "App/DevLog.h"
 #include "App/DevPose.h"
 #include "UI/Pages/PlayEncoders.h"
 #include "UI/Design/Paint.h"
@@ -182,6 +183,20 @@ namespace halo
 
     void MainComponent::timerCallback()
     {
+       #if JUCE_DEBUG
+        // HALO_UI_STATS=1: every 10 s, the MotionClock frames ticked and the
+        // backup folder scans run on the message thread (both 0 when idle).
+        static const bool stats = juce::SystemStats::getEnvironmentVariable ("HALO_UI_STATS", {}) == "1";
+        if (stats && ++statsTicks % 20 == 0)
+        {
+            const auto frames = motion.framesTicked();
+            const int scans = model.backup().messageThreadScans();
+            DevLog::line ("HALO_UI_STATS mode=" + juce::String (keymap::modeWord (model.mode())) + " vblank_frames_10s=" + juce::String (frames - statsFrames)
+                          + " backup_scans_on_message_thread_10s=" + juce::String (scans - statsScans));
+            statsFrames = frames;
+            statsScans = scans;
+        }
+       #endif
         for (auto* c : cells)
             c->repaint();
         deck.refreshEncoders();

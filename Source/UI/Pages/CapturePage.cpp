@@ -248,7 +248,7 @@ namespace halo
         model.library().addChangeListener (this);
         model.addListener (this);
         rebuildView();
-        startTimerHz (30);
+        updateTimer();
     }
 
     CapturePage::~CapturePage()
@@ -335,6 +335,7 @@ namespace halo
         grabLengths.setItems (items);
         grabLengths.setSelected (sel);
         showKey.setVisible (model.lastTake().has_value());
+        updateTimer();
 
         const auto* item = selectedItem();
         editKey.setEnabled (item != nullptr);
@@ -346,12 +347,23 @@ namespace halo
         repaint();
     }
 
+    void CapturePage::updateTimer()
+    {
+        // Moving parts run only while something moves: the route's meters,
+        // the REC lamp's pulse, or reels still coasting. Idle = no timer.
+        const bool moving = model.monitor().isRunning() || reels.speed != 0.0;
+        if (moving && ! isTimerRunning())
+            startTimerHz (30);
+        else if (! moving)
+            stopTimer();
+    }
+
     void CapturePage::timerCallback()
     {
-        const auto& engine = model.monitor();
-        if (engine.isRecording())
-            reelAngle += 0.08;
+        // Tape runs at about one turn every 2.6 s while recording.
+        reels.step (model.monitor().isRecording() ? 2.4 : 0.0, 1.0 / 30.0);
         repaint (localF (L.machine).toNearestInt());
+        updateTimer();
     }
 
     //==========================================================================
@@ -522,8 +534,9 @@ namespace halo
         const auto c1 = juce::Point<float> (deck.getX() + rr + 6.0f, deck.getY() + rr + 6.0f);
         const auto c2 = juce::Point<float> (deck.getRight() - rr - 6.0f, c1.y);
         const float wound = (float) juce::jlimit (0.0, 1.0, seconds / 600.0);
-        progress::reel (g, c1, rr, reelAngle, 1.0f - wound * 0.6f, t.scr.ink);
-        progress::reel (g, c2, rr, reelAngle * 1.3, wound, t.scr.ink);
+        // The take-up reel turns faster as the supply runs (same tape speed).
+        progress::reel (g, c1, rr, reels.angle, 1.0f - wound * 0.6f, t.scr.ink);
+        progress::reel (g, c2, rr, reels.angle * (1.0 + 0.6 * (1.0 - wound)), wound, t.scr.ink);
         const auto head = juce::Rectangle<float> (14.0f, 14.0f).withCentre ({ (c1.x + c2.x) * 0.5f, c1.y + rr + 18.0f });
         g.setColour (t.scr.ink.withAlpha (0.7f));
         g.drawLine (c1.x - rr * 0.2f, c1.y + rr, head.getX(), head.getCentreY(), 1.2f);
@@ -546,7 +559,7 @@ namespace halo
         }
         else if (running)
         {
-            const float pulse = 0.5f + 0.5f * (float) std::sin (juce::Time::getMillisecondCounterHiRes() * 0.004);
+            const float pulse = motion::reduced() ? 1.0f : 0.5f + 0.5f * (float) std::sin (juce::Time::getMillisecondCounterHiRes() * 0.004);
             paint::hollowLamp (g, lampC, t.honest.danger.withAlpha (0.45f + 0.55f * pulse), 16.0f, 2.0f);
         }
         else

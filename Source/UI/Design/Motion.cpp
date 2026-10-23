@@ -1,5 +1,7 @@
 #include "UI/Design/Motion.h"
 
+#include <atomic>
+
 namespace halo
 {
     MotionClock* MotionClock::current = nullptr;
@@ -53,6 +55,7 @@ namespace halo
         const double dt = frozen || lastTimestamp <= 0.0 ? (frozen ? 0.0 : 1.0 / 60.0)
                                                          : juce::jlimit (0.0, 0.1, timestamp - lastTimestamp);
         lastTimestamp = timestamp;
+        ++frames;
         for (int i = active.size(); --i >= 0;)
             if (i < active.size() && ! active.getUnchecked (i)->tick (dt))
                 active.remove (i);
@@ -63,5 +66,12 @@ namespace halo
                 if (alive != nullptr && active.isEmpty())
                     attachment.reset();
             });
+    }
+
+    namespace motion
+    {
+        namespace { std::atomic<bool> reducedFlag { false }; }
+        bool reduced() noexcept { return reducedFlag.load (std::memory_order_relaxed); }
+        void setReduced (bool on) noexcept { reducedFlag.store (on, std::memory_order_relaxed); }
     }
 }

@@ -1,6 +1,7 @@
 #include "UI/Pages/EditPage.h"
 #include "Audio/SampleIO.h"
 #include "Core/HonestState.h"
+#include "UI/Design/Motion.h"
 #include "UI/Design/Numerals.h"
 #include "UI/Design/Paint.h"
 #include "UI/Design/Pictograms.h"
@@ -163,7 +164,8 @@ namespace halo
     void EditPage::timerCallback()
     {
         // The reels turn while bytes move (the EP-40 takes about 43 KB/s).
-        reelAngle += 0.06;
+        if (! motion::reduced())
+            reelAngle += 0.06;
         repaint (localF (L.right).toNearestInt());
     }
 

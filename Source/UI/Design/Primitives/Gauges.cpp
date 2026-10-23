@@ -164,6 +164,9 @@ namespace halo
 
     void LevelArc::setRunning (bool r)
     {
+        // Called every poll: only a change wakes the clock (idle = no ticks).
+        if (r == running)
+            return;
         running = r;
         if (! r)
             target = -100.0f;
@@ -174,9 +177,13 @@ namespace halo
 
     void LevelArc::setLevel (float peakDb, bool limitHit)
     {
-        target = running ? peakDb : -100.0f;
+        const float next = running && std::isfinite (peakDb) ? peakDb : -100.0f;
+        const bool changed = std::abs (next - target) > 0.05f || std::abs (next - needle.value) > 0.05f;
+        target = next;
         if (limitHit)
             limitHold = 1.5;
+        if (! changed && ! limitHit)
+            return; // nothing to move: the clock stays detached
         if (auto* clock = MotionClock::instance())
             clock->wake (this);
         else

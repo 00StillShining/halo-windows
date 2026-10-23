@@ -79,6 +79,8 @@ namespace halo
         layout::Frame frame;
         AppMode shownMode = AppMode::play;
         std::optional<AppMode> boundMode; // nothing bound yet (HALO_MODE may start in any mode)
+        int statsTicks = 0, statsScans = 0;   // HALO_UI_STATS (debug)
+        juce::int64 statsFrames = 0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
     };

@@ -7,6 +7,7 @@
 #include "Core/Ep40MidiMapping.h"
 #include "UI/Design/Fonts.h"
 #include "UI/Design/Gallery.h"
+#include "UI/Design/Motion.h"
 #include "UI/Design/Theme.h"
 #include "UI/HaloColours.h"
 
@@ -151,6 +152,8 @@ namespace halo
             window = std::make_unique<MainWindow> (getApplicationName(), *model,
                                                    galleryPage > 0 ? createGallery (galleryPage) : nullptr);
             model->start();
+            // Reduced motion: the system's animation setting, or HALO_REDUCED_MOTION=1.
+            motion::setReduced (! windowsChrome::animationsEnabled() || env ("HALO_REDUCED_MOTION") == "1");
 
            #if JUCE_DEBUG
             // HALO_UI_READY: the window is up and laid out (the harness waits for it).

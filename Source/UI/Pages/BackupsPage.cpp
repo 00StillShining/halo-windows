@@ -146,12 +146,22 @@ namespace halo
         backupKey.setEnabled (v.plate != Plate::noDevice && ! v.running);
         cancelKey.setVisible (v.running);
         showKey.setVisible (! v.running && juce::isPositiveAndBelow (selected, (int) v.shelf.size()));
-        if (v.running) startTimerHz (4); else stopTimer();
+        if ((v.running || reels.speed != 0.0) && ! isTimerRunning())
+            startTimerHz (24);
         resized();
         repaint();
     }
 
     //==========================================================================
+    void BackupsPage::timerCallback()
+    {
+        const bool running = currentView().running;
+        const bool moving = reels.step (running ? 1.6 : 0.0, 1.0 / 24.0);
+        repaint (localF (L.canvas).toNearestInt());
+        if (! running && ! moving)
+            stopTimer();
+    }
+
     void BackupsPage::resized()
     {
         if (frame.width <= 0)
@@ -321,7 +331,7 @@ namespace halo
     {
         const auto& t = theme();
         // Big reels on the left, turning while bytes move.
-        const double angle = juce::Time::getMillisecondCounterHiRes() * 0.0012;
+        const double angle = reels.angle;
         auto reels = r.removeFromLeft (juce::jmin (300.0f, r.getWidth() * 0.26f));
         const float rr = juce::jmin (reels.getHeight() * 0.32f, reels.getWidth() * 0.22f);
         const float f = v.total > 0 ? (float) v.done / (float) v.total : 0.0f;
@@ -366,7 +376,7 @@ namespace halo
             g.fillRect (s); // squares for projects and sounds alike: a matrix reads as one block
         g.setColour (t.scr.ramp[3]);
         g.strokePath (pending, juce::PathStrokeType (1.0f));
-        if (! current.isEmpty() && (juce::Time::getMillisecondCounter() / 400) % 2 == 0)
+        if (! current.isEmpty() && (motion::reduced() || (juce::Time::getMillisecondCounter() / 400) % 2 == 0))
         {
             g.setColour (t.scr.hot);
             g.fillEllipse (current.expanded (1.0f));

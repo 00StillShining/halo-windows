@@ -33,6 +33,8 @@ namespace halo
         void forget (Animated*); // stops ticking it
         bool isFrozen() const noexcept { return frozen; }
         bool isAttached() const noexcept { return attachment != nullptr; }
+        // Frames ticked since start (HALO_UI_STATS: 0 over 10 s when idle).
+        juce::int64 framesTicked() const noexcept { return frames; }
         double now() const;      // seconds; pinned when frozen
 
     private:
@@ -44,6 +46,38 @@ namespace halo
         juce::Array<Animated*> active;
         double lastTimestamp = 0.0;
         bool frozen = false;
+        juce::int64 frames = 0;
+    };
+
+    namespace motion
+    {
+        // Reduced motion (the Windows animation setting, or HALO_REDUCED_MOTION=1):
+        // the machines stand still; meters, counters and state still move.
+        bool reduced() noexcept;
+        void setReduced (bool) noexcept;
+    }
+
+    // A reel or rotor with inertia (plan section 4.2): its speed eases toward
+    // the target (spin-up 0.4 s, run-down 0.9 s), so tape starts and stops
+    // like a machine. Under reduced motion it never turns.
+    struct Spinner
+    {
+        double angle = 0.0, speed = 0.0; // radians, radians per second
+        // Returns true while it still moves.
+        bool step (double targetSpeed, double dt)
+        {
+            if (motion::reduced())
+            {
+                speed = 0.0;
+                return false;
+            }
+            const double tau = targetSpeed > speed ? 0.4 : 0.9;
+            speed += (targetSpeed - speed) * (dt <= 0.0 ? 0.0 : 1.0 - std::exp (-dt / tau));
+            if (std::abs (speed) < 0.01 && targetSpeed == 0.0)
+                speed = 0.0;
+            angle = std::fmod (angle + speed * dt, juce::MathConstants<double>::twoPi * 1000.0);
+            return speed != 0.0 || targetSpeed != 0.0;
+        }
     };
 
     // Needle and LED ballistics (plan section 2.4): rise 10 ms, fall 300 ms,

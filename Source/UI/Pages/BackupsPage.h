@@ -3,6 +3,7 @@
 #include "App/AppModel.h"
 #include "Core/UiLayout.h"
 #include "UI/Design/EncoderBus.h"
+#include "UI/Design/Motion.h"
 #include "UI/Design/Primitives/ActionKey.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -49,7 +50,7 @@ namespace halo
 
     private:
         void changeListenerCallback (juce::ChangeBroadcaster*) override { refresh(); }
-        void timerCallback() override { repaint(); }
+        void timerCallback() override;
         void refresh();
         View currentView() const;
         juce::Rectangle<float> localF (const layout::Rect&) const;
@@ -70,5 +71,6 @@ namespace halo
         int selected = -1, firstRow = 0;
         float wheelAcc = 0.0f;
         int pose = -1; // HALO_UI_POSE=backup:1..5 (debug shots)
+        Spinner reels;
     };
 }
