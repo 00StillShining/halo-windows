@@ -136,7 +136,8 @@ namespace halo
                    + juce::String (model.device().activeProject()) + " (the project selected in LOAD).";
         if (model.device().state() == Ep40Library::State::ready)
             return "Back up the EP-40 in BACKUPS (Ctrl+6) to unlock SEND TO PADS. EXPORT works now.";
-        return "Connect the EP-40 to send slices to its pads. EXPORT works now.";
+        // No EP-40: the lock line over SEND TO PADS says it, once.
+        return {};
     }
 
     NoticeData ChopPage::notice() const
@@ -637,7 +638,7 @@ namespace halo
                 dots = o.removeFromBottom (12.0f).withTrimmedRight (o.getWidth() * 0.45f);
                 label = o.removeFromBottom (12.0f).withX (dots.getRight() + 10.0f).withWidth (o.getWidth() * 0.45f - 10.0f).translated (0.0f, 12.0f);
             }
-            juce::String facts = "memory unknown: connect the " + ep;
+            juce::String facts = "memory unknown (read from the " + ep + ")";
             int used = 0, current = 0;
             if (known)
             {
@@ -693,7 +694,8 @@ namespace halo
             if (! captions.isEmpty())
             {
                 paint::text (g, "ctrl e export" + dot + "ctrl enter send", captions, HaloFonts::font (Role::mono, 10.5f), t.scr.dim);
-                const auto right = view.available ? ActionKey::captionFor (ActionKey::Variant::deviceWrite) : juce::String (view.reason);
+                // The reason a dead SEND is dead is on the lock line just above.
+                const auto right = view.available ? ActionKey::captionFor (ActionKey::Variant::deviceWrite) : juce::String();
                 paint::text (g, right, captions, HaloFonts::font (Role::print, 10.5f), t.scr.dim, juce::Justification::centredRight);
             }
         }

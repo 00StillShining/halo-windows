@@ -49,6 +49,7 @@ namespace halo
         juce::Rectangle<float> localF (const layout::Rect&) const;
         juce::Rectangle<float> pageWord (bool shape) const;
         juce::Rectangle<float> normalizeTag() const;
+        juce::Rectangle<float> rightColumn() const; // notice, backup line, actions, status: packed under the notice
 
         AppModel& model;
         WriteGate& gate;

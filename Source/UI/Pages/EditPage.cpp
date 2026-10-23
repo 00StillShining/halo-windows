@@ -217,6 +217,17 @@ namespace halo
         return { ch.getRight() + 16.0f, ch.getCentreY() - 10.0f, paint::tagWidth ("NORMALIZE"), 20.0f };
     }
 
+    juce::Rectangle<float> EditPage::rightColumn() const
+    {
+        // Packed from the top so the keys sit under the notice instead of
+        // leaving a dead gap above them; the progress block needs room while sending.
+        const auto r = localF (L.right);
+        const bool regular = frame.density == layout::Density::regular;
+        const float need = (float) noticeView.heightForWidth ((int) r.getWidth()) + (sending ? 64.0f : 16.0f) + 24.0f
+                         + (regular ? 44.0f : 36.0f) + 6.0f + 22.0f;
+        return r.withHeight (juce::jmin (r.getHeight(), need));
+    }
+
     void EditPage::resized()
     {
         if (frame.width <= 0)
@@ -236,7 +247,7 @@ namespace halo
         left.removeFromTop (regular ? 10.0f + 18.0f : 6.0f);
         quality.setBounds (left.removeFromTop (30.0f).toNearestInt());
 
-        auto right = localF (L.right);
+        auto right = rightColumn();
         noticeView.setBounds (right.removeFromTop ((float) noticeView.heightForWidth ((int) right.getWidth())).toNearestInt());
         auto status = right.removeFromBottom (22.0f);
         showKey.setBounds (status.removeFromRight ((float) showKey.preferredWidth()).withSizeKeepingCentre ((float) showKey.preferredWidth(), 22.0f).toNearestInt());
@@ -388,14 +399,14 @@ namespace halo
 
         // Lower right: the notice is a child; the backup line, progress, status.
         {
-            auto right = localF (L.right);
+            auto right = rightColumn();
             right.removeFromTop ((float) noticeView.getHeight());
             auto status = right.removeFromBottom (22.0f);
             auto actions = right.removeFromBottom (regular ? 44.0f : 36.0f);
             auto backup = right.removeFromBottom (24.0f).withTrimmedBottom (6.0f);
             if (sending)
             {
-                auto pr = actions.withTop (juce::jmax (localF (L.right).getY() + (float) noticeView.getHeight() + 4.0f, actions.getY() - 40.0f));
+                auto pr = actions.withTop (juce::jmax (rightColumn().getY() + (float) noticeView.getHeight() + 4.0f, actions.getY() - 40.0f));
                 progress::paint (g, pr, { "SENDING", sendFraction, sendEta, reelAngle });
             }
             const auto b = model.latestBackup();

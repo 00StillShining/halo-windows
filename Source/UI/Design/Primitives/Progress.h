@@ -18,4 +18,9 @@ namespace halo::progress
 
     void paint (juce::Graphics&, juce::Rectangle<float>, const State&);
     void reel (juce::Graphics&, juce::Point<float> centre, float radius, double angle, float wound, juce::Colour);
+
+    // A line-drawn compact cassette (BACKUPS' empty shelf): shell, screws,
+    // a ruled label with its title and side, the window with two toothed
+    // hubs and the tape between them, and the head opening at the bottom.
+    void cassette (juce::Graphics&, juce::Rectangle<float>, juce::Colour line, const juce::String& title, double hubAngle = 0.0);
 }

@@ -327,7 +327,7 @@ namespace halo::layout
         const auto& b = f.body;
         const bool regular = f.density == Density::regular;
         const float headerH = regular ? 44.0f : 40.0f, trimH = regular ? 18.0f : 16.0f, gap = regular ? 4.0f : 2.0f;
-        const float lower = regular ? 244.0f : 200.0f;
+        const float lower = regular ? 214.0f : 178.0f;
         float y = b.y;
         e.header = { b.x, y, b.w, headerH };
         y += headerH + gap;

@@ -100,13 +100,16 @@ namespace halo
                 fill = t.scr.neutralKey;
                 break;
         }
-        if (! enabled && variant != Variant::lockedWrite && variant != Variant::busy)
+        const bool dead = ! enabled && variant != Variant::lockedWrite && variant != Variant::busy;
+        if (dead)
         {
-            // Plainly disabled: dead outline, dim label.
+            // Plainly dead: a dashed outline and a dim label, so it never
+            // reads as a live outlined key.
             outlined = true;
             outline = t.scr.frame;
             fill = {};
-            textColour = iconColour = t.scr.ramp[5];
+            textColour = t.scr.dim;
+            iconColour = t.scr.mute;
         }
 
         if (! outlined)
@@ -126,8 +129,13 @@ namespace halo
                 g.setColour (t.scr.panel);
                 g.fillRoundedRectangle (r, radius);
             }
-            g.setColour (outline);
-            g.drawRoundedRectangle (r.reduced (0.75f), radius, 1.5f);
+            if (dead)
+                paint::dashedRect (g, r.reduced (0.75f), outline, 1.2f, 4.0f, 3.0f, radius);
+            else
+            {
+                g.setColour (outline);
+                g.drawRoundedRectangle (r.reduced (0.75f), radius, 1.5f);
+            }
         }
 
         auto content = r.reduced (padX, 0.0f);

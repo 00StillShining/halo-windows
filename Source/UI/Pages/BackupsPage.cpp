@@ -289,19 +289,35 @@ namespace halo
         auto inner = r.reduced (20.0f, 12.0f);
         inner.removeFromRight ((float) backupKey.getWidth() + 30.0f + (r.getHeight() < 100.0f ? (float) folderKey.getWidth() + 10.0f : 0.0f));
 
+        // A dead BACK UP NOW says why, beside it.
+        if (! backupKey.isEnabled())
+        {
+            const auto why = v.plate == Plate::noDevice ? juce::String ("needs the ep" + enDash + "40") : v.running ? juce::String ("running") : juce::String();
+            const auto k = backupKey.getBounds().toFloat();
+            const float x0 = r.getHeight() < 100.0f ? (float) folderKey.getX() : k.getX();
+            paint::text (g, why, { x0 - 170.0f, k.getY(), 158.0f, k.getHeight() }, HaloFonts::font (Role::ui, 12.0f), t.scr.dim,
+                         juce::Justification::centredRight);
+            inner.removeFromRight (150.0f);
+        }
+
         const float lockSize = juce::jmin (64.0f, inner.getHeight());
         auto lock = inner.removeFromLeft (lockSize + 8.0f).withSizeKeepingCentre (lockSize, lockSize);
-        if (v.plate == Plate::noDevice)
-            paint::hollowLamp (g, lock.getCentre(), t.scr.dim, 22.0f, 2.0f);
-        else
-            pictograms::draw (g, v.plate == Plate::unlocked ? Pict::lockOpen : Pict::lockClosed, lock, t.scr.ink, 2.4f);
+        pictograms::draw (g, v.plate == Plate::unlocked ? Pict::lockOpen : Pict::lockClosed, lock,
+                          v.plate == Plate::noDevice ? t.scr.mute : t.scr.ink, 2.4f);
         inner.removeFromLeft (20.0f);
 
         const bool roomy = inner.getHeight() >= 90.0f;
         auto rows = inner.withSizeKeepingCentre (inner.getWidth(), roomy ? 84.0f : 64.0f);
         if (v.plate == Plate::noDevice)
         {
-            paint::text (g, "Connect the EP-40 (see LOAD) to back it up", rows, HaloFonts::font (Role::bodyStrong, 15.0f), t.scr.ink);
+            // The plate keeps its full grammar: tag, sentence, what it means.
+            auto tagRow = rows.removeFromTop (22.0f);
+            const auto tag = paint::tag (g, tagRow.getTopLeft(), "NO EP" + enDash + "40", paint::TagStyle::outline, t.scr.frame, t.scr.dim, 22.0f);
+            paint::hollowLamp (g, { tag.getRight() + 12.0f, tag.getCentreY() }, t.scr.dim, 8.0f);
+            rows.removeFromTop (8.0f);
+            paint::text (g, "Connect the EP-40 (see LOAD) to back it up", rows.removeFromTop (20.0f), HaloFonts::font (Role::bodyStrong, 14.0f), t.scr.ink);
+            rows.removeFromTop (4.0f);
+            paint::text (g, "until then nothing here can change: writes stay locked", rows.removeFromTop (18.0f), HaloFonts::font (Role::ui, 12.5f), t.scr.dim);
             return;
         }
         const bool unlocked = v.plate == Plate::unlocked;
@@ -444,7 +460,7 @@ namespace halo
     {
         const auto& t = theme();
         paint::text (g, "SHELF", r.withHeight (16.0f), HaloFonts::font (Role::label), t.scr.dim);
-        paint::text (g, juce::String ((int) v.shelf.size()) + " backups" + dot + "double-click shows the folder",
+        paint::text (g, v.shelf.empty() ? juce::String ("empty") : juce::String ((int) v.shelf.size()) + " backups" + dot + "double-click shows the folder",
                      r.withHeight (16.0f).withTrimmedLeft (64.0f), HaloFonts::font (Role::ui, 12.0f), t.scr.dim);
         if (v.failed || (v.status.startsWith ("Backup cancelled")))
         {
@@ -463,12 +479,39 @@ namespace halo
         }
         if (v.shelf.empty())
         {
-            auto area = r.withTrimmedTop (30.0f);
-            const auto c = cassetteBounds (0);
-            paintCassette (g, c, nullptr, false, false);
-            paint::paragraph (g, "No backups yet. BACK UP NOW copies every sound and project; nothing on the EP-40 changes.",
-                              juce::Rectangle<float> (c.getRight() + 24.0f, c.getY() + 30.0f, juce::jmin (460.0f, area.getRight() - c.getRight() - 24.0f), 60.0f),
-                              HaloFonts::font (Role::body, 14.0f), t.scr.ink, 4.0f);
+            // The empty shelf: one big line-drawn cassette, still, and beside
+            // it what a backup is and what it unlocks.
+            auto area = r.withTrimmedTop (26.0f).reduced (0.0f, 4.0f);
+            const float ch = juce::jmin (area.getHeight(), 250.0f), cw = ch * 1.58f;
+            auto block = area.withSizeKeepingCentre (juce::jmin (area.getWidth(), cw + 48.0f + 520.0f), ch);
+            const auto drawing = block.removeFromLeft (cw);
+            progress::cassette (g, drawing, t.scr.dim, "EP" + enDash + "40" + dot + "BACKUP");
+            block.removeFromLeft (48.0f);
+            auto text = block.withSizeKeepingCentre (block.getWidth(), juce::jmin (block.getHeight(), 196.0f));
+            paint::text (g, "NO BACKUPS YET", text.removeFromTop (26.0f), HaloFonts::font (Role::title), t.scr.ink);
+            text.removeFromTop (10.0f);
+            const auto line = juce::String ("BACK UP NOW copies every sound and project; nothing on the EP-40 changes.");
+            const auto bodyFont = HaloFonts::font (Role::body, 14.0f);
+            const float lh = paint::paragraphHeight (line, bodyFont, text.getWidth(), 4.0f);
+            paint::paragraph (g, line, text.removeFromTop (lh), bodyFont, t.scr.ink, 4.0f);
+            text.removeFromTop (18.0f);
+            paint::text (g, "ONE COMPLETE BACKUP UNLOCKS", text.removeFromTop (16.0f), HaloFonts::font (Role::label), t.scr.dim);
+            text.removeFromTop (8.0f);
+            auto tags = text.removeFromTop (24.0f);
+            for (const char* word : { "SEND", "ASSIGN", "DELETE" })
+            {
+                const float tw = paint::tagWidth (word) + 18.0f;
+                auto tr = tags.removeFromLeft (tw);
+                g.setColour (t.scr.frame);
+                g.drawRoundedRectangle (tr.reduced (0.5f).withHeight (22.0f), 2.5f, 1.0f);
+                pictograms::draw (g, Pict::lockClosed, { tr.getX() + 5.0f, tr.getY() + 5.0f, 12.0f, 12.0f }, t.scr.dim, 1.2f);
+                paint::text (g, word, tr.withTrimmedLeft (20.0f).withHeight (22.0f), HaloFonts::font (Role::tag), t.scr.ink);
+                tags.removeFromLeft (10.0f);
+            }
+            text.removeFromTop (14.0f);
+            const auto mono = HaloFonts::font (Role::mono, 11.5f);
+            paint::text (g, "saved to  " + paint::middleEllipsis (Ep40Backup::backupsFolder().getFullPathName(), mono, text.getWidth() - 80.0f),
+                         text.removeFromTop (16.0f), mono, t.scr.dim);
             return;
         }
         juce::Graphics::ScopedSaveState save (g);
