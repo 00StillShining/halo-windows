@@ -609,6 +609,10 @@ def to_v3(parts, source_name, decal_parts=(), ao_fn=None, transmission=None):
         rec["material"] = mat_ids
         rec["slot"] = slot
         rec["mask"] = 1 if name == "chassis_topPlate" or name in decal_parts else 0
+        # Aperture underglow (D3): a key's well carries its key's slot in mask
+        # bits 1-5, so the struck pad's liner can glow while the cap never does.
+        if name.endswith("_well") and SLOTS.get(name[:-len("_well")], 0):
+            rec["mask"] = rec["mask"] | (SLOTS[name[:-len("_well")]] << 1)
         rec["ao"] = 255 if ao_fn is None or not n_vert else np.clip(np.round(ao_fn(pos, nrm) * 255), 0, 255).astype(np.uint8)
         vert_chunks.append(rec)
         idx_chunks.append((idx + base).astype(np.uint32))

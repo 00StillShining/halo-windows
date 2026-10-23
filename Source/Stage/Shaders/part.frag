@@ -403,13 +403,15 @@ void main()
 
     // 7: unlit albedo (print included); 8: emissive only.
     if (uDebug == 7) { fragColour = displayValue (srgbEncode (albedo)); return; }
-    if (uDebug == 8) { fragColour = displayValue (srgbEncode (vEmissive * 0.6 + uSlotGlow[vSlot])); return; }
+    if (uDebug == 8) { int gs = (vMask >> 1) & 31; fragColour = displayValue (srgbEncode (vEmissive * 0.6 + (gs > 0 ? uSlotGlow[gs] : vec3 (0.0)))); return; }
     if (uDebug == 9) { fragColour = displayValue (n * 0.5 + 0.5); return; }
     if (uDebug == 1) { fragColour = displayValue (vec3 (ao)); return; }
     if (uDebug == 2) { fragColour = displayValue (vec3 (shadow)); return; }
     if (uDebug == 3) { fragColour = displayValue (vec3 (vAO)); return; }   // vertex AO alone
 
     vec3 lit = shade (albedo, roughness, n, v, shadow, ao);
-    lit += vEmissive * 0.6 + uSlotGlow[vSlot];
+    // Aperture underglow (D3): a well's mask bits 1-5 name its key's slot.
+    int glowSlot = (vMask >> 1) & 31;
+    lit += vEmissive * 0.6 + (glowSlot > 0 ? uSlotGlow[glowSlot] : vec3 (0.0));
     emit (lit);
 }

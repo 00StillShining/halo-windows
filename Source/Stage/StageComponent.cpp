@@ -11,9 +11,10 @@ namespace halo
     namespace
     {
         // Mechanics from HaloMechanics.swift.
-        constexpr float travelMin = 0.0011f, travelMax = 0.0013f; // metres
-        constexpr float pressTau = 0.020f, releaseTau = 0.035f;    // ~65 ms in, ~110 ms out
-        constexpr float ledFloor = 0.16f, ledScale = 0.74f, ledDecayTau = 0.09f;
+        constexpr float keyTravel = 0.0013f;            // metres: one travel for every strike (O5 pending)
+        // Aperture underglow (D3): HDR orange x (0.4 + 0.6 velocity) on the
+        // struck pad's liner, fading over ~150 ms (3 tau) after release.
+        constexpr float glowFloor = 0.4f, glowScale = 0.6f, glowDecayTau = 0.05f, glowHdr = 3.0f;
         constexpr float ringDiscoverPeriod = 4.0f;
 
         // Halo cue colours on the device itself (pad strike, active group). Device
@@ -684,24 +685,23 @@ namespace halo
             if (target.strikeCount != anim.seenStrikes)
             {
                 anim.seenStrikes = target.strikeCount;
-                anim.led = ledFloor + ledScale * target.velocity * target.velocity;
+                anim.glow = glowFloor + glowScale * target.velocity;
             }
-            const float depth = target.held ? travelMin + (travelMax - travelMin) * target.velocity : 0.0f;
+            const float depth = target.held ? keyTravel : 0.0f;
             if (pose)
             {
-                anim.depth = depth; // frozen: the pose shows the settled state
+                anim.spring = { depth, 0.0f }; // frozen: the pose shows the settled state
                 continue;
             }
-            const float tau = depth > anim.depth ? pressTau : releaseTau;
-            anim.depth += (depth - anim.depth) * (1.0f - std::exp (-dt / tau));
+            anim.spring.step (depth, dt);
             if (! target.held)
-                anim.led *= std::exp (-dt / ledDecayTau);
+                anim.glow *= std::exp (-dt / glowDecayTau);
         }
 
         // Pad travel as slot offsets (model space, along -Z).
         slotOffsets.fill ({});
         for (size_t i = 0; i < 12; ++i)
-            slotOffsets[1 + i] = { 0.0f, 0.0f, -padAnim[i].depth };
+            slotOffsets[1 + i] = { 0.0f, 0.0f, -padAnim[i].spring.depth };
     }
 
     // Depth-only pass of the whole device into `target`. The key light's map works
@@ -848,13 +848,13 @@ namespace halo
         const auto green = linear (cueGreen.brighter (0.6f));
         partProgram.setMat4 ("uViewProj", viewProj.mat);
 
-        // Halo cues on the device, per slot: a struck pad's glow, the active group.
+        // Halo's pad cue (D3): the struck pad's aperture liner glows (by the
+        // well's slot, part.frag); no cap ever changes colour. The active group
+        // shows on the LCD's group icon, not as a tint on the pad.
         std::array<juce::Vector3D<float>, Hmesh::maxSlots> glow {};
         for (size_t i = 0; i < 12; ++i)
-            glow[1 + i] = orange * (padAnim[i].led * 0.9f);
-        for (size_t g = 0; g < 4; ++g)
-            if (state.displayLive && state.activeGroup && (size_t) *state.activeGroup == g)
-                glow[13 + g] = green * 0.35f;
+            glow[1 + i] = orange * (padAnim[i].glow * glowHdr);
+        juce::ignoreUnused (green);
         static const auto glowNames = []
         {
             std::array<std::string, Hmesh::maxSlots> names;

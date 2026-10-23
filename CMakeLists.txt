@@ -178,7 +178,8 @@ target_sources(HaloTests PRIVATE
     Tests/HenvFormatTests.cpp
     Tests/HtexFormatTests.cpp
     Tests/HmeshFormatTests.cpp
-    Tests/LcdStateTests.cpp)
+    Tests/LcdStateTests.cpp
+    Tests/PadSpringTests.cpp)
 target_compile_definitions(HaloTests PRIVATE HALO_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 # The Mac app (its own repo) sits beside this one as the reference spec; when it
 # is there, the entity-name test cross-checks the frozen contract against it.

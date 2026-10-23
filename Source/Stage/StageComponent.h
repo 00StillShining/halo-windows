@@ -2,6 +2,7 @@
 
 #include "App/AppModel.h"
 #include "Core/StageCamera.h"
+#include "Core/PadSpring.h"
 #include "Core/StagePose.h"
 #include "Stage/DecalAtlas.h"
 #include "Stage/DisplayRenderer.h"
@@ -106,8 +107,8 @@ namespace halo
 
         struct PadAnim
         {
-            float depth = 0.0f;
-            float led = 0.0f;
+            PadSpring spring;      // travel (Core/PadSpring.h)
+            float glow = 0.0f;     // aperture underglow level (D3)
             int seenStrikes = 0;
         };
 
