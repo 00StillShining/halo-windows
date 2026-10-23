@@ -296,11 +296,12 @@ TEST_CASE ("layout: RACK's four tiles fit the chain at every minimum size")
         CHECK (k.tiles[3].right() <= k.limiter.x);
         CHECK_FALSE (k.limiter.overlaps (k.outLadders));
         CHECK (k.lower.h >= 96.0f);
+        CHECK (k.canvas.h - k.tiles[0].h <= 80.0f); // composed: no dead band around the chain
         CHECK (k.canvas.bottom() <= k.lower.y);
     }
     const auto big = rackLayout (frame (1440, 900));
     CHECK (big.tiles[0].w >= 240.0f);
-    CHECK (big.tiles[0].h >= 280.0f);
+    CHECK (big.tiles[0].h >= 320.0f);
 }
 
 TEST_CASE ("layout: BACKUPS keeps its plate the largest element and a shelf row at every minimum size")

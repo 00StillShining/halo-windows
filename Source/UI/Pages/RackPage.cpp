@@ -308,7 +308,7 @@ namespace halo
         const auto& t = theme();
         const bool running = model.monitor().isRunning();
         auto litFor = [] (float db) { return std::isfinite (db) ? juce::jlimit (0, 16, (int) std::floor ((db + 48.0f) / 48.0f * 16.0f)) : 0; };
-        auto bars = r.withSizeKeepingCentre (16.0f, juce::jmin (150.0f, r.getHeight() - 60.0f));
+        auto bars = r.withSizeKeepingCentre (16.0f, juce::jmin (220.0f, r.getHeight() * 0.55f));
         gauges::ladder (g, bars.withWidth (6.0f), 16, running ? litFor (lv.peakL) : 0, t.scr.ink, true);
         gauges::ladder (g, bars.withTrimmedLeft (10.0f), 16, running ? litFor (lv.peakR) : 0, t.scr.ink, true);
         paint::text (g, tap, { r.getCentreX() - 30.0f, bars.getBottom() + 6.0f, 60.0f, 12.0f }, HaloFonts::font (Role::print, 10.5f), t.scr.dim,
@@ -529,7 +529,7 @@ namespace halo
 
         paintIllustration (g, module, inner, on ? black : t.scr.dim, live);
         if (! on)
-            paint::text (g, "bypassed", inner.removeFromBottom (14.0f), HaloFonts::font (Role::ui, 11.5f), t.scr.dim, juce::Justification::centred);
+            paint::text (g, "bypassed", inner.removeFromTop (14.0f), HaloFonts::font (Role::ui, 11.5f), t.scr.dim, juce::Justification::centred);
     }
 
     void RackPage::paint (juce::Graphics& g)

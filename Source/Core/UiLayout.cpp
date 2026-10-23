@@ -232,7 +232,7 @@ namespace halo::layout
         const float headerH = regular ? 44.0f : 40.0f;
         k.header = { b.x, b.y, b.w, headerH };
         const float top = b.y + headerH + 4.0f;
-        const float lowerH = regular ? 162.0f : 120.0f;
+        const float lowerH = regular ? 118.0f : 112.0f; // its content needs ~100; the canvas takes the rest
         const float lowerMin = 96.0f;
         // The canvas keeps its tiles at least minTileH (+ 40 for the chain
         // captions); the lower band yields first.
@@ -251,7 +251,7 @@ namespace halo::layout
         x += laddersW + gap;
         const float right = k.canvas.right() - portW - 6.0f - laddersW - gap - limiterW - gap;
         const float tileW = std::min (250.0f, std::floor ((right - x - 3.0f * gap) / 4.0f));
-        const float tileH = std::min (300.0f, k.canvas.h - 40.0f);
+        const float tileH = std::min (340.0f, k.canvas.h - 40.0f);
         const float used = 4.0f * tileW + 3.0f * gap;
         x += std::floor ((right - x - used) * 0.5f);
         for (int i = 0; i < 4; ++i)

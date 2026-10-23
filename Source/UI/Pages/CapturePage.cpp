@@ -232,6 +232,8 @@ namespace halo
         list->onSelect = [this] { refresh(); };
         list->onOpen = [this] { openSelected (false); };
         importKey.onClick = [this] { import(); };
+        emptyImportKey.onClick = [this] { import(); };
+        addChildComponent (emptyImportKey);
         importKey.setTooltip ("Import audio files into the library (they stay where they are)");
         folderKey.onClick = [] { SessionRecorder::recordingsFolder().revealToUser(); };
         folderKey.setTooltip ("Show the recordings folder");
@@ -343,6 +345,9 @@ namespace halo
         forgetKey.setVisible (item != nullptr && item->kind == Library::Item::Kind::imported);
         const bool empty = model.library().items().empty();
         list->setVisible (! empty);
+        emptyImportKey.setVisible (empty);
+        for (auto* k : { &editKey, &chopKey })
+            k->setVisible (! empty); // nothing to open yet: the empty state's import key leads
         list->repaint();
         repaint();
     }
@@ -492,6 +497,28 @@ namespace halo
             x += (float) k->preferredWidth() + 10.0f;
         }
         forgetKey.setBounds (actions.removeFromRight ((float) forgetKey.preferredWidth()).toNearestInt());
+        emptyImportKey.setBounds (emptyLayout().key);
+    }
+
+    CapturePage::EmptyLayout CapturePage::emptyLayout() const
+    {
+        // A drop zone filling the list: the line-drawn tape motif, then the
+        // words and the import key, centred as one block.
+        EmptyLayout e;
+        e.frame = localF (L.list).reduced (0.0f, 2.0f);
+        const auto inner = e.frame.reduced (24.0f, 14.0f);
+        e.roomy = inner.getHeight() >= 130.0f;
+        const float motifH = juce::jmin (inner.getHeight(), e.roomy ? 150.0f : 96.0f);
+        const float motifW = motifH * 2.0f;
+        const float textW = juce::jmin (520.0f, inner.getWidth() - motifW - 48.0f);
+        auto block = inner.withSizeKeepingCentre (motifW + 48.0f + textW, motifH);
+        e.motif = block.removeFromLeft (motifW);
+        block.removeFromLeft (48.0f);
+        e.text = block;
+        const float keyH = e.roomy ? 44.0f : 36.0f;
+        const float keyW = (float) emptyImportKey.preferredWidth();
+        e.key = juce::Rectangle<float> (e.text.getX(), e.text.getBottom() - keyH, keyW, keyH).toNearestInt();
+        return e;
     }
 
     bool CapturePage::keyPressed (const juce::KeyPress& key)
@@ -674,15 +701,45 @@ namespace halo
         // ---- Library ----
         if (items.empty())
         {
-            // The empty state sits where the list would be: two still reels and the copy.
-            const auto area = localF (L.list);
-            const auto box = area.withSizeKeepingCentre (juce::jmin (620.0f, area.getWidth()), juce::jmin (110.0f, area.getHeight()));
-            const float rr = 22.0f;
-            progress::reel (g, { box.getX() + rr + 2.0f, box.getCentreY() }, rr, 0.3, 0.2f, t.scr.dim);
-            progress::reel (g, { box.getX() + rr * 3.0f + 14.0f, box.getCentreY() }, rr, 1.1, 0.7f, t.scr.dim);
-            paint::paragraph (g, "Nothing here yet. Record a take or GRAB in PLAY, or IMPORT / drop audio files here.",
-                              box.withTrimmedLeft (rr * 4.0f + 36.0f).withSizeKeepingCentre (box.getWidth() - rr * 4.0f - 36.0f, 44.0f),
-                              HaloFonts::font (Role::body, 14.0f), t.scr.ink, 4.0f);
+            // The empty state: a dashed drop zone with the tape motif (two
+            // line-drawn reels, the tape running down past the head), the
+            // words and a real import key.
+            const auto e = emptyLayout();
+            paint::dashedRect (g, e.frame, t.scr.frame, 1.2f, 6.0f, 5.0f, 6.0f);
+            const auto m = e.motif;
+            const float rr = m.getHeight() * 0.36f;
+            const juce::Point<float> c1 { m.getX() + rr + 2.0f, m.getY() + rr + 2.0f }, c2 { m.getRight() - rr - 2.0f, m.getY() + rr + 2.0f };
+            const auto line = t.scr.dim;
+            for (auto [c, a] : { std::pair { c1, 0.4f }, std::pair { c2, 1.3f } })
+            {
+                g.setColour (line);
+                g.drawEllipse (juce::Rectangle<float> (rr * 2.0f, rr * 2.0f).withCentre (c), 1.5f);
+                g.drawEllipse (juce::Rectangle<float> (rr * 0.5f, rr * 0.5f).withCentre (c), 1.3f);
+                g.setColour (line.withAlpha (0.45f));
+                g.drawEllipse (juce::Rectangle<float> (rr * 1.25f, rr * 1.25f).withCentre (c), 1.0f);
+                g.setColour (line);
+                for (int k = 0; k < 3; ++k)
+                {
+                    const float ang = a + juce::MathConstants<float>::twoPi * (float) k / 3.0f;
+                    g.drawLine ({ c.getPointOnCircumference (rr * 0.25f, ang), c.getPointOnCircumference (rr * 0.9f, ang) }, 1.3f);
+                }
+            }
+            const auto head = juce::Rectangle<float> (12.0f, 10.0f).withCentre ({ m.getCentreX(), m.getBottom() - 6.0f });
+            g.setColour (line);
+            g.drawLine (c1.x - rr * 0.3f, c1.y + rr * 0.95f, head.getX(), head.getCentreY(), 1.2f);
+            g.drawLine (head.getRight(), head.getCentreY(), c2.x + rr * 0.3f, c2.y + rr * 0.95f, 1.2f);
+            g.drawRect (head, 1.2f);
+            auto text = e.text;
+            if (e.roomy)
+            {
+                paint::text (g, "NOTHING HERE YET", text.removeFromTop (26.0f), HaloFonts::font (Role::title), t.scr.ink);
+                text.removeFromTop (8.0f);
+            }
+            const auto copy = juce::String ("Record a take or GRAB in PLAY, or IMPORT / drop audio files here.");
+            paint::paragraph (g, copy, text.removeFromTop (44.0f), HaloFonts::font (Role::body, 14.0f), e.roomy ? t.scr.dim : t.scr.ink, 4.0f);
+            const auto k = emptyImportKey.getBounds().toFloat();
+            paint::text (g, "or drop them anywhere on this page", { k.getRight() + 16.0f, k.getY(), e.text.getRight() - k.getRight() - 16.0f, k.getHeight() },
+                         HaloFonts::font (Role::ui, 12.5f), t.scr.dim);
         }
         else if (view.empty())
             paint::text (g, "nothing matches", localF (L.list).withHeight (40.0f).reduced (10.0f, 0.0f), HaloFonts::font (Role::ui, 12.5f), t.scr.dim);
@@ -708,7 +765,7 @@ namespace halo
                     paint::text (g, message, msg.withTrimmedLeft (result ? 14.0f : 0.0f), HaloFonts::font (Role::mono, 11.5f), t.scr.ink);
                 }
             }
-            else
+            else if (! items.empty()) // the empty state already says how
                 paint::text (g, "takes, grabs and imported files" + dot + "drop audio anywhere here to import" + dot + "double-click opens in edit",
                              msg, HaloFonts::font (Role::ui, 12.0f), t.scr.dim);
             if (selectedItem() == nullptr && ! items.empty())

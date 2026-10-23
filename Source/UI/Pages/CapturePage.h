@@ -61,6 +61,9 @@ namespace halo
         std::unique_ptr<List> list;
         juce::TextEditor search;
         StepKeyRow kinds, sorts, grabLengths;
+        ActionKey emptyImportKey { "import audio files", Pict::file, ActionKey::Variant::primary };
+        struct EmptyLayout { juce::Rectangle<float> frame, motif, text; juce::Rectangle<int> key; bool roomy = true; };
+        EmptyLayout emptyLayout() const;
         ActionKey importKey { "import", Pict::file }, folderKey { "folder", Pict::folder }, recKey { "rec", Pict::rec },
                   monitorKey { "monitor", Pict::monitor }, grabKey { "grab", Pict::grab }, showKey { "show" },
                   editKey { "edit", Pict::edit }, chopKey { "chop", Pict::chop }, forgetKey { "forget", Pict::cross };
