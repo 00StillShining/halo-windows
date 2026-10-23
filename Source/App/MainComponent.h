@@ -93,7 +93,7 @@ namespace halo
 
         layout::Frame frame;
         AppMode shownMode = AppMode::play;
-        AppMode boundMode = AppMode::chop;
+        std::optional<AppMode> boundMode; // nothing bound yet (HALO_MODE may start in any mode)
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
     };

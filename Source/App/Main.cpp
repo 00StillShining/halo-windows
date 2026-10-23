@@ -137,6 +137,9 @@ namespace halo
                 // HALO_CHOP_SECONDS=<1-20>: CHOP's LENGTH.
                 if (const auto secs = env ("HALO_CHOP_SECONDS"); secs.isNotEmpty())
                     model->editor().setChopSeconds (secs.getDoubleValue());
+                // HALO_CHOP_EVEN=1: CHOP's even mode (for shots of the dead SENSITIVITY cell).
+                if (env ("HALO_CHOP_EVEN") == "1")
+                    model->editor().evenSlices = true;
 
                 // HALO_AUTOEXPORT=edit|slices: export once the file has loaded.
                 const auto what = env ("HALO_AUTOEXPORT");

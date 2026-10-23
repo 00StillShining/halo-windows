@@ -403,7 +403,7 @@ namespace halo
                 meta = juce::String (audio->durationSeconds(), 1) + " s" + dot + juce::String (audio->sampleRate / 1000.0, 1) + " khz" + dot
                      + (audio->channelCount() == 1 ? "mono" : "stereo") + dot + "from edit";
             else if (! session.isLoading())
-                meta = "pick a take, grab or file in CAPTURE or EDIT, then press chop (ctrl 7)";
+                meta = "open a sample in EDIT, then chop it (ctrl 7)";
             paint::text (g, meta, titleRow.withTrimmedLeft (titleW + 20.0f).withTrimmedRight (520.0f), HaloFonts::font (Role::ui, 12.0f),
                          t.scr.dim);
 
