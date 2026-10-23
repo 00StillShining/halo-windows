@@ -220,3 +220,23 @@ TEST_CASE ("layout: wrapping counts lines with the generated metrics")
     CHECK (wrappedHeight (halo::fontmetrics::kBody, "short", 400.0f, 19.0f) == doctest::Approx (19.0f));
     CHECK (wrappedHeight (halo::fontmetrics::kBody, std::string (60, 'a') + " " + std::string (60, 'a'), 300.0f, 19.0f) >= 38.0f);
 }
+
+TEST_CASE ("layout: EDIT's AUTO-TRIM note fits beside the band at every minimum size")
+{
+    const std::string note = "AUTO-TRIM: over 20 s, so SEND sends the first 20 s of the selection, with a fade-out. "
+                             "Drag the trim handles to pick another part, or CHOP it.";
+    for (auto size : { std::pair { 1440.0f, 900.0f }, std::pair { 1180.0f, 720.0f }, std::pair { 1180.0f, 660.0f } })
+    {
+        INFO ("size " << size.first << " x " << size.second);
+        const auto f = frame (size.first, size.second);
+        const auto e = editLayout (f);
+        CHECK (e.band.h >= EditLayout::minBand);
+        CHECK (f.body.contains (e.right));
+        CHECK_FALSE (e.left.overlaps (e.right));
+        // notice + backup line + actions + status
+        CHECK (noticeHeight (note, e.right.w, true) + 24.0f + 44.0f + 24.0f <= e.right.h);
+    }
+    const auto r = editLayout (frame (1440, 900));
+    CHECK (r.band.y == doctest::Approx (126.0f));
+    CHECK (r.right.x == doctest::Approx (716.0f));
+}

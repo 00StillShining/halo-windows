@@ -207,6 +207,28 @@ namespace halo::layout
         return std::max (16.0f, wrappedHeight (fontmetrics::kBodyStrong, text, (width - 24.0f - 26.0f) * 0.98f, line)) + 18.0f;
     }
 
+    // ---- EDIT -----------------------------------------------------------------------
+    EditLayout editLayout (const Frame& f)
+    {
+        EditLayout e;
+        const auto& b = f.body;
+        const bool regular = f.density == Density::regular;
+        const float headerH = regular ? 44.0f : 40.0f, trimH = regular ? 18.0f : 16.0f, gap = regular ? 4.0f : 2.0f;
+        const float lower = regular ? 244.0f : 200.0f;
+        float y = b.y;
+        e.header = { b.x, y, b.w, headerH };
+        y += headerH + gap;
+        e.trimRow = { b.x, y, b.w, trimH };
+        y += trimH + gap;
+        const float bandH = std::max (EditLayout::minBand, b.bottom() - lower - 10.0f - y);
+        e.band = { b.x, y, b.w, bandH };
+        const float lowerTop = e.band.bottom() + 10.0f;
+        const float leftW = regular && ! f.narrow ? 676.0f : (b.w - 16.0f) * 0.5f;
+        e.left = { b.x, lowerTop, leftW, b.bottom() - lowerTop };
+        e.right = { b.x + leftW + 16.0f, lowerTop, b.w - leftW - 16.0f, b.bottom() - lowerTop };
+        return e;
+    }
+
     // ---- CHOP -----------------------------------------------------------------------
     ChopLayout chopLayout (const Frame& f, std::string_view noticeText, bool boxed)
     {

@@ -12,10 +12,10 @@
 #include "UI/Design/WriteGate.h"
 #include "UI/HaloLookAndFeel.h"
 #include "UI/BackupsPanel.h"
-#include "UI/EditPanel.h"
 #include "UI/LibraryPanel.h"
 #include "UI/LoadPanel.h"
 #include "UI/Pages/ChopPage.h"
+#include "UI/Pages/EditPage.h"
 #include "UI/Pages/PlayPage.h"
 #include "UI/RackPanel.h"
 
@@ -77,11 +77,11 @@ namespace halo
         // Pages not rebuilt yet: today's panels, docked at the right of the body.
         RackPanel rackPanel { model };
         LibraryPanel libraryPanel { model };
-        EditPanel editPanel { model, writeGate };
         LoadPanel loadPanel { model, writeGate };
         BackupsPanel backupsPanel { model };
         juce::Rectangle<int> dock;
         ChopPage chopPage { model, writeGate };
+        EditPage editPage { model, writeGate };
         LegacyPlate plate;
         Deck deck { model, bus };
         Lane lane { bus };

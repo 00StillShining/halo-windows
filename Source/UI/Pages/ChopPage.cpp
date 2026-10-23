@@ -502,7 +502,7 @@ namespace halo
             paint::text (g, paint::textWidth (hintFont, longHint) <= r.getWidth() ? longHint : shortHint, r, hintFont, t.scr.dim);
             }
             const auto sr = localF (L.status);
-            const auto status = session.status();
+            const auto status = session.status (EditSession::Page::chop);
             const bool failed = status.startsWith ("Export failed") || status.startsWith ("Send failed");
             if (failed)
             {

@@ -107,15 +107,18 @@ namespace halo
         // Plays audio that isn't the open sample (e.g. a sound from the EP-40).
         void playOther (std::shared_ptr<const AudioData> data, int token) { play (std::move (data), token); }
         // Short status line ("Exported 8 slices to ...") for the UI.
+        // Each page owns its status line (plan 3.8): CHOP's never shows in EDIT.
+        enum class Page { edit, chop };
         const juce::String& status() const noexcept { return statusLine; }
-        void report (const juce::String& line) { setStatus (line); }
+        juce::String status (Page p) const { return p == statusPage ? statusLine : juce::String(); }
+        void report (const juce::String& line, Page p = Page::chop) { setStatus (line, p); }
         const juce::File& lastExport() const noexcept { return exported; }
 
     private:
         void applySliceChoice();
         double capSeconds (bool& bySpace) const;
         SamplePrep slicePrep (const chop::Slice&) const;
-        void setStatus (const juce::String&);
+        void setStatus (const juce::String&, Page = Page::chop);
         void play (std::shared_ptr<const AudioData>, int token);
         template <typename Work, typename Done>
         void runInBackground (Work work, Done done);
@@ -130,6 +133,7 @@ namespace halo
         WaveformSummary wave;
         bool loading = false;
         juce::String lastError, statusLine;
+        Page statusPage = Page::chop;
         juce::File exported;
         int generation = 0;
         std::shared_ptr<bool> alive = std::make_shared<bool> (true);

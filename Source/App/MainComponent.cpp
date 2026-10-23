@@ -49,7 +49,7 @@ namespace halo
 
         for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &playPage, &plate, &deck, &lane, &softKeys })
             addAndMakeVisible (c);
-        for (auto* p : std::initializer_list<juce::Component*> { &rackPanel, &libraryPanel, &editPanel, &loadPanel, &backupsPanel })
+        for (auto* p : std::initializer_list<juce::Component*> { &rackPanel, &libraryPanel, &loadPanel, &backupsPanel })
             addChildComponent (p);
         lane.setContent ([this] (juce::Graphics& g, juce::Rectangle<float> r)
         {
@@ -57,6 +57,8 @@ namespace halo
                 playPage.paintLane (g, r, frame.density != layout::Density::regular);
             else if (model.mode() == AppMode::chop)
                 chopPage.paintLane (g, r, frame.density != layout::Density::regular);
+            else if (model.mode() == AppMode::edit)
+                editPage.paintLane (g, r, frame.density != layout::Density::regular);
         });
         playPage.onLaneChanged = [this] { lane.repaint(); };
         // One camera, one readout: drags on the stage move the ORBIT cell too.
@@ -65,6 +67,9 @@ namespace halo
             addAndMakeVisible (cells.add (new ParamCell (bus, i)));
         deck.onHint = [this] (const juce::String& h) { deckHint = h; updateHint(); };
         addChildComponent (chopPage);
+        addChildComponent (editPage);
+        // trim <-> shape latched on the page: the encoders swap pages.
+        editPage.onPageChanged = [this] { boundMode.reset(); updateBindings(); };
         model.addListener (this);
         setWantsKeyboardFocus (true);
        #if HALO_HAS_STAGE_LOOK
@@ -121,14 +126,18 @@ namespace halo
         stage.setVisible (play && ! cardOpen);
         playPage.setVisible (play);
         chopPage.setVisible (chop);
-        for (auto m : { AppMode::rack, AppMode::capture, AppMode::edit, AppMode::load, AppMode::backups })
+        const bool edit = mode == AppMode::edit;
+        editPage.setVisible (edit);
+        for (auto m : { AppMode::rack, AppMode::capture, AppMode::load, AppMode::backups })
             legacyPanel (m)->setVisible (m == mode);
-        plate.setVisible (! play && ! chop);
+        plate.setVisible (! play && ! chop && ! edit);
         plate.setMode (mode);
         statusStrip.setMonitorOwnedByEncoder (play);
         updateBindings();
         if (chop && ! chopPage.hasKeyboardFocus (true) && ! cardOpen)
             chopPage.grabKeyboardFocus();
+        if (edit && ! editPage.hasKeyboardFocus (true) && ! cardOpen)
+            editPage.grabKeyboardFocus();
         if (mode != shownMode)
         {
             shownMode = mode;
@@ -149,6 +158,8 @@ namespace halo
             bus.setBindings (playBindings (model, stage));
         else if (mode == AppMode::chop)
             bus.setBindings (chopPage.bindings());
+        else if (mode == AppMode::edit)
+            bus.setBindings (editPage.bindings (bus));
         else
             bus.setBindings ({});
         updateHint();
@@ -163,6 +174,8 @@ namespace halo
             hint = "drag: orbit" + dot + "wheel on stage: zoom" + dot + "double-click: reset";
         else if (model.mode() == AppMode::chop)
             hint = "shift + slice: nudge its cut" + dot + "shift + sensitivity press: clear cuts";
+        else if (model.mode() == AppMode::edit)
+            hint = "hold shift: gain, channels, quality, normalize" + dot + "click shape to latch it";
         else
             hint = "encoders arrive with this page" + dot + "use the panel on the right";
         softKeys.setHint (hint);
@@ -183,11 +196,11 @@ namespace halo
         {
             case AppMode::rack:    return &rackPanel;
             case AppMode::capture: return &libraryPanel;
-            case AppMode::edit:    return &editPanel;
             case AppMode::load:    return &loadPanel;
             case AppMode::backups: return &backupsPanel;
             case AppMode::play:
             case AppMode::chop:
+            case AppMode::edit:
             default:               return nullptr;
         }
     }
@@ -201,6 +214,12 @@ namespace halo
         {
             chopPage.setBounds (body);
             chopPage.setFrame (frame);
+            return;
+        }
+        if (mode == AppMode::edit)
+        {
+            editPage.setBounds (body);
+            editPage.setFrame (frame);
             return;
         }
         if (keymap::showsStage (mode))

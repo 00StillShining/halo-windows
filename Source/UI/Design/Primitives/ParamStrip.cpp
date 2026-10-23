@@ -105,7 +105,20 @@ namespace halo
 
         // Value and unit.
         const auto value = b->valueText();
-        const float valueRight = numerals::drawWithUnit (g, value, b->unitText(), 14.0f, baseline, capH, e.line, e.line);
+        // Words (a choice like "mono" or "lo 22k") are set in Inter Light at
+        // the numerals' size; Halo Numerals only draws figures.
+        bool figures = value.isNotEmpty();
+        for (auto c : value)
+            figures = figures && numerals::hasGlyph (c);
+        float valueRight = 14.0f;
+        if (figures)
+            valueRight = numerals::drawWithUnit (g, value, b->unitText(), 14.0f, baseline, capH, e.line, e.line);
+        else
+        {
+            const auto font = HaloFonts::font (Role::uiLight, capH * 1.25f);
+            paint::text (g, value, { 14.0f, baseline - capH * 1.6f, w - 24.0f, capH * 1.6f }, font, e.line, juce::Justification::bottomLeft);
+            valueRight += paint::textWidth (font, value);
+        }
 
         // Gauge to the right of the value, and its caption.
         const float gx = juce::jmax (valueRight + 12.0f, w * 0.50f);

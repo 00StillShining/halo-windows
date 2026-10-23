@@ -104,7 +104,7 @@ TEST_CASE ("honest: writesUnlocked and the backup pass through unchanged")
 
 TEST_CASE ("honest: pickNotice is blocker > info > plain, verbatim")
 {
-    // Today's EDIT copy (EditPanel.cpp).
+    // Today's EDIT copy (EditPage.cpp, carried over from EditPanel).
     const std::string editBlocker = "Needs 20.2 MB but the EP-40 has 14.9 MB free.";
     const std::string editTrim = "AUTO-TRIM: over 20 s, so SEND sends the first 20 s of the selection, with a fade-out. "
                                  "Drag the trim handles to pick another part, or CHOP it.";

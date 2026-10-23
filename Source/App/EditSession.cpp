@@ -43,9 +43,10 @@ namespace halo
         });
     }
 
-    void EditSession::setStatus (const juce::String& s)
+    void EditSession::setStatus (const juce::String& s, Page p)
     {
         statusLine = s;
+        statusPage = p;
         sendChangeMessage();
     }
 
@@ -119,7 +120,7 @@ namespace halo
     {
         const auto error = audition_.play (std::move (data), engine.chosenOutputName(), token);
         if (error.isNotEmpty())
-            setStatus ("Audition: " + error);
+            setStatus ("Audition: " + error, token < 0 ? Page::edit : Page::chop);
         else
             sendChangeMessage();
     }
@@ -208,7 +209,7 @@ namespace halo
         const auto folder = SampleIO::exportFolder();
         folder.createDirectory();
         const auto file = folder.getNonexistentChildFile (safeName (current.title) + "-" + treatmentTag (treatment), ".wav");
-        setStatus ("Exporting...");
+        setStatus ("Exporting...", Page::edit);
         runInBackground ([src = source, p = prep, t = treatment, file]
         {
             return SampleIO::writeWav16 (render (*src, p, t), file);
@@ -217,7 +218,7 @@ namespace halo
         {
             if (ok)
                 exported = file;
-            setStatus (ok ? "Exported " + file.getFileName() : "Export failed: couldn't write " + file.getFullPathName());
+            setStatus (ok ? "Exported " + file.getFileName() : "Export failed: couldn't write " + file.getFullPathName(), Page::edit);
         });
     }
 

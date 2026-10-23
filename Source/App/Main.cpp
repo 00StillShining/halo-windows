@@ -140,6 +140,18 @@ namespace halo
                 // HALO_CHOP_EVEN=1: CHOP's even mode (for shots of the dead SENSITIVITY cell).
                 if (env ("HALO_CHOP_EVEN") == "1")
                     model->editor().evenSlices = true;
+                // HALO_EDIT_TRIM=<in s>,<out s>,<fade in ms>,<fade out ms>: an EDIT trim pose, once loaded.
+                if (const auto trim = juce::StringArray::fromTokens (env ("HALO_EDIT_TRIM"), ",", {}); trim.size() == 4)
+                    juce::Timer::callAfterDelay (1500, [this, trim]
+                    {
+                        auto& s = model->editor();
+                        const double rate = s.audio() != nullptr ? s.audio()->sampleRate : 44100.0;
+                        s.prep.trimStartFrame = (int) (trim[0].getDoubleValue() * rate);
+                        s.prep.trimEndFrame = (int) (trim[1].getDoubleValue() * rate);
+                        s.prep.fadeInFrames = (int) (trim[2].getDoubleValue() / 1000.0 * rate);
+                        s.prep.fadeOutFrames = (int) (trim[3].getDoubleValue() / 1000.0 * rate);
+                        s.changed();
+                    });
 
                 // HALO_AUTOEXPORT=edit|slices: export once the file has loaded.
                 const auto what = env ("HALO_AUTOEXPORT");
