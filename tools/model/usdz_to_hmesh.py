@@ -505,6 +505,8 @@ def part_kind(name):
         return k["led"]
     if name == "display_surface":
         return k["display"]
+    if name == "display_glass":
+        return k["glass"]
     if name in ANCHOR_PARTS:
         return k["anchor"]
     if name in ("chassis_topPlate", "brand_panel"):
@@ -544,8 +546,10 @@ def to_v3(parts, source_name, decal_parts=()):
         nrm = nrm / np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-20)
 
         flags_for_part = 0
-        if name == "display_surface":
+        if name in ("display_surface", "display_well"):
             flags_for_part |= hmesh_io.MATERIAL_FLAGS["lcd"]
+        if name == "display_glass":
+            flags_for_part |= hmesh_io.MATERIAL_FLAGS["glass"]
         if name in ("chassis_topPlate", "brand_panel"):
             flags_for_part |= hmesh_io.MATERIAL_FLAGS["decalTarget"]
 

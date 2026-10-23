@@ -46,6 +46,7 @@ namespace halo
             if (starts ("fader_")) return HmeshPart::fader;
             if (starts ("status_lamp_") || starts ("led_")) return HmeshPart::led;
             if (name == "display_surface") return HmeshPart::display;
+            if (name == "display_glass") return HmeshPart::glass;
             if (name == "halo_ring") return HmeshPart::anchor;
             if (name == "chassis_topPlate" || name == "brand_panel") return HmeshPart::plate;
             return HmeshPart::staticPart;

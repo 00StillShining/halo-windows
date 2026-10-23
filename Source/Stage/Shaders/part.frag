@@ -13,6 +13,7 @@ in vec3 vWorld; in vec3 vModel; in vec3 vModelNormal;
 flat in int vFlags; flat in int vSlot; flat in int vMask; in float vAO;
 
 // Material flags (Core/HmeshFormat.h).
+const int FLAG_GLASS = 1;
 const int FLAG_LCD = 2;
 const int FLAG_DECAL_TARGET = 16;
 
@@ -293,21 +294,35 @@ void main()
     // Faces near the floor see less of the room.
     ao *= mix (0.72, 1.0, clamp (smoothstep (-0.0095, -0.002, vModel.z) + max (mn.z, 0.0), 0.0, 1.0));
 
+    if ((vFlags & FLAG_GLASS) != 0)
+    {
+        // The screen acrylic (blended over the LCD, Stage/StageComponent):
+        // the studio's rim strip crossing it as a soft diagonal sheen. The
+        // screen is the stage's most important surface, so the sheen is a
+        // highlight, never a veil: scaled (uGlassSheen) and rolled off toward
+        // a ceiling of about a third of the LCD's own range, so icons and
+        // digits stay readable through it at every framing. Its edges show
+        // as tinted acrylic.
+        vec3 glass = studioSpecular (n, v, specularAA (n, uGlassRoughness), shadow, 1.0) * uGlassSheen;
+        glass /= 1.0 + luma (glass) / uGlassPeak;
+        float edge = 1.0 - smoothstep (0.5, 0.9, abs (mn.z));
+        vec3 tint = vColour * irradianceSH (n) * edge * 0.6;
+#if HALO_HDR
+        fragColour = vec4 (glass + tint, mix (0.97, 0.35, edge));
+#else
+        fragColour = vec4 (srgbEncode (tonemap ((glass + tint) * uExposure, uToneMapper)), mix (0.97, 0.35, edge));
+#endif
+        return;
+    }
+
     if ((vFlags & FLAG_LCD) != 0)
     {
         // The LCD is self-lit under a glossy window: nearly unshaded, plus
         // the studio's reflection in the glass.
         vec3 tex = srgbDecode (texture (uTexture, vUV).rgb);
         if (uDebug == 7 || uDebug == 8) { fragColour = displayValue (srgbEncode (tex)); return; }
-        // The only truly glossy surface: acrylic over the backlit LCD, with
-        // the studio's rim strip crossing it as a soft diagonal sheen. The
-        // screen is the stage's most important surface, so the sheen is a
-        // highlight, never a veil: scaled (uGlassSheen) and rolled off toward
-        // a ceiling of about a third of the LCD's own range, so icons and
-        // digits stay readable through it at every framing.
-        vec3 glass = studioSpecular (n, v, specularAA (n, uGlassRoughness), shadow, 1.0) * uGlassSheen;
-        glass /= 1.0 + luma (glass) / uGlassPeak;
-        vec3 c = tex * mix (0.86, 1.0, shadow) * mix (0.8, 1.0, ao) + glass;
+        // Backlit under the acrylic (drawn after, with its sheen): nearly unshaded.
+        vec3 c = tex * mix (0.86, 1.0, shadow) * mix (0.8, 1.0, ao);
         fragColour = radiance (c);
         return;
     }

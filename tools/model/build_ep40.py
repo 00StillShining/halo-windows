@@ -32,7 +32,7 @@ from artwork import atlas as keys_atlas, face as face_atlas, svg_import  # noqa:
 # The deck silkscreen texture's extent (reference mm): the step to the front edge.
 # The face texture's extent (reference mm): from the label plate's top edge to the
 # front edge. Above the step only the label plate is printed (LABEL_PLATE).
-FACE_REGION = (0.0, 8.0, spec.WIDTH.mm, spec.DEPTH.mm)
+FACE_REGION = (0.0, 0.0, spec.WIDTH.mm, spec.DEPTH.mm)
 # The label plate as drawn (svg-path: the #EEEFEA fill, 0..119.55 x 8.57..56.50 mm).
 LABEL_PLATE = (0.0, 8.57, 119.55, 56.50)
 # The fader's slot as drawn (svg-px): the 3D track covers it; its tick stays printed.
@@ -46,6 +46,7 @@ def Z(z_mm): return (z_mm - 8.0) / 1000.0
 
 
 DECK = Z(spec.DECK_TOP.mm)
+UPPER_TOP_MM = spec.UPPER_TOP.mm
 UPPER = Z(spec.UPPER_TOP.mm)
 # Satin cap plastic: low enough that the 0.7 mm top fillet catches a line of
 # the studio key (plan section 1, "soft 0.7 mm edges that catch a line of light").
@@ -136,6 +137,20 @@ def slab(x0, x1, y0, y1, z0, z1, corner, top_fillet, bottom_fillet):
     return legacy.rounded_slab(hx, hy, corner, z0, z1, top_fillet, bottom_fillet, (x0 + x1) / 2, (y0 + y1) / 2)
 
 
+def ref_slab(rect, z0_mm, z1_mm, corner_mm=0.3, fillet_mm=0.0):
+    """A slab over a reference-mm rectangle (x0, y0, x1, y1), z in reference mm."""
+    x0, y0, x1, y1 = rect
+    return slab(X(x0), X(x1), Y(y1), Y(y0), Z(z0_mm), Z(z1_mm), corner_mm / 1000, fillet_mm / 1000, 0.0)
+
+
+def ref_quad(rect, z_mm):
+    """An upward-facing rectangle at z (two triangles, counter-clockwise from above)."""
+    x0, y0, x1, y1 = rect
+    a, b, c, d = (X(x0), Y(y1), Z(z_mm)), (X(x1), Y(y1), Z(z_mm)), (X(x1), Y(y0), Z(z_mm)), (X(x0), Y(y0), Z(z_mm))
+    up = (0.0, 0.0, 1.0)
+    return [((a, b, c), (up, up, up)), ((a, c, d), (up, up, up))]
+
+
 # ------------------------------------------------------------------ parts
 class Builder:
     def __init__(self):
@@ -193,6 +208,31 @@ def split_body_and_legend(corners):
     return body, legend, body_colour
 
 
+SPEAKER_PARTS = ("speaker_panel", "speaker_grille", "mic_port")
+
+
+def fit_speaker(corners, old, name):
+    """The carried speaker sits ~5 mm toward the screen of TE's drawing: fit the
+    panel's plan rectangle to spec.SPEAKER (grille with it) and put the mic hole
+    where the drawing has it."""
+    pts = np.array([c[0] for c in old["speaker_panel"]])
+    lo, hi = pts[:, :2].min(axis=0), pts[:, :2].max(axis=0)
+    sx0, sy0, sx1, sy1 = spec.SPEAKER
+    t_lo = np.array([X(sx0), Y(sy1)])
+    t_hi = np.array([X(sx1), Y(sy0)])
+    scale = (t_hi - t_lo) / (hi - lo)
+    shift = np.zeros(2)
+    if name == "mic_port":
+        m = np.array([c[0] for c in corners])[:, :2]
+        centre = (m.min(axis=0) + m.max(axis=0)) / 2
+        shift = np.array([X(spec.MIC[0]), Y(spec.MIC[1])]) - (t_lo + (centre - lo) * scale)
+    out = []
+    for p, n, *rest in corners:
+        q = t_lo + (np.array(p[:2]) - lo) * scale + shift
+        out.append(((float(q[0]), float(q[1]), p[2]), n, *rest))
+    return out
+
+
 def carry(corners, mode, scale, y_remap=None):
     base = {"upper": UPPER, "deck": DECK}.get(mode)
     out = []
@@ -222,6 +262,8 @@ def decal_tiles():
     sx0, sx1 = spec.SMALL_KEY_X
     for name, (y0, y1) in spec.SMALL_KEY_Y.items():
         tiles.append(keys_atlas.Tile(name, (sx0, y0, sx1, y1), (1.0, 1.0)))  # past the drawn key border
+    for name, rect in spec.PORT_TABS.items():
+        tiles.append(keys_atlas.Tile(name, rect, (0.35, 0.35)))
     return tiles
 
 
@@ -241,9 +283,12 @@ def build_face(fills):
         rects.append((sx0 - 0.8, y0 - 0.8, sx1 + 0.8, y1 + 0.8))   # drawn borders run wider than the keys
     # Above the step: nothing but the label plate (ports, speaker and screen are parts).
     lx0, ly0, lx1, ly1 = LABEL_PLATE
-    rects.append((lx1 + 0.05, FACE_REGION[1], spec.WIDTH.mm, spec.STEP_Y.mm + 1.0))
+    rects.append((lx1 + 0.05, ly0 - 0.4, spec.WIDTH.mm, spec.STEP_Y.mm + 1.0))
     rects.append((0.0, ly1 - 0.05, lx1 + 0.05, spec.STEP_Y.mm + 1.0))
-    rects.append((0.0, FACE_REGION[1], lx1 + 0.05, ly0 + 0.4))
+    for tx0, ty0, tx1, ty1 in spec.PORT_TABS.values():   # inserts carry their own lettering
+        rects.append((tx0 - 0.3, ty0 - 0.6, tx1 + 0.3, ty1 + 0.3))
+    px0, py0, px1, py1 = spec.POWER_SLIDER
+    rects.append((px0 - 0.5, py0, px1 + 0.5, py1 + 0.5))
     rects.append(FADER_SLOT)
     discs = [(x, y, spec.KNOB_DISC[0] / 2 + m) for x, y in spec.KNOBS.values()]
     return face_atlas.build(fills, FACE_REGION, rects, discs)
@@ -273,7 +318,13 @@ def build(usdz, tiles, atlas_height):
     r = spec.CORNER_RADIUS.mm / 1000
     groove = spec.SHELL_GROOVE.mm / 1000
     b.add("chassis_base", slab(x0, x1, Y(spec.DEPTH.mm), Y(0.0), Z(0.0), Z(spec.SHELL_TOP.mm), r, groove, 0.0005), green, 0.45)
-    upper = slab(x0, x1, Y(spec.STEP_Y.mm), Y(0.0), Z(spec.SHELL_TOP.mm), UPPER, r, spec.TOP_FILLET.mm / 1000, groove)
+    # The upper section: full height behind the screen; under the screen it
+    # stops just below the icon plane, and the acrylic closes it (D5).
+    wy0, wy1 = spec.WINDOW[1], spec.WINDOW[3]
+    floor_z = spec.LCD_Z.mm - 0.25       # the chassis under the screen
+    well_z = spec.LCD_Z.mm - 0.15        # the backlit floor round the LCD
+    upper = slab(x0, x1, Y(wy0), Y(0.0), Z(spec.SHELL_TOP.mm), UPPER, r, spec.TOP_FILLET.mm / 1000, groove)
+    upper += slab(x0, x1, Y(spec.STEP_Y.mm), Y(wy0 - 0.5), Z(spec.SHELL_TOP.mm), Z(floor_z), r, 0.0, groove)
     inset = 0.00002  # the deck's walls just inside the upper section's where they overlap
     lower = slab(x0 + inset, x1 - inset, Y(spec.DEPTH.mm), Y(spec.STEP_Y.mm - 1.0), Z(spec.SHELL_TOP.mm), DECK, r,
                  spec.TOP_FILLET.mm / 1000, groove)
@@ -339,8 +390,37 @@ def build(usdz, tiles, atlas_height):
             b.add(name, cylinder(cx, cy, DECK + disc_h / 1000, DECK + disc_h / 1000 + 0.0008, stem_d / 2000 + 0.0006, 0.0002),
                   gap, 0.6)
 
+    # The upper section's inserts, from the front drawing: the label plate and
+    # the port strip's coloured inserts stand 0.15 mm proud; their lettering is
+    # printed (face texture and keys atlas).
+    proud = UPPER_TOP_MM + spec.INSERT_PROUD.mm
+    b.add("brand_panel", ref_slab(spec.LABEL_PLATE, UPPER_TOP_MM - 0.2, proud, 0.6, 0.1), legacy.LABEL, 0.40)
+    tab_colours = {"port_output_tab": legacy.LABEL, "port_input_tab": legacy.ORANGE, "port_sync_tab": legacy.GREEN,
+                   "port_midi_tab": legacy.GREEN, "port_usb_tab": legacy.KEY_BEIGE}
+    for name, rect in spec.PORT_TABS.items():
+        b.add(name, ref_slab(rect, UPPER_TOP_MM - 0.2, proud, 0.4, 0.08), tab_colours[name], 0.45, uv=decal_uv(name))
+
+    # The screen (D5): the icon plane at z 14.4 (the LCD's own image), a
+    # backlit floor of the same green round it, a dark carrier ring under the
+    # acrylic's edge, and the 1 mm acrylic window on top (drawn last, blended).
+    old_lcd = np.array([c[0] for c in old["display_surface"]])
+    lcd = (old_lcd[:, 0].min() * 1000 + 88, 120 - old_lcd[:, 1].max() * 1000,
+           old_lcd[:, 0].max() * 1000 + 88, 120 - old_lcd[:, 1].min() * 1000)
+    lcd = (lcd[0], max(lcd[1], wy0 + spec.BEZEL_WIDTH.mm + 0.4), lcd[2], min(lcd[3], wy1 - spec.BEZEL_WIDTH.mm - 0.4))
+    # UVs as the old asset had them: u along +x, v = 0 at the step side.
+    lcd_uv = lambda p, lcd=lcd: ((p[0] * 1000 + 88 - lcd[0]) / (lcd[2] - lcd[0]), (lcd[3] - (120 - p[1] * 1000)) / (lcd[3] - lcd[1]))
+    b.add("display_surface", ref_quad(lcd, spec.LCD_Z.mm), legacy.LABEL, 0.4, uv=lcd_uv)
+    # The floor samples the LCD image's own border (its plain backlit green).
+    b.add("display_well", ref_quad(spec.WINDOW, well_z), legacy.LABEL, 0.4, uv=lambda p: (0.002, 0.5))
+    bw = spec.BEZEL_WIDTH.mm
+    wx0, _, wx1, _ = spec.WINDOW
+    for ring in ((wx0, wy0, wx1, wy0 + bw), (wx0, wy1 - bw, wx1, wy1), (wx0, wy0, wx0 + bw, wy1), (wx1 - bw, wy0, wx1, wy1)):
+        b.add("display_bezel", ref_slab(ring, floor_z, spec.GLASS_Z[0] - 0.05, 0.05), legacy.FRAME, 0.35)
+    glass = legacy.srgb("#1E6B4F")
+    b.add("display_glass", ref_slab(spec.WINDOW, spec.GLASS_Z[0], spec.GLASS_Z[1], r * 1000, 0.15), glass, 0.05)
+
     # Everything else is carried over, row by row.
-    rebuilt = set(b.parts) | {n for n in old if n.endswith("_well")} | {"halo_ring"}
+    rebuilt = set(b.parts) | {n for n in old if n.endswith("_well")} | {"halo_ring", "port_power_tab"}
     screen_front, screen_back = Y(spec.SCREEN_FRONT_Y), None
     for name, corners in old.items():
         if name in rebuilt:
@@ -352,21 +432,16 @@ def build(usdz, tiles, atlas_height):
             raise SystemExit(f"{name}: not rebuilt and not in spec.CARRY_OVER")
         mode, scale = spec.CARRY_OVER[name]
         remap = None
-        if name in ("display_bezel", "display_surface"):
-            ys = [c[0][1] for c in old["display_bezel"]]
-            lo, hi = min(ys), max(ys)
-            remap = lambda y, lo=lo, hi=hi: hi - (hi - y) * (hi - screen_front) / (hi - lo)
-        if name == "brand_panel":
-            # The plate keeps its body; RIDDIM, SUPERTONE and the strapline are
-            # the face texture's now (to_v3 makes its material a decal target).
-            body, _legend, _ = split_body_and_legend(corners)
-            corners = [c for t in body for c in t]
+        if name in SPEAKER_PARTS:
+            corners = fit_speaker(corners, old, name)
         b.add_corners(name, carry(corners, mode, scale, remap))
 
     identity = [1.0 if r == c else 0.0 for c in range(4) for r in range(4)]
     parts = [("halo_ring", identity, [0.0, 0.0, 0.0], [], [])]
-    for name, corners in b.parts.items():
-        parts.append(legacy.pack_part(name, IdentityMatrix(), corners))
+    # Glass last: the renderer draws everything before it opaque, then it blended.
+    names = [n for n in b.parts if n != "display_glass"] + ["display_glass"]
+    for name in names:
+        parts.append(legacy.pack_part(name, IdentityMatrix(), b.parts[name]))
     return parts
 
 

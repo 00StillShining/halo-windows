@@ -30,6 +30,11 @@ namespace halo
 
         void upload();  // GL thread
         void release(); // GL thread
-        void draw() const; // every part, one call
+        // The compiler puts glass parts last (tools/model/build_ep40.py), so the
+        // opaque parts are one range and the glass another.
+        std::uint32_t opaqueIndexCount = 0;
+        void draw() const;      // every opaque part, one call (glass is drawn apart)
+        void drawGlass() const; // the glass parts, one call
+        bool hasGlass() const noexcept { return opaqueIndexCount < model.indices.size(); }
     };
 }

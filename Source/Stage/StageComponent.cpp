@@ -879,6 +879,20 @@ namespace halo
         setSlotUniforms (partProgram);
         ++stats.geometryDraws;
         mesh.draw();
+
+        // The screen acrylic (D5), after everything opaque: it adds its
+        // reflection and lets the LCD through (rgb added, alpha = transmittance),
+        // leaving depth and the device mask's alpha alone.
+        if (mesh.hasGlass() && debugView == 0)
+        {
+            glEnable (GL_BLEND);
+            glBlendFuncSeparate (GL_ONE, GL_SRC_ALPHA, GL_ZERO, GL_ONE);
+            glDepthMask (GL_FALSE);
+            ++stats.geometryDraws;
+            mesh.drawGlass();
+            glDepthMask (GL_TRUE);
+            glDisable (GL_BLEND);
+        }
     }
 
     void StageComponent::renderOpenGL()
@@ -1032,8 +1046,8 @@ namespace halo
         partProgram.set ("uHeightMap", 2);
         partProgram.set ("uFaceAtlas", 3);
         partProgram.set ("uFaceAtlasOn", faceAtlas.valid() ? 1 : 0);
-        // tools/model/build_ep40.py FACE_REGION: the label plate's top edge (y 8) to the front edge, reference mm.
-        partProgram.set ("uFaceRect", 0.0f, 8.0f, 176.0f, 232.0f);
+        // tools/model/build_ep40.py FACE_REGION: the whole top, port edge to front edge, reference mm.
+        partProgram.set ("uFaceRect", 0.0f, 0.0f, 176.0f, 240.0f);
         partProgram.set ("uEye", camera.eye.x, camera.eye.y, camera.eye.z);
         partProgram.setMat4 ("uLightViewProj", lightViewProj.mat);
         partProgram.set ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));

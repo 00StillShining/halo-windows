@@ -1501,3 +1501,31 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   TE's own angled photo (a print, product page) also shows RECORD and SAMPLE salmon at angle.
 - Short-cap lettering: TE's face is light. In the angled product photo SOUND, MAIN and EDIT are
   barely legible at that distance, so the SDF is printed at its true weight (no bias).
+
+### M6 (partial): the upper section from TE's drawing, and the screen per D5
+
+- `spec.py` gains the upper section's rectangles, read from the front drawing's fills: label
+  plate, speaker panel, mic hole, the screen window (edge to edge, y 56.5 to the step), the
+  port-strip inserts and the power slider.
+- **Screen (D5):** the upper body stops under the window; the LCD image is a plane at z 14.4;
+  round it a backlit floor samples the LCD image's own border green; a dark 0.8 mm carrier ring
+  sits under the acrylic's edge; `display_glass` (z 15.0-16.0, kind glass, material flag glass)
+  is the last range of the index buffer. The renderer draws everything else opaque (shadow,
+  height and main passes), then the glass once, blended `ONE, SRC_ALPHA` (alpha kept), with no
+  depth write: its sheen (same `uGlassSheen` / `uGlassPeak` roll-off as before) and tinted edges
+  over the recessed LCD, so the icons now sit 1.6 mm under the window and shift against its
+  frame when the camera moves. Geometry draws per frame: 4 (was 3).
+- **Label plate and port strip:** `brand_panel` is a 0.15 mm proud plate at the drawing's
+  rectangle (its lettering in the face texture); the port inserts (OUTPUT white, INPUT orange,
+  SYNC / MIDI green, USB beige) are 0.15 mm proud slabs with their lettering as decals in the
+  keys atlas (42 tiles, 2048 x 704); POWER and the strip are printed by the face texture, which
+  now covers the whole top (1408 x 1920 RG8). The carried tabs (1.4 mm proud, 3D lettering) and
+  `port_power_tab` are gone. The carried speaker is fitted onto the drawn panel (it sat 5 mm
+  toward the screen) and the mic hole moved to the drawing's position.
+- Glass re-check (`m6glass`, hero and keys, both looks): peak channel 241-244, LCD detail under
+  the sheen 78-81 % of bare (ok); mean lift 31-35 / 255 (was 20-22: the window now spans the
+  full width and its edges show). Low tier: the blended sheen reads stronger than High.
+- Lint 0 failures, 62,128 triangles; HaloTests pass.
+- Not yet (M6): jack, USB-C and power-recess openings in the port wall, the speaker rebuilt flush
+  (its carried slats still stand ~0.6 mm proud), the fader, LEDs re-seated, the side seam where
+  the window band meets the rear body.

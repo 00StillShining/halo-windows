@@ -73,16 +73,33 @@ KNOB_DISC = (16.0, 2.4)                   # plan: diameter, height
 KNOB_STEM = (8.07, 1.8, 9.4)              # svg-path (left view, VOLUME): diameter, from, to above the deck
 KNOB_CAP = (8.07, 11.2)                   # svg-path: cap diameter, top above the deck (plan said 11.45)
 
+# ------------------------------------------------------------------ upper section
+# Rectangles (x0, y0, x1, y1) of the front drawing's fills (svg-path, front view
+# 69033ff8..., 0.609 mm per unit).
+LABEL_PLATE = (0.0, 8.57, 119.55, 56.50)          # the #EEEFEA label plate
+SPEAKER = (119.55, 8.57, 175.50, 56.50)           # the speaker's cream slatted panel
+MIC = (131.6, 52.4, 1.6)                          # svg-path: the mic hole, centre and radius
+WINDOW = (0.0, 56.50, 176.0, 104.0)               # the screen acrylic, edge to edge, to the step
+PORT_TABS = {                                     # coloured inserts on the port strip
+    "port_output_tab": (7.85, 0.53, 23.80, 8.57),
+    "port_input_tab": (39.77, 0.53, 55.78, 8.57),
+    "port_sync_tab": (63.70, 0.53, 83.68, 8.57),  # one green insert, SYNC and MIDI halves
+    "port_midi_tab": (83.68, 0.53, 103.65, 8.57),
+    "port_usb_tab": (127.60, 0.53, 143.60, 8.57),
+}
+POWER_SLIDER = (153.6, -4.8, 161.5, 0.9)          # svg-path: the orange slider, past the port edge
+INSERT_PROUD = Value(0.15, "plan")                # label plate and port inserts stand proud
+LCD_Z = Value(14.4, "plan")                       # D5: the icon plane
+GLASS_Z = (15.0, 16.0)                            # D5: the acrylic's underside and top (plan)
+BEZEL_WIDTH = Value(0.8, "estimate")              # dark carrier ring under the acrylic's edge
+
 # ------------------------------------------------------------------ carried over
 # Parts not rebuilt yet keep their Blender geometry, moved onto the surface they
 # sit on: (old base z in model mm, new surface, z scale). Model z of the old
 # plate top was 9.4 mm. Every row is listed; nothing relies on a default.
 OLD_PLATE_TOP = 9.4
 CARRY_OVER = {
-    "display_bezel": ("upper", 0.5), "display_surface": ("upper", 0.5), "brand_panel": ("upper", 0.5),
     "speaker_panel": ("upper", 0.5), "speaker_grille": ("upper", 0.5), "mic_port": ("upper", 0.5),
-    "port_output_tab": ("upper", 0.5), "port_input_tab": ("upper", 0.5), "port_sync_tab": ("upper", 0.5),
-    "port_midi_tab": ("upper", 0.5), "port_usb_tab": ("upper", 0.5), "port_power_tab": ("upper", 0.5),
     "fader_track": ("deck", 1.0), "fader_cap": ("deck", 1.0),
     "ports_strip": ("none", 1.0), "ports_usb": ("none", 1.0), "port_power_switch": ("none", 1.0),
     "port_output_socket": ("none", 1.0), "port_input_socket": ("none", 1.0), "port_sync_socket": ("none", 1.0),

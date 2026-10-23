@@ -10,6 +10,18 @@ namespace halo
         if (! parsed)
             return false;
         model = std::move (*parsed);
+        // Glass must be the tail of the index buffer; anything else draws opaque.
+        opaqueIndexCount = (std::uint32_t) model.indices.size();
+        std::uint32_t glassStart = opaqueIndexCount;
+        for (const auto& part : model.parts)
+            if (part.kind == HmeshPart::glass && part.indexCount > 0)
+                glassStart = std::min (glassStart, part.firstIndex);
+        bool tail = true;
+        for (const auto& part : model.parts)
+            if (part.kind != HmeshPart::glass && part.indexCount > 0 && part.firstIndex + part.indexCount > glassStart)
+                tail = false;
+        if (tail)
+            opaqueIndexCount = glassStart;
         return true;
     }
 
@@ -71,7 +83,17 @@ namespace halo
     void HaloMesh::draw() const
     {
         glBindVertexArray (vao);
-        glDrawElements (GL_TRIANGLES, (GLsizei) model.indices.size(), GL_UNSIGNED_INT, nullptr);
+        glDrawElements (GL_TRIANGLES, (GLsizei) opaqueIndexCount, GL_UNSIGNED_INT, nullptr);
+        glBindVertexArray (0);
+    }
+
+    void HaloMesh::drawGlass() const
+    {
+        if (! hasGlass())
+            return;
+        glBindVertexArray (vao);
+        glDrawElements (GL_TRIANGLES, (GLsizei) (model.indices.size() - opaqueIndexCount), GL_UNSIGNED_INT,
+                        reinterpret_cast<const void*> ((std::uintptr_t) opaqueIndexCount * sizeof (std::uint32_t)));
         glBindVertexArray (0);
     }
 }
