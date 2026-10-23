@@ -30,7 +30,10 @@ uniform vec2 uDeviceSize;     // model width, depth (m)
 
 uniform sampler2DShadow uShadowMap;
 uniform mat4 uLightViewProj;
-uniform float uShadowRadius;  // PCF radius in shadow-map UV
+uniform float uShadowRadius;  // (unused since PCSS-lite; kept for the Low tier's uniform list)
+uniform sampler2D uShadowDepth;      // the shadow map's depth as a plain float (blocker search)
+uniform float uShadowDepthRange;     // metres from the light's near to far plane
+uniform float uShadowTexel;          // metres across the shadow map (1 in UV)
 
 uniform sampler2D uDeckAO;    // baked AO of the top surfaces over uFaceRect (tools/model/ep40/ao.py)
 uniform int uDeckAOOn;
@@ -93,6 +96,10 @@ const vec2 poisson[12] = vec2[12] (
     vec2 ( 0.519,  0.767), vec2 ( 0.185, -0.893), vec2 ( 0.507,  0.064),
     vec2 ( 0.896,  0.412), vec2 (-0.322, -0.933), vec2 (-0.792, -0.598));
 
+// PCSS-lite: a blocker search in the plain depth copy finds how far the
+// receiver sits behind what shades it; the penumbra then grows with that
+// distance times the softbox's angular size, so a key's shadow is crisp where
+// it meets the deck and opens out away from it (M8).
 float keyShadow (vec3 world, vec3 n, float softness, float noise)
 {
     vec3 p = world + n * 0.00030 + uKeyDir * 0.00015;
@@ -102,12 +109,31 @@ float keyShadow (vec3 world, vec3 n, float softness, float noise)
         return 1.0;
     float a = noise * 6.2831853;
     mat2 rot = mat2 (cos (a), sin (a), -sin (a), cos (a));
+
+    // Blockers within the widest penumbra this light can cast (6 mm).
+    float search = 0.006 / uShadowTexel;
+    float blocker = 0.0, found = 0.0;
+    for (int i = 0; i < 12; ++i)
+    {
+        float d = texture (uShadowDepth, s.xy + rot * poisson[i] * search).r;
+        if (d < s.z - 0.0004)
+        {
+            blocker += d;
+            found += 1.0;
+        }
+    }
+    if (found == 0.0)
+        return 1.0;
+    float behind = (s.z - blocker / found) * uShadowDepthRange;            // metres, receiver behind blocker
+    float penumbra = clamp (behind * tan (uKeyRadius), 0.00025, 0.006);     // metres
+    float radius = penumbra / uShadowTexel * softness;
+
     // Hardware-filtered taps on a rotated Poisson disc, mirrored at half
     // radius so the penumbra's core stays dense.
     float lit = 0.0;
     for (int i = 0; i < 8; ++i)
     {
-        vec2 o = rot * poisson[i] * uShadowRadius * softness;
+        vec2 o = rot * poisson[i] * radius;
         lit += texture (uShadowMap, vec3 (s.xy + o, s.z - 0.00025));
         lit += texture (uShadowMap, vec3 (s.xy - o * 0.5, s.z - 0.00025));
     }

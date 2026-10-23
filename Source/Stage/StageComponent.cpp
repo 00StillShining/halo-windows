@@ -613,7 +613,13 @@ namespace halo
                 glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
                 glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
                 glFramebufferTexture2D (GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, target.texture, 0);
-                glDrawBuffer (GL_NONE);
+                // The same depth as a plain float, read unfiltered by the soft
+                // shadow's blocker search (a depth texture in compare mode cannot be).
+                target.depthCopy = texture (GL_R32F, GL_RED, GL_FLOAT);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.depthCopy, 0);
+                glDrawBuffer (GL_COLOR_ATTACHMENT0);
                 glReadBuffer (GL_NONE);
             }
             else
@@ -658,6 +664,7 @@ namespace halo
         {
             if (target->fbo != 0) glDeleteFramebuffers (1, &target->fbo);
             if (target->texture != 0) glDeleteTextures (1, &target->texture);
+            if (target->depthCopy != 0) glDeleteTextures (1, &target->depthCopy);
             if (target->depthBuffer != 0) glDeleteRenderbuffers (1, &target->depthBuffer);
             *target = {};
         }
@@ -705,8 +712,8 @@ namespace halo
         glViewport (0, 0, target.width, target.height);
         glDepthMask (GL_TRUE);
         glClearDepth (1.0);
-        glClearColor (groundZ, groundZ, groundZ, groundZ); // height map: bare floor
-        glClear (GL_DEPTH_BUFFER_BIT | (target.depthBuffer != 0 ? GL_COLOR_BUFFER_BIT : 0));
+        glClearColor (1.0f, 1.0f, 1.0f, 1.0f); // the far plane: no blocker
+        glClear (GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LESS);
         glEnable (GL_POLYGON_OFFSET_FILL);
@@ -1056,9 +1063,14 @@ namespace halo
         glBindTexture (GL_TEXTURE_2D, mesh.materials);
         glActiveTexture (GL_TEXTURE7);
         glBindTexture (GL_TEXTURE_2D, keysAtlas.texture);
+        glActiveTexture (GL_TEXTURE8);
+        glBindTexture (GL_TEXTURE_2D, shadowTarget.depthCopy);
         glActiveTexture (GL_TEXTURE0);
         partProgram.set ("uMaterials", 6);
         partProgram.set ("uKeyAtlas", 7);
+        partProgram.set ("uShadowDepth", 8);
+        partProgram.set ("uShadowDepthRange", 1.2f - 0.05f);  // keyLightViewProj's near..far (m)
+        partProgram.set ("uShadowTexel", 2.0f * shadowExtent);   // metres across the map
         partProgram.set ("uKeyAtlasOn", keysAtlas.valid() ? 1 : 0);
         partProgram.set ("uEnv", 4);
         partProgram.set ("uBrdfLut", 5);

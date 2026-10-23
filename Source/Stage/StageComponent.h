@@ -113,7 +113,7 @@ namespace halo
 
         struct DepthTarget
         {
-            GLuint fbo = 0, texture = 0, depthBuffer = 0;
+            GLuint fbo = 0, texture = 0, depthBuffer = 0, depthCopy = 0; // depthCopy: R32F, for the blocker search
             int width = 0, height = 0;
         };
 
