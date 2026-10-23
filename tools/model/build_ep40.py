@@ -137,6 +137,54 @@ def slab(x0, x1, y0, y1, z0, z1, corner, top_fillet, bottom_fillet):
     return legacy.rounded_slab(hx, hy, corner, z0, z1, top_fillet, bottom_fillet, (x0 + x1) / 2, (y0 + y1) / 2)
 
 
+def slab4(rect, z0_mm, z1_mm, radii, top_fillet_mm, bottom_fillet_mm, steps=8):
+    """A slab over a reference-mm rectangle with its own plan radius per corner
+    (x0y0, x1y0, x1y1, x0y1 in reference mm; 0 = sharp), filleted top and bottom.
+    Pieces of one body overlap by twice the fillet so their joins show no groove."""
+    x0, y0, x1, y1 = rect
+    # Model +y is reference y0 (the port side), so counter-clockwise from above
+    # starts at reference (x1, y0).
+    corners = ((x1, y0, radii[1], 0.0), (x0, y0, radii[0], 90.0), (x0, y1, radii[3], 180.0), (x1, y1, radii[2], 270.0))
+    outline = []  # (corner centre xy, outward normal xy, corner radius), counter-clockwise from above
+    for cx, cy, r, start in corners:
+        # Reference y grows toward the player; model Y flips it, so build in (x, -y).
+        sx = -1.0 if cx == x0 else 1.0
+        sy = -1.0 if cy == y1 else 1.0
+        centre = (X(cx - sx * r), Y(cy + sy * r))
+        for i in range(steps + 1):
+            a = math.radians(start + 90.0 * i / steps)
+            outline.append((centre, (math.cos(a), math.sin(a)), r / 1000))
+    profile = []  # (inset, z, normal_out, normal_z), bottom to top
+    bf, tf = bottom_fillet_mm / 1000, top_fillet_mm / 1000
+    z0, z1 = Z(z0_mm), Z(z1_mm)
+    for i in range(7):
+        a = math.radians(-90.0 + 90.0 * i / 6)
+        profile.append((bf * (1 - math.cos(a)), z0 + bf * (1 + math.sin(a)), math.cos(a), math.sin(a)))
+    for i in range(7):
+        a = math.radians(90.0 * i / 6)
+        profile.append((tf * (1 - math.cos(a)), z1 - tf * (1 - math.sin(a)), math.cos(a), math.sin(a)))
+    rings = [[(c[0] + nx * (r - inset), c[1] + ny * (r - inset), z) for c, (nx, ny), r in outline]
+             for inset, z, _, _ in profile]
+    tris, n = [], len(outline)
+    for k in range(len(profile) - 1):
+        no0, nz0 = profile[k][2], profile[k][3]
+        no1, nz1 = profile[k + 1][2], profile[k + 1][3]
+        for i in range(n):
+            j = (i + 1) % n
+            (ax, ay), (bx, by) = outline[i][1], outline[j][1]
+            na0, nb0 = (ax * no0, ay * no0, nz0), (bx * no0, by * no0, nz0)
+            na1, nb1 = (ax * no1, ay * no1, nz1), (bx * no1, by * no1, nz1)
+            a0, b0, a1, b1 = rings[k][i], rings[k][j], rings[k + 1][i], rings[k + 1][j]
+            tris.append(((a0, b0, b1), (na0, nb0, nb1)))
+            tris.append(((a0, b1, a1), (na0, nb1, na1)))
+    top, bottom = rings[-1], rings[0]
+    up, down = (0.0, 0.0, 1.0), (0.0, 0.0, -1.0)
+    for i in range(1, n - 1):
+        tris.append(((top[0], top[i], top[i + 1]), (up, up, up)))
+        tris.append(((bottom[0], bottom[i + 1], bottom[i]), (down, down, down)))
+    return tris
+
+
 def ref_slab(rect, z0_mm, z1_mm, corner_mm=0.3, fillet_mm=0.0):
     """A slab over a reference-mm rectangle (x0, y0, x1, y1), z in reference mm."""
     x0, y0, x1, y1 = rect
@@ -232,31 +280,6 @@ def split_body_and_legend(corners):
     return body, legend, body_colour
 
 
-SPEAKER_PARTS = ("speaker_panel", "speaker_grille", "mic_port")
-
-
-def fit_speaker(corners, old, name):
-    """The carried speaker sits ~5 mm toward the screen of TE's drawing: fit the
-    panel's plan rectangle to spec.SPEAKER (grille with it) and put the mic hole
-    where the drawing has it."""
-    pts = np.array([c[0] for c in old["speaker_panel"]])
-    lo, hi = pts[:, :2].min(axis=0), pts[:, :2].max(axis=0)
-    sx0, sy0, sx1, sy1 = spec.SPEAKER
-    t_lo = np.array([X(sx0), Y(sy1)])
-    t_hi = np.array([X(sx1), Y(sy0)])
-    scale = (t_hi - t_lo) / (hi - lo)
-    shift = np.zeros(2)
-    if name == "mic_port":
-        m = np.array([c[0] for c in corners])[:, :2]
-        centre = (m.min(axis=0) + m.max(axis=0)) / 2
-        shift = np.array([X(spec.MIC[0]), Y(spec.MIC[1])]) - (t_lo + (centre - lo) * scale)
-    out = []
-    for p, n, *rest in corners:
-        q = t_lo + (np.array(p[:2]) - lo) * scale + shift
-        out.append(((float(q[0]), float(q[1]), p[2]), n, *rest))
-    return out
-
-
 def carry(corners, mode, scale, y_remap=None):
     base = {"upper": UPPER, "deck": DECK}.get(mode)
     out = []
@@ -347,8 +370,20 @@ def build(usdz, tiles, atlas_height):
     wy0, wy1 = spec.WINDOW[1], spec.WINDOW[3]
     floor_z = spec.LCD_Z.mm - 0.25       # the chassis under the screen
     well_z = spec.LCD_Z.mm - 0.15        # the backlit floor round the LCD
-    upper = slab(x0, x1, Y(wy0), Y(0.0), Z(spec.SHELL_TOP.mm), UPPER, r, spec.TOP_FILLET.mm / 1000, groove)
-    upper += slab(x0, x1, Y(spec.STEP_Y.mm), Y(wy0 - 0.5), Z(spec.SHELL_TOP.mm), Z(floor_z), r, 0.0, groove)
+    # Behind the screen the body is four overlapping pieces round the speaker's
+    # opening, sharp-cornered where they meet so no seam shows on the walls.
+    W, R1 = spec.WIDTH.mm, spec.CORNER_RADIUS.mm
+    shell, upper_mm = spec.SHELL_TOP.mm, spec.UPPER_TOP.mm
+    tf, bf = spec.TOP_FILLET.mm, spec.SHELL_GROOVE.mm
+    ov = 2 * tf
+    rx0, ry0, rx1, ry1 = spec.SPEAKER_RECESS
+    upper = slab4((0.0, 0.0, W, ry0), shell, upper_mm, (R1, R1, 0, 0), tf, bf)                 # the port strip
+    upper += slab4((0.0, ry0 - ov, rx0, wy0), shell, upper_mm, (0, 0, 0, 0), tf, bf)            # behind the label
+    upper += slab4((rx1, ry0 - ov, W, ry1 + ov), shell, upper_mm, (0, 0, 0, 0), tf, bf)         # right of the speaker
+    upper += slab4((rx0 - ov, ry1, W, wy0), shell, upper_mm, (0, 0, 0, 0), tf, bf)              # in front of it
+    upper += slab4((0.0, wy0 - 0.5, W, spec.STEP_Y.mm), shell, floor_z, (0, 0, R1, R1), 0.0, bf)  # under the screen
+    # The opening's floor, low enough that it reads as depth between the slats.
+    upper += slab4((rx0 - ov, ry0 - ov, rx1 + ov, ry1 + ov), shell, upper_mm - spec.SPEAKER_DEPTH.mm, (0, 0, 0, 0), 0.0, bf)
     inset = 0.00002  # the deck's walls just inside the upper section's where they overlap
     lower = slab(x0 + inset, x1 - inset, Y(spec.DEPTH.mm), Y(spec.STEP_Y.mm - 1.0), Z(spec.SHELL_TOP.mm), DECK, r,
                  spec.TOP_FILLET.mm / 1000, groove)
@@ -443,6 +478,31 @@ def build(usdz, tiles, atlas_height):
     glass = legacy.srgb("#1E6B4F")
     b.add("display_glass", ref_slab(spec.WINDOW, spec.GLASS_Z[0], spec.GLASS_Z[1], r * 1000, 0.15), glass, 0.05)
 
+    # The speaker (front drawing): eleven 2 mm slats flush with the top over a
+    # 2 mm deep opening, the dark cone behind them, the mic hole in the last slat.
+    backing = UPPER_TOP_MM - spec.SPEAKER_DEPTH.mm
+    b.add("speaker_panel", ref_quad(spec.SPEAKER_RECESS, backing + 0.01), legacy.KEY_BEIGE, 0.7)
+    cx, cy, cr = spec.SPEAKER_CONE
+    cone = []
+    up3 = (0.0, 0.0, 1.0)
+    angles = np.linspace(0, 2 * math.pi, 72, endpoint=False)
+    zc = Z(backing + 0.02)
+    for a0, a1 in zip(angles, np.roll(angles, -1)):
+        p0 = (X(cx + cr * math.cos(a0)), Y(cy + cr * math.sin(a0)), zc)
+        p1 = (X(cx + cr * math.cos(a1)), Y(cy + cr * math.sin(a1)), zc)
+        cone.append((((X(cx), Y(cy), zc), p1, p0), (up3, up3, up3)))
+    b.add("speaker_panel", cone, gap, 0.8)
+    for sy0, sy1 in spec.SLATS:
+        b.add("speaker_grille", ref_slab((rx0 - 0.3, sy0, rx1 + 0.3, sy1), backing, UPPER_TOP_MM, 0.0, 0.2), legacy.LABEL, 0.5)
+    mx, my, mr = spec.MIC
+    mic = []
+    zm = Z(UPPER_TOP_MM + 0.01)
+    for a0, a1 in zip(angles, np.roll(angles, -1)):
+        p0 = (X(mx + mr * math.cos(a0)), Y(my + mr * math.sin(a0)), zm)
+        p1 = (X(mx + mr * math.cos(a1)), Y(my + mr * math.sin(a1)), zm)
+        mic.append((((X(mx), Y(my), zm), p1, p0), (up3, up3, up3)))
+    b.add("mic_port", mic, gap, 0.8)
+
     # The port wall: the openings read as dark holes on the wall, not cylinders
     # standing off it; the power slider's orange tab stands out of its slot.
     sx0, sz0, sx1, sz1 = spec.PORT_STRIP
@@ -485,8 +545,6 @@ def build(usdz, tiles, atlas_height):
             raise SystemExit(f"{name}: not rebuilt and not in spec.CARRY_OVER")
         mode, scale = spec.CARRY_OVER[name]
         remap = None
-        if name in SPEAKER_PARTS:
-            corners = fit_speaker(corners, old, name)
         b.add_corners(name, carry(corners, mode, scale, remap))
 
     identity = [1.0 if r == c else 0.0 for c in range(4) for r in range(4)]

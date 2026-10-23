@@ -78,7 +78,11 @@ KNOB_CAP = (8.07, 11.2)                   # svg-path: cap diameter, top above th
 # 69033ff8..., 0.609 mm per unit).
 LABEL_PLATE = (0.0, 8.57, 119.55, 56.50)          # the #EEEFEA label plate
 SPEAKER = (119.55, 8.57, 175.50, 56.50)           # the speaker's cream slatted panel
-MIC = (131.6, 52.4, 1.6)                          # svg-path: the mic hole, centre and radius
+SPEAKER_RECESS = (121.54, 11.54, 173.57, 53.43)   # svg-path: the slatted opening
+SLATS = [(11.54 + 3.99 * i, 13.54 + 3.99 * i) for i in range(11)]   # svg-path: 2 mm slats, 4 mm pitch
+SPEAKER_CONE = (147.59, 32.50, 19.99)             # svg-path: the dark cone behind the slats
+SPEAKER_DEPTH = Value(2.0, "estimate")            # slats to the backing behind them
+MIC = (131.6, 52.43, 1.0)                         # svg-path: the mic hole, centre and radius
 WINDOW = (0.0, 56.50, 176.0, 104.0)               # the screen acrylic, edge to edge, to the step
 # Coloured inserts on the port strip. They run to the port edge (the drawing's
 # 0.53 mm is its outline stroke) and, but for USB, wrap down the port wall.
@@ -113,7 +117,6 @@ BEZEL_WIDTH = Value(0.8, "estimate")              # dark carrier ring under the 
 # plate top was 9.4 mm. Every row is listed; nothing relies on a default.
 OLD_PLATE_TOP = 9.4
 CARRY_OVER = {
-    "speaker_panel": ("upper", 0.5), "speaker_grille": ("upper", 0.5), "mic_port": ("upper", 0.5),
     "fader_track": ("deck", 1.0), "fader_cap": ("deck", 1.0),
 }
 # The carried-over screen band reaches 3 mm past the step; it is pulled back to
