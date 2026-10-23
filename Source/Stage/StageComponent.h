@@ -45,6 +45,7 @@ namespace halo
         void mouseDoubleClick (const juce::MouseEvent&) override;
         void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
         void resized() override;
+        void paint (juce::Graphics&) override; // the Still tier only (M11)
 
         // The stage's surroundings (backdrop, floor, shadow, ring pool). Copied
         // under the lock; the GL thread picks it up on its next frame.
@@ -87,6 +88,12 @@ namespace halo
         // something moves (a pad settling, a glow fading, a recording pulse)
         // or for 0.6 s after a request. Idle costs no frames.
         void requestFrame (const char* reason);
+        // Still tier (M11): when no GL tier can run (or HALO_STAGE_TIER=still),
+        // the GL context is detached and the stage paints TE's plan view with
+        // the live LCD image and the pad cues over it. Never a blank stage.
+        void enterStillTier (const juce::String& why);
+        std::atomic<bool> stillTier { false };
+        juce::Image planImage;
     public:
         void noteGlDebugError (const char* message); // GL thread, Debug: from the KHR_debug callback
     private:

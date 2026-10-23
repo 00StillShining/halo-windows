@@ -121,7 +121,7 @@ namespace halo
         // HALO_STAGE_DEBUG=1..4 view AO, key shadow, height map or floor terms,
         // 5 the material swatch card, 6 the silhouette mask, 7 unlit albedo,
         // 8 emissive only. HALO_STAGE_POSE freezes input (Core/StagePose.h).
-        // HALO_STAGE_TIER=high|low, HALO_STAGE_TONEMAP=neutral|agx|aces,
+        // HALO_STAGE_TIER=high|low|still, HALO_STAGE_TONEMAP=neutral|agx|aces,
         // HALO_STAGE_FXAA=1 forces FXAA on the High tier.
         const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
        #if JUCE_DEBUG
@@ -220,9 +220,14 @@ namespace halo
         }
 
         // Last, so the GL thread never sees a half-configured stage.
-        context.attachTo (*this);
-        if (onDemand)
-            startTimerHz (30);
+        if (tierRequest == "still")
+            enterStillTier ("requested");
+        else
+        {
+            context.attachTo (*this);
+            if (onDemand)
+                startTimerHz (30);
+        }
     }
 
     void StageComponent::setLook (const StageLook& newLook)
@@ -237,6 +242,11 @@ namespace halo
 
     void StageComponent::requestFrame (const char* reason)
     {
+        if (stillTier)
+        {
+            repaint();
+            return;
+        }
         const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
         double until = wakeUntil.load();
         while (until < now + 0.6 && ! wakeUntil.compare_exchange_weak (until, now + 0.6)) {}
@@ -253,6 +263,67 @@ namespace halo
             lastCamera = camera;
             requestFrame ("camera");
         }
+    }
+
+    void StageComponent::enterStillTier (const juce::String& why)
+    {
+        if (stillTier.exchange (true))
+            return;
+        log.line ("tier: still (" + why + ")");
+        stopTimer();
+        if (context.isAttached())
+            context.detach();
+        planImage = juce::ImageCache::getFromMemory (HaloStageAssets::ep40_plan_png, HaloStageAssets::ep40_plan_pngSize);
+        setOpaque (true);
+        repaint();
+    }
+
+    void StageComponent::paint (juce::Graphics& g)
+    {
+        if (! stillTier)
+            return;
+        StageLook currentLook;
+        juce::Image lcd;
+        std::array<bool, 12> held {};
+        {
+            const juce::SpinLock::ScopedLockType sl (lock);
+            currentLook = shared.look;
+            lcd = shared.displayImage;
+            for (size_t i = 0; i < held.size(); ++i)
+                held[i] = shared.pads[i].held;
+        }
+        g.fillAll (currentLook.backdrop);
+        // The device's plan, 176 x 240 mm, fitted with a margin.
+        const auto area = getLocalBounds().toFloat().reduced (getHeight() * 0.06f);
+        const float scale = juce::jmin (area.getWidth() / 176.0f, area.getHeight() / 240.0f);
+        const juce::Rectangle<float> device (area.getCentreX() - 88.0f * scale, area.getCentreY() - 120.0f * scale,
+                                             176.0f * scale, 240.0f * scale);
+        auto mm = [&] (float x0, float y0, float x1, float y1)
+        {
+            return juce::Rectangle<float> (device.getX() + x0 * scale, device.getY() + y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale);
+        };
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        if (planImage.isValid())
+            g.drawImage (planImage, device);
+        // The live LCD in its window (the screen's reference rectangle).
+        g.setColour (juce::Colour (0xff0b5e40));
+        g.fillRect (mm (0.0f, 56.5f, 176.0f, 104.0f));
+        if (lcd.isValid())
+            g.drawImage (lcd, mm (2.65f, 59.72f, 172.65f, 102.19f));
+        // Pad cues (D3): the struck pads' apertures glow.
+        static constexpr float columnLeft[] { 55.7f, 79.7f, 103.6f }, rowTop[] { 136.3f, 160.3f, 184.2f, 208.2f };
+        for (size_t i = 0; i < held.size(); ++i)
+            if (held[i])
+            {
+                const auto cell = mm (columnLeft[i % 3], rowTop[i / 3], columnLeft[i % 3] + 16.0f, rowTop[i / 3] + 16.0f);
+                g.setColour (cueOrange.withAlpha (0.35f));
+                g.drawRoundedRectangle (cell.expanded (0.8f * scale), 2.0f * scale, 1.6f * scale);
+                g.setColour (cueOrange);
+                g.drawRoundedRectangle (cell, 1.5f * scale, 0.7f * scale);
+            }
+        g.setColour (currentLook.backdrop.contrasting (0.55f));
+        g.setFont (juce::FontOptions (12.0f));
+        g.drawText ("3D view unavailable on this GPU: plan view", getLocalBounds().removeFromBottom (22), juce::Justification::centred);
     }
 
     void StageComponent::resized()
@@ -431,6 +502,11 @@ namespace halo
             {
                 log.line ("tier: low tier failed too; the stage cannot draw");
                 tierName = "none";
+                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<StageComponent> (this)]
+                {
+                    if (safe != nullptr)
+                        safe->enterStillTier ("no GL tier could build");
+                });
                 return false;
             }
         }
