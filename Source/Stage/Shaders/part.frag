@@ -32,9 +32,8 @@ uniform sampler2DShadow uShadowMap;
 uniform mat4 uLightViewProj;
 uniform float uShadowRadius;  // PCF radius in shadow-map UV
 
-uniform sampler2D uHeightMap; // model-space z of the highest surface
-uniform vec4 uHeightRect;     // centre xy, half extent xy (model space)
-uniform float uHeightTexel;   // metres per texel at mip 0
+uniform sampler2D uDeckAO;    // baked AO of the top surfaces over uFaceRect (tools/model/ep40/ao.py)
+uniform int uDeckAOOn;
 
 // The studio (Stage/Environment): prefiltered reflections, split-sum table,
 // SH9 ambient irradiance (with the floor bounce), and the analytic key and rim.
@@ -113,40 +112,6 @@ float keyShadow (vec3 world, vec3 n, float softness, float noise)
         lit += texture (uShadowMap, vec3 (s.xy - o * 0.5, s.z - 0.00025));
     }
     return lit / 16.0;
-}
-
-//---------------------------------------------------------------- height-field AO
-// `footprint` is the width (m) the sample should average over; coarser mips
-// make far taps cone-shaped, so occlusion fades in smoothly instead of
-// switching on as a single tap crosses a key's edge.
-float heightAt (vec2 xy, float footprint)
-{
-    vec2 uv = (xy - uHeightRect.xy) / uHeightRect.zw * 0.5 + 0.5;
-    return textureLod (uHeightMap, uv, max (log2 (footprint / uHeightTexel), 0.0)).r;
-}
-
-// Horizon-based occlusion over `directions` fixed directions.
-float heightAO (vec3 p, vec3 n, float reach, int directions)
-{
-    vec2 base = p.xy + n.xy * 0.00045;
-    float occlusion = 0.0, weights = 0.0;
-    float step = 6.2831853 / float (directions);
-    for (int i = 0; i < directions; ++i)
-    {
-        float a = (float (i) + 0.5) * step;
-        vec2 dir = vec2 (cos (a), sin (a));
-        // Walls only look outwards; tops look everywhere.
-        float w = clamp (n.z + dot (dir, n.xy), 0.0, 1.0);
-        float slope = 0.0;
-        for (int j = 1; j <= 4; ++j)
-        {
-            float r = reach * float (j * j);
-            slope = max (slope, (heightAt (base + dir * r, r * 0.7) - p.z) / r);
-        }
-        occlusion += w * slope * inversesqrt (1.0 + slope * slope);
-        weights += w;
-    }
-    return 1.0 - occlusion / max (weights, 0.0001);
 }
 
 //---------------------------------------------------------------- studio
@@ -250,7 +215,10 @@ void ground (float noise)
     if (fade <= 0.0)
         discard;
     float shadow = gap < 0.03 ? keyShadow (vWorld, vec3 (0.0, 1.0, 0.0), 2.5, noise) : 1.0;
-    float near = gap < 0.016 ? heightAO (vModel, vec3 (0.0, 0.0, 1.0), 0.0009, 8) : 1.0;
+    // The floor's view of the room closed off by the case beside it: about
+    // half the sky behind a 12 mm wall, fading out within ~12 mm (analytic,
+    // the device is a box on the floor; this was a height-map AO).
+    float near = 1.0 - 0.5 * inversesqrt (1.0 + pow (gap / 0.012, 2.0)) * (1.0 - smoothstep (0.004, 0.014, gap));
     float wide = 1.0 - exp (-gap / 0.016);
     float a = (1.0 - near) * 0.55 + (1.0 - wide) * 0.42 + (1.0 - shadow) * 0.30;
     a = clamp (a, 0.0, 0.82) * fade * border;
@@ -290,7 +258,14 @@ void main()
     vec3 v = normalize (uEye - vWorld);
 
     float shadow = keyShadow (vWorld, n, 1.0, noise);
-    float ao = clamp (1.0 - (1.0 - heightAO (vModel, mn, 0.0006, 10)) * 1.6, 0.0, 1.0);
+    // Baked AO (tools/model/ep40/ao.py): per vertex, and from the deck texture
+    // on the top surfaces, whose few large triangles carry too few vertices.
+    float ao = vAO;
+    if ((vFlags & FLAG_DECAL_TARGET) != 0 && mn.z > 0.5 && uDeckAOOn != 0)
+    {
+        vec2 aoUV = (vec2 (vModel.x * 1000.0 + 88.0, 120.0 - vModel.y * 1000.0) - uFaceRect.xy) / uFaceRect.zw;
+        ao = texture (uDeckAO, aoUV).r;
+    }
     // Faces near the floor see less of the room.
     ao *= mix (0.72, 1.0, clamp (smoothstep (-0.0095, -0.002, vModel.z) + max (mn.z, 0.0), 0.0, 1.0));
 
@@ -370,7 +345,7 @@ void main()
     if (uDebug == 9) { fragColour = displayValue (n * 0.5 + 0.5); return; }
     if (uDebug == 1) { fragColour = displayValue (vec3 (ao)); return; }
     if (uDebug == 2) { fragColour = displayValue (vec3 (shadow)); return; }
-    if (uDebug == 3) { fragColour = displayValue (vec3 (fract (heightAt (vModel.xy, 0.0) * 100.0))); return; }
+    if (uDebug == 3) { fragColour = displayValue (vec3 (vAO)); return; }   // vertex AO alone
 
     vec3 lit = shade (albedo, roughness, n, v, shadow, ao);
     lit += vEmissive * 0.6 + uSlotGlow[vSlot];

@@ -24,7 +24,6 @@ namespace halo
         constexpr float deviceWidth = 0.176f, deviceDepth = 0.240f;
         constexpr int shadowMapSize = 2048;
         constexpr float shadowExtent = 0.20f; // half-size of the key light's ortho box
-        constexpr float heightHalfX = 0.115f, heightHalfY = 0.145f, heightTop = 0.030f;
         // The key light's direction until the studio environment supplies it.
         const juce::Vector3D<float> defaultKeyDir = juce::Vector3D<float> (-0.45f, 1.0f, 0.55f).normalised();
 
@@ -40,19 +39,6 @@ namespace halo
             m[5] = 1.0f / halfHeight;
             m[10] = -2.0f / (zFar - zNear);
             m[14] = -(zFar + zNear) / (zFar - zNear);
-            m[15] = 1.0f;
-            return Mat (m);
-        }
-
-        // Looks straight down the model's -Z onto the face; depth 0 is
-        // heightTop and depth 1 is the ground.
-        Mat heightProjection (float groundZ)
-        {
-            float m[16] {};
-            m[0] = 1.0f / heightHalfX;
-            m[5] = 1.0f / heightHalfY;
-            m[10] = -2.0f / (heightTop - groundZ);
-            m[14] = (heightTop + groundZ) / (heightTop - groundZ);
             m[15] = 1.0f;
             return Mat (m);
         }
@@ -478,6 +464,8 @@ namespace halo
                 log.line ("decals: ep40_keys_sdf.htex rejected: " + juce::String (error));
             if (! faceAtlas.upload (HaloStageAssets::ep40_face_sdf_htex, (size_t) HaloStageAssets::ep40_face_sdf_htexSize, error))
                 log.line ("decals: ep40_face_sdf.htex rejected: " + juce::String (error));
+            if (! deckAO.upload (HaloStageAssets::ep40_deck_ao_htex, (size_t) HaloStageAssets::ep40_deck_ao_htexSize, error))
+                log.line ("ao: ep40_deck_ao.htex rejected: " + juce::String (error));
         }
 
         // Slots: the pads in grid order, then the group pads (the converter and
@@ -646,7 +634,6 @@ namespace halo
         };
         depthMapsValid = false;
         makeTarget (shadowTarget, shadowMapSize, shadowMapSize, true);
-        makeTarget (heightTarget, 1024, juce::roundToInt (1024.0f * heightHalfY / heightHalfX), false);
 
 
        #if JUCE_DEBUG
@@ -662,11 +649,12 @@ namespace halo
         keysAtlas.release();
         displayTexture.release();
         faceAtlas.release();
+        deckAO.release();
         releasePrograms();
         targets.release();
         environment.release();
         stats.release();
-        for (auto* target : { &shadowTarget, &heightTarget })
+        for (auto* target : { &shadowTarget })
         {
             if (target->fbo != 0) glDeleteFramebuffers (1, &target->fbo);
             if (target->texture != 0) glDeleteTextures (1, &target->texture);
@@ -1041,7 +1029,7 @@ namespace halo
         glActiveTexture (GL_TEXTURE1);
         glBindTexture (GL_TEXTURE_2D, shadowTarget.texture);
         glActiveTexture (GL_TEXTURE2);
-        glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
+        glBindTexture (GL_TEXTURE_2D, deckAO.texture);
         glActiveTexture (GL_TEXTURE3);
         glBindTexture (GL_TEXTURE_2D, faceAtlas.texture);
         glActiveTexture (GL_TEXTURE0);
@@ -1049,7 +1037,8 @@ namespace halo
         partProgram.use();
         partProgram.set ("uTexture", 0);
         partProgram.set ("uShadowMap", 1);
-        partProgram.set ("uHeightMap", 2);
+        partProgram.set ("uDeckAO", 2);
+        partProgram.set ("uDeckAOOn", deckAO.valid() ? 1 : 0);
         partProgram.set ("uFaceAtlas", 3);
         partProgram.set ("uFaceAtlasOn", faceAtlas.valid() ? 1 : 0);
         // tools/model/build_ep40.py FACE_REGION: the whole top, port edge to front edge, reference mm.
@@ -1057,8 +1046,6 @@ namespace halo
         partProgram.set ("uEye", camera.eye.x, camera.eye.y, camera.eye.z);
         partProgram.setMat4 ("uLightViewProj", lightViewProj.mat);
         partProgram.set ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));
-        partProgram.set ("uHeightRect", 0.0f, 0.0f, heightHalfX, heightHalfY);
-        partProgram.set ("uHeightTexel", 2.0f * heightHalfX / (float) heightTarget.width);
         partProgram.set ("uDeviceSize", deviceWidth, deviceDepth);
         glActiveTexture (GL_TEXTURE4);
         glBindTexture (GL_TEXTURE_CUBE_MAP, environment.cubeMap());
@@ -1126,9 +1113,6 @@ namespace halo
         if (! depthMapsValid || inputs != depthInputs)
         {
             drawDepth (shadowTarget, lightViewProj, true);
-            drawDepth (heightTarget, heightProjection (groundZ), false);
-            glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
-            glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
             depthInputs = inputs;
             depthMapsValid = true;
             ++stats.depthRenders;

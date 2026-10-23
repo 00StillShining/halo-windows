@@ -766,6 +766,7 @@ def main():
     ap.add_argument("--out", default="assets/stage/EP40.hmesh")
     ap.add_argument("--atlas", default="assets/stage/ep40_keys_sdf.htex")
     ap.add_argument("--face", default="assets/stage/ep40_face_sdf.htex")
+    ap.add_argument("--deck-ao", dest="deck_ao", default="assets/stage/ep40_deck_ao.htex")
     ap.add_argument("--artwork", choices=["te", "neutral"], default="te",
                     help="te: TE's own vector artwork (DD-006g); neutral: OFL faces and generic icons (plan D11)")
     ap.add_argument("--check", action="store_true",
@@ -777,10 +778,28 @@ def main():
         if sum(t.ink_px.values()) == 0:
             raise SystemExit(f"{t.name}: no legend ink inside its include rectangle")
     parts = build(a.usdz, tiles, atlas_height)
-    data = legacy.to_v3(parts, Path(a.usdz).name, decal_parts=set(tiles))
-    Path(a.out).write_bytes(data)
     import htex_io
     from artwork import sdf
+    import ao as ao_bake
+    # Baked AO (D10): a height field of the opaque rest pose (the acrylic is
+    # clear, the anchor empty), then horizon occlusion per vertex and for the deck.
+    tris = []
+    for name, _matrix, _pivot, verts, idx in parts:
+        if name in ("display_glass", "halo_ring") or not len(idx):
+            continue
+        v = np.array(verts, dtype=np.float64).reshape(-1, 14)[:, :3]
+        tris.append(ao_bake.to_ref(v)[np.asarray(idx).reshape(-1, 3)])
+    hf = ao_bake.height_field(np.concatenate(tris))
+    horizon = ao_bake.Horizon(hf)
+
+    def vertex_ao(pos, nrm):
+        n_ref = np.column_stack([nrm[:, 0], -nrm[:, 1], nrm[:, 2]])
+        return horizon.ao(ao_bake.to_ref(pos), n_ref)
+    data = legacy.to_v3(parts, Path(a.usdz).name, decal_parts=set(tiles), ao_fn=vertex_ao)
+    Path(a.out).write_bytes(data)
+    deck = ao_bake.deck_texture(horizon, hf)
+    Path(a.deck_ao).write_bytes(htex_io.write_htex([m[..., None] for m in ao_bake.mips(deck)], 1, channels=b"AO__"))
+    print(f"wrote {a.deck_ao}: {deck.shape[1]} x {deck.shape[0]}, mean AO {deck.mean() / 255:.3f}")
     Path(a.atlas).write_bytes(htex_io.write_htex(sdf.mips(level0), 3, channels=b"GOWC", flags=2))
     print(f"wrote {a.atlas}: {level0.shape[1]} x {level0.shape[0]}, {len(tiles)} tiles")
     if a.check:

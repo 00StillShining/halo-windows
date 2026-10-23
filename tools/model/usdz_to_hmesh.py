@@ -524,10 +524,11 @@ def led_for(name):
     return 0xFFFF
 
 
-def to_v3(parts, source_name, decal_parts=()):
+def to_v3(parts, source_name, decal_parts=(), ao_fn=None):
     """The v2 part list (local vertices + part-to-model) -> .hmesh v3 bytes: one vertex
     and index buffer in model space (rest pose), a material table, slots for pads and groups.
-    decal_parts: parts whose UVs address the keys' SDF atlas (vertex mask bit 0)."""
+    decal_parts: parts whose UVs address the keys' SDF atlas (vertex mask bit 0).
+    ao_fn: optional (positions, normals) in model space -> baked AO in 0..1 per vertex."""
     import hmesh_io
     import numpy as np
 
@@ -603,7 +604,7 @@ def to_v3(parts, source_name, decal_parts=()):
         rec["material"] = mat_ids
         rec["slot"] = slot
         rec["mask"] = 1 if name == "chassis_topPlate" or name in decal_parts else 0
-        rec["ao"] = 255
+        rec["ao"] = 255 if ao_fn is None or not n_vert else np.clip(np.round(ao_fn(pos, nrm) * 255), 0, 255).astype(np.uint8)
         vert_chunks.append(rec)
         idx_chunks.append((idx + base).astype(np.uint32))
 

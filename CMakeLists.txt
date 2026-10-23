@@ -118,6 +118,7 @@ juce_add_binary_data(HaloStageAssets
     NAMESPACE HaloStageAssets
     SOURCES
         assets/stage/EP40.hmesh
+        assets/stage/ep40_deck_ao.htex
         assets/stage/ep40_face_sdf.htex
         assets/stage/ep40_keys_sdf.htex
         assets/stage/studio.henv)

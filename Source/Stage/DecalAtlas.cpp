@@ -14,10 +14,10 @@ namespace halo
         const auto htex = Htex::parse (std::span<const std::byte> (static_cast<const std::byte*> (data), size), error);
         if (! htex)
             return false;
-        const bool rg = htex->format == Htex::Format::rg8;
-        if ((htex->format != Htex::Format::rgba8 && ! rg) || (htex->flags & Htex::sdf) == 0)
+        const bool rg = htex->format == Htex::Format::rg8, r = htex->format == Htex::Format::r8;
+        if (htex->format != Htex::Format::rgba8 && ! rg && ! r)
         {
-            error = "not an RGBA8 or RG8 SDF atlas";
+            error = "not an R8, RG8 or RGBA8 texture";
             return false;
         }
 
@@ -25,8 +25,9 @@ namespace halo
         glBindTexture (GL_TEXTURE_2D, texture);
         glPixelStorei (GL_UNPACK_ALIGNMENT, 1);
         for (size_t level = 0; level < htex->mips.size(); ++level)
-            glTexImage2D (GL_TEXTURE_2D, (GLint) level, rg ? GL_RG8 : GL_RGBA8, (GLsizei) htex->mipWidth (level),
-                          (GLsizei) htex->mipHeight (level), 0, rg ? GL_RG : GL_RGBA, GL_UNSIGNED_BYTE, htex->mips[level].data());
+            glTexImage2D (GL_TEXTURE_2D, (GLint) level, r ? GL_R8 : rg ? GL_RG8 : GL_RGBA8, (GLsizei) htex->mipWidth (level),
+                          (GLsizei) htex->mipHeight (level), 0, r ? GL_RED : rg ? GL_RG : GL_RGBA, GL_UNSIGNED_BYTE,
+                          htex->mips[level].data());
         glPixelStorei (GL_UNPACK_ALIGNMENT, 4);
         glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint) htex->mips.size() - 1);
         glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, htex->mips.size() > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);

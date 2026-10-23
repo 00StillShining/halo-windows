@@ -159,6 +159,7 @@ namespace halo
         HaloMesh mesh;
         DecalAtlas keysAtlas; // the keys' legends (four-ink SDF)
         DecalAtlas faceAtlas; // the deck's silkscreen (green and orange SDF over FaceRegion)
+        DecalAtlas deckAO;    // baked AO of the top surfaces, model XY (tools/model/ep40/ao.py)
         ShaderLibrary shaders { log };
         GlProgram partProgram, depthProgram, backgroundProgram, cardProgram;
         GlProgram resolveProgram, compositeProgram, fxaaProgram, selfTestProgram;
@@ -171,10 +172,10 @@ namespace halo
         bool fxaaEngaged = false;
         int framesSinceShaderCheck = 0;
         juce::OpenGLTexture displayTexture;
-        DepthTarget shadowTarget, heightTarget;
-        // The shadow and height maps depend only on the key direction and the
-        // slots' offsets (the device is static in model space, the camera is not
-        // in them), so they are re-rendered only when those change.
+        DepthTarget shadowTarget;
+        // The shadow map depends only on the key direction and the slots'
+        // offsets (the device is static in model space, the camera is not in
+        // it), so it is re-rendered only when those change.
         std::array<float, 3 + 3 * Hmesh::maxSlots> depthInputs {};
         bool depthMapsValid = false;
         GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
