@@ -73,6 +73,16 @@ KNOB_DISC = (16.0, 2.4)                   # plan: diameter, height
 KNOB_STEM = (8.07, 1.8, 9.4)              # svg-path (left view, VOLUME): diameter, from, to above the deck
 KNOB_CAP = (8.07, 11.2)                   # svg-path: cap diameter, top above the deck (plan said 11.45)
 
+# ------------------------------------------------------------------ fader and LEDs
+FADER_SLOT = (15.75, 168.6, 207.8, 2.5)           # svg-path: slot centre x, y ends, width (front drawing)
+FADER_CAP = (15.75, 180.3, 7.9)                   # svg-path: the knob as drawn (resting), x, y, diameter
+FADER_CAP_TOP = Value(9.0, "estimate")            # above the deck; TE's angled photo shows a stem like the knobs'
+# The 18 LED rings of the front drawing (svg-path), by row then column; the
+# carried lamps (status_lamp_<row>_<col>, aux_0, aux_1) move onto them.
+LED_DIAMETER = 2.15                               # svg-path: ring less its stroke
+LEDS = [(x, y) for y in (132.33, 156.29, 180.25, 204.21) for x in (35.79, 59.73, 83.68, 107.62)] + \
+       [(131.59, 204.21), (139.55, 204.21)]
+
 # ------------------------------------------------------------------ upper section
 # Rectangles (x0, y0, x1, y1) of the front drawing's fills (svg-path, front view
 # 69033ff8..., 0.609 mm per unit).
@@ -117,7 +127,6 @@ BEZEL_WIDTH = Value(0.8, "estimate")              # dark carrier ring under the 
 # plate top was 9.4 mm. Every row is listed; nothing relies on a default.
 OLD_PLATE_TOP = 9.4
 CARRY_OVER = {
-    "fader_track": ("deck", 1.0), "fader_cap": ("deck", 1.0),
 }
 # The carried-over screen band reaches 3 mm past the step; it is pulled back to
 # end at the step (its back edge, by the label plate, stays put).

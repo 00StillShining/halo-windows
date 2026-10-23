@@ -36,7 +36,7 @@ FACE_REGION = (0.0, 0.0, spec.WIDTH.mm, spec.DEPTH.mm)
 # The label plate as drawn (svg-path: the #EEEFEA fill, 0..119.55 x 8.57..56.50 mm).
 LABEL_PLATE = (0.0, 8.57, 119.55, 56.50)
 # The fader's slot as drawn (svg-px): the 3D track covers it; its tick stays printed.
-FADER_SLOT = (14.2, 168.0, 17.3, 208.5)
+FADER_SLOT = (14.2, 168.0, 17.3, 208.5)   # (x0, y0, x1, y1), with margin
 
 
 # ------------------------------------------------------------------ frames
@@ -280,6 +280,27 @@ def split_body_and_legend(corners):
     return body, legend, body_colour
 
 
+def seat_lamp(name, corners):
+    """Move a carried LED onto its ring in the front drawing (spec.LEDS) at the
+    drawn diameter; its height stays."""
+    tail = name[len(legacy.LAMP_PREFIX):]
+    if tail.startswith("aux_"):
+        index = 16 + int(tail[4:])
+    else:
+        row, col = (int(t) for t in tail.split("_"))
+        index = row * 4 + col
+    tx, ty = spec.LEDS[index]
+    p = np.array([c[0] for c in corners])
+    centre = (p[:, :2].min(axis=0) + p[:, :2].max(axis=0)) / 2
+    size = (p[:, 0].max() - p[:, 0].min())
+    s = (spec.LED_DIAMETER / 1000) / size if size > 0 else 1.0
+    out = []
+    for q, n, *rest in corners:
+        xy = (np.array(q[:2]) - centre) * s + np.array([X(tx), Y(ty)])
+        out.append(((float(xy[0]), float(xy[1]), q[2]), n, *rest))
+    return out
+
+
 def carry(corners, mode, scale, y_remap=None):
     base = {"upper": UPPER, "deck": DECK}.get(mode)
     out = []
@@ -503,6 +524,22 @@ def build(usdz, tiles, atlas_height):
         mic.append((((X(mx), Y(my), zm), p1, p0), (up3, up3, up3)))
     b.add("mic_port", mic, gap, 0.8)
 
+    # The fader: a dark slot in the deck and a frosted stem for its knob.
+    fx, fy0, fy1, fw = spec.FADER_SLOT
+    up3 = (0.0, 0.0, 1.0)
+    zs = DECK + 0.00002
+    # stadium_xz draws a slot along its first axis: here that axis is y.
+    long = stadium_xz((fy0 + fy1) / 2, fx, fy1 - fy0, fw, 12)        # (y, x) pairs
+    slot = [(X(x), Y(y), zs) for y, x in long]
+    c = (X(fx), Y((fy0 + fy1) / 2), zs)
+    tris = []
+    for i in range(len(slot)):
+        a, b2 = slot[i], slot[(i + 1) % len(slot)]
+        tris.append(((c, a, b2), (up3, up3, up3)))
+    b.add("fader_track", tris, gap, 0.8)
+    cx, cy, cd = spec.FADER_CAP
+    b.add("fader_cap", cylinder(X(cx), Y(cy), DECK, DECK + spec.FADER_CAP_TOP.mm / 1000, cd / 2000, 0.0006), stem_colour, 0.3)
+
     # The port wall: the openings read as dark holes on the wall, not cylinders
     # standing off it; the power slider's orange tab stands out of its slot.
     sx0, sz0, sx1, sz1 = spec.PORT_STRIP
@@ -539,7 +576,7 @@ def build(usdz, tiles, atlas_height):
         if name in rebuilt:
             continue
         if name.startswith(legacy.LAMP_PREFIX):
-            b.add_corners(name, carry(corners, "deck", 1.0))
+            b.add_corners(name, seat_lamp(name, carry(corners, "deck", 1.0)))
             continue
         if name not in spec.CARRY_OVER:
             raise SystemExit(f"{name}: not rebuilt and not in spec.CARRY_OVER")
