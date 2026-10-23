@@ -131,8 +131,25 @@ namespace halo
         if (bus.showsNoShift (index))
             caption = "no shift";
         if (caption.isNotEmpty() && size != CellSize::ultra)
-            paint::text (g, caption, { 10.0f, baseline + 4.0f, w - 20.0f, 12.0f }, HaloFonts::font (Role::print, 10.5f), t.scr.dim,
-                         juce::Justification::centredRight);
+        {
+            // Never clip a caption mid-word: drop trailing clauses (", ...",
+            // " · ...", " (...") until it fits; the popup card has the rest.
+            const auto font = HaloFonts::font (Role::print, 10.5f);
+            const float room = w - 20.0f;
+            while (paint::textWidth (font, caption) > room)
+            {
+                int cut = -1;
+                for (const auto& sep : { juce::String (", "), juce::String::charToString ((juce::juce_wchar) 0x00B7).quoted (' '), juce::String (" (") })
+                    cut = juce::jmax (cut, caption.lastIndexOf (sep));
+                if (cut <= 0)
+                {
+                    caption = paint::middleEllipsis (caption, font, room);
+                    break;
+                }
+                caption = caption.substring (0, cut);
+            }
+            paint::text (g, caption, { 10.0f, baseline + 4.0f, room, 12.0f }, font, t.scr.dim, juce::Justification::centredRight);
+        }
 
         // 2 px normalised value bar along the bottom.
         const double norm = b->getNorm != nullptr ? juce::jlimit (0.0, 1.0, b->getNorm()) : 0.0;

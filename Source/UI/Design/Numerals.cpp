@@ -57,9 +57,33 @@ namespace halo::numerals
             return it != t.end() ? &it->second : nullptr;
         }
 
+        // A lone 1 (no digit beside it: "1", "1.5", "1:53") keeps TE's bare
+        // bar but gains a short flag, so it can't read as an l or I. Inside a
+        // number ("12", "21") the bar alone is unambiguous, as drawn.
+        const Glyph& flaggedOne()
+        {
+            static const Glyph g { juce::Drawable::parseSVGPath ("M3.6,0 L3.6,16 M3.6,0.2 L0.6,3.4"), 8.8f };
+            return g;
+        }
+
+        bool isDigit (juce::juce_wchar c) { return c >= '0' && c <= '9'; }
+
+        bool loneOne (const juce::String& text, int i)
+        {
+            return text[i] == '1' && (i == 0 || ! isDigit (text[i - 1])) && (i + 1 >= text.length() || ! isDigit (text[i + 1]));
+        }
+
+        // The glyph to draw at index i (the flagged 1 where it stands alone).
+        const Glyph* glyphAt (const juce::String& text, int i, bool tabular)
+        {
+            if (! tabular && loneOne (text, i))
+                return &flaggedOne();
+            return find (text[i]);
+        }
+
         float advanceOf (const Glyph& g, juce::juce_wchar c, bool tabular)
         {
-            return tabular && c >= '0' && c <= '9' ? 14.2f : g.advance;
+            return tabular && isDigit (c) ? 14.2f : g.advance;
         }
 
         // Tabular '1' sits centred in a full digit box.
@@ -81,10 +105,10 @@ namespace halo::numerals
         const float s = capHeight / gridHeight;
         float units = 0.0f;
         bool any = false;
-        for (auto c : text)
-            if (const auto* g = find (c))
+        for (int i = 0; i < text.length(); ++i)
+            if (const auto* g = glyphAt (text, i, tabular))
             {
-                units += advanceOf (*g, c, tabular);
+                units += advanceOf (*g, text[i], tabular);
                 any = true;
             }
         return any ? (units - gap) * s : 0.0f;
@@ -97,9 +121,10 @@ namespace halo::numerals
         const juce::PathStrokeType stroke (strokeFor (capHeight) / s, juce::PathStrokeType::curved, juce::PathStrokeType::rounded);
         g.setColour (colour);
         float pen = 0.0f;
-        for (auto c : text)
+        for (int i = 0; i < text.length(); ++i)
         {
-            const auto* glyph = find (c);
+            const auto c = text[i];
+            const auto* glyph = glyphAt (text, i, tabular);
             if (glyph == nullptr)
                 continue;
             if (! glyph->path.isEmpty())
