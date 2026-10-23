@@ -474,6 +474,7 @@ namespace halo
             meters = engine.levels();
             inMeters = engine.inputLevels();
             printMeters = engine.isPrintingFx() ? engine.printLevels() : StereoLevels {};
+            preRackMeters = engine.preRackLevels();
             if (meters.limitedL) limitUntil[0] = t + 1.5;
             if (meters.limitedR) limitUntil[1] = t + 1.5;
         }
@@ -482,6 +483,7 @@ namespace halo
             meters = {};
             inMeters = {};
             printMeters = {};
+            preRackMeters = {};
         }
 
         if (--diskCheckCountdown <= 0)

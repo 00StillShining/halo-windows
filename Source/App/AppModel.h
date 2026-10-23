@@ -109,6 +109,8 @@ namespace halo
         // GRAB record) and, with PRINT FX, the post-rack signal being recorded.
         const StereoLevels& inputLevels() const noexcept { return inMeters; }
         const StereoLevels& printLevels() const noexcept { return printMeters; }
+        // RACK's `pre-rack` tap (after LEVEL, before the rack).
+        const StereoLevels& preRackLevels() const noexcept { return preRackMeters; }
         bool limitLit (int channel) const noexcept { return now() < limitUntil[(size_t) juce::jlimit (0, 1, channel)]; }
 
         // Clocks since Start (the bar phase), for the PLAY lane's bar.beat and ruler.
@@ -177,7 +179,7 @@ namespace halo
         juce::Time latestRecordingAt, latestGrabAt;
         int latestGrabBars = 0;
         bool stoppedByDisconnect = false;
-        StereoLevels meters, inMeters, printMeters;
+        StereoLevels meters, inMeters, printMeters, preRackMeters;
         std::array<double, 2> limitUntil {};
         std::optional<double> recordingStartedAt;
         int diskCheckCountdown = 0;

@@ -158,3 +158,14 @@ TEST_CASE ("tokens: legacy dark maps every legacy role onto the glass")
     CHECK (contrast (d.ink & 0xFFFFFF, d.paperHigh & 0xFFFFFF) >= 4.5);
     CHECK (contrast (d.inkSoft & 0xFFFFFF, d.paperHigh & 0xFFFFFF) >= 4.5);
 }
+
+TEST_CASE ("tokens: RACK tiles: values black on paper, the bar beside each in the encoder's skirt")
+{
+    // Tile values are #000005 Numerals on paper (never encoder-coloured
+    // text); the 3 px bar beside each names its encoder and must read as a
+    // graphic (3:1) on paper, which the skirt shade does and the line does not.
+    const auto p = graphite();
+    CHECK (contrast (p.scr.bg, p.scr.paper) >= 7.0);
+    for (const auto& e : p.enc)
+        CHECK (contrast (e.skirt, p.scr.paper) >= 3.0);
+}

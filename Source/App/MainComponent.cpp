@@ -49,7 +49,7 @@ namespace halo
 
         for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &playPage, &plate, &deck, &lane, &softKeys })
             addAndMakeVisible (c);
-        for (auto* p : std::initializer_list<juce::Component*> { &rackPanel, &backupsPanel })
+        for (auto* p : std::initializer_list<juce::Component*> { &backupsPanel })
             addChildComponent (p);
         lane.setContent ([this] (juce::Graphics& g, juce::Rectangle<float> r)
         {
@@ -63,6 +63,8 @@ namespace halo
                 loadPage.paintLane (g, r, frame.density != layout::Density::regular);
             else if (model.mode() == AppMode::capture)
                 capturePage.paintLane (g, r, frame.density != layout::Density::regular);
+            else if (model.mode() == AppMode::rack)
+                rackPage.paintLane (g, r, frame.density != layout::Density::regular);
         });
         playPage.onLaneChanged = [this] { lane.repaint(); };
         // One camera, one readout: drags on the stage move the ORBIT cell too.
@@ -74,6 +76,8 @@ namespace halo
         addChildComponent (editPage);
         addChildComponent (loadPage);
         addChildComponent (capturePage);
+        addChildComponent (rackPage);
+        rackPage.onFocusChanged = [this] { boundMode.reset(); updateBindings(); };
         // trim <-> shape latched on the page: the encoders swap pages.
         editPage.onPageChanged = [this] { boundMode.reset(); updateBindings(); };
         model.addListener (this);
@@ -138,9 +142,11 @@ namespace halo
         loadPage.setVisible (load);
         const bool capture = mode == AppMode::capture;
         capturePage.setVisible (capture);
-        for (auto m : { AppMode::rack, AppMode::backups })
+        const bool rackMode = mode == AppMode::rack;
+        rackPage.setVisible (rackMode);
+        for (auto m : { AppMode::backups })
             legacyPanel (m)->setVisible (m == mode);
-        plate.setVisible (! play && ! chop && ! edit && ! load && ! capture);
+        plate.setVisible (! play && ! chop && ! edit && ! load && ! capture && ! rackMode);
         plate.setMode (mode);
         statusStrip.setMonitorOwnedByEncoder (play);
         updateBindings();
@@ -152,6 +158,8 @@ namespace halo
             loadPage.grabKeyboardFocus();
         if (capture && ! capturePage.hasKeyboardFocus (true) && ! cardOpen)
             capturePage.grabKeyboardFocus();
+        if (rackMode && ! rackPage.hasKeyboardFocus (true) && ! cardOpen)
+            rackPage.grabKeyboardFocus();
         if (mode != shownMode)
         {
             shownMode = mode;
@@ -178,6 +186,8 @@ namespace halo
             bus.setBindings (loadPage.bindings());
         else if (mode == AppMode::capture)
             bus.setBindings (capturePage.bindings());
+        else if (mode == AppMode::rack)
+            bus.setBindings (rackPage.bindings());
         else
             bus.setBindings ({});
         updateHint();
@@ -198,6 +208,8 @@ namespace halo
             hint = "category, sound, project, pad" + dot + "pad press assigns (asks first)";
         else if (model.mode() == AppMode::capture)
             hint = "item, filter, grab length, level" + dot + "level press records";
+        else if (model.mode() == AppMode::rack)
+            hint = "the encoders follow the focused module" + dot + "shift + echo tone: wow";
         else
             hint = "encoders arrive with this page" + dot + "use the panel on the right";
         softKeys.setHint (hint);
@@ -216,13 +228,13 @@ namespace halo
     {
         switch (m)
         {
-            case AppMode::rack:    return &rackPanel;
             case AppMode::backups: return &backupsPanel;
             case AppMode::play:
             case AppMode::chop:
             case AppMode::edit:
             case AppMode::load:
             case AppMode::capture:
+            case AppMode::rack:
             default:               return nullptr;
         }
     }
@@ -254,6 +266,12 @@ namespace halo
         {
             capturePage.setBounds (body);
             capturePage.setFrame (frame);
+            return;
+        }
+        if (mode == AppMode::rack)
+        {
+            rackPage.setBounds (body);
+            rackPage.setFrame (frame);
             return;
         }
         if (keymap::showsStage (mode))

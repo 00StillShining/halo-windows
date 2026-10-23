@@ -111,6 +111,18 @@ namespace halo::layout
     };
     CaptureLayout captureLayout (const Frame&);
 
+    // ---- RACK (plan section 3.11) ---------------------------------------------
+    // Header, the canvas (in port, pre-rack ladders, four paper tiles,
+    // limiter, out ladders, out port) and the lower band.
+    struct RackLayout
+    {
+        Rect header, canvas, lower;
+        std::array<Rect, 4> tiles {};
+        Rect inPort, preLadders, limiter, outLadders, outPort;
+        static constexpr float minTileW = 190.0f, minTileH = 170.0f;
+    };
+    RackLayout rackLayout (const Frame&);
+
     // A greedy word wrap with the generated metrics: the height a paragraph
     // needs at this width (lineHeight per line).
     float wrappedHeight (const fontmetrics::Role&, std::string_view utf8, float width, float lineHeight);

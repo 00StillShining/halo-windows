@@ -17,7 +17,7 @@
 #include "UI/Pages/EditPage.h"
 #include "UI/Pages/LoadPage.h"
 #include "UI/Pages/PlayPage.h"
-#include "UI/RackPanel.h"
+#include "UI/Pages/RackPage.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -75,13 +75,13 @@ namespace halo
         StageComponent stage { model };
         PlayPage playPage { model, stage };
         // Pages not rebuilt yet: today's panels, docked at the right of the body.
-        RackPanel rackPanel { model };
         BackupsPanel backupsPanel { model };
         juce::Rectangle<int> dock;
         ChopPage chopPage { model, writeGate };
         EditPage editPage { model, writeGate };
         LoadPage loadPage { model, writeGate };
         CapturePage capturePage { model };
+        RackPage rackPage { model };
         LegacyPlate plate;
         Deck deck { model, bus };
         Lane lane { bus };

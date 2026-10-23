@@ -236,6 +236,7 @@ namespace halo
         meter.prepare (sr);
         inMeter.prepare (sr);
         printMeter.prepare (sr);
+        preRackMeter.prepare (sr);
         meter.reset();
         scratch.setSize (2, juce::jmax (maxBlock, d->getCurrentBufferSizeSamples()), false, true, false);
         rack.prepare (sr, scratch.getNumSamples()); // a prior tail never leaks across a restart
@@ -271,6 +272,7 @@ namespace halo
 
             // gain -> dub rack -> -1 dBFS limiter (the Mac's chain order).
             gain.process (l, r, n);
+            preRackMeter.publish (l, r, n, MeterMath::peak (l, n), MeterMath::peak (r, n)); // reads only
             rack.process (l, r, n, rackParams);
             if (print)
             {

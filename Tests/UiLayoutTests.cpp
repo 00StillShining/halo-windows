@@ -278,3 +278,27 @@ TEST_CASE ("layout: CAPTURE keeps its tape machine and three list rows at every 
     }
     CHECK (captureLayout (frame (1440, 900)).machine.h >= 200.0f);
 }
+
+TEST_CASE ("layout: RACK's four tiles fit the chain at every minimum size")
+{
+    for (auto size : { std::pair { 1440.0f, 900.0f }, std::pair { 1180.0f, 720.0f }, std::pair { 1180.0f, 660.0f } })
+    {
+        INFO ("size " << size.first << " x " << size.second);
+        const auto f = frame (size.first, size.second);
+        const auto k = rackLayout (f);
+        for (const auto& t : k.tiles)
+        {
+            CHECK (t.w >= RackLayout::minTileW);
+            CHECK (t.h >= RackLayout::minTileH);
+            CHECK (k.canvas.contains (t));
+        }
+        CHECK (k.tiles[0].x >= k.preLadders.right());
+        CHECK (k.tiles[3].right() <= k.limiter.x);
+        CHECK_FALSE (k.limiter.overlaps (k.outLadders));
+        CHECK (k.lower.h >= 96.0f);
+        CHECK (k.canvas.bottom() <= k.lower.y);
+    }
+    const auto big = rackLayout (frame (1440, 900));
+    CHECK (big.tiles[0].w >= 240.0f);
+    CHECK (big.tiles[0].h >= 280.0f);
+}

@@ -207,6 +207,48 @@ namespace halo::layout
         return std::max (16.0f, wrappedHeight (fontmetrics::kBodyStrong, text, (width - 24.0f - 26.0f) * 0.98f, line)) + 18.0f;
     }
 
+    // ---- RACK -----------------------------------------------------------------------
+    RackLayout rackLayout (const Frame& f)
+    {
+        RackLayout k;
+        const auto& b = f.body;
+        const bool regular = f.density == Density::regular;
+        const float headerH = regular ? 44.0f : 40.0f;
+        k.header = { b.x, b.y, b.w, headerH };
+        const float top = b.y + headerH + 4.0f;
+        const float lowerH = regular ? 162.0f : 120.0f;
+        const float lowerMin = 96.0f;
+        // The canvas keeps its tiles at least minTileH (+ 40 for the chain
+        // captions); the lower band yields first.
+        float lower = lowerH;
+        if (b.bottom() - top - lower - 8.0f < RackLayout::minTileH + 40.0f)
+            lower = std::max (lowerMin, b.bottom() - top - 8.0f - (RackLayout::minTileH + 40.0f));
+        k.lower = { b.x, b.bottom() - lower, b.w, lower };
+        k.canvas = { b.x, top, b.w, k.lower.y - 8.0f - top };
+
+        // Left: the in port and the pre-rack ladders; right: limiter, out ladders, out port.
+        const float portW = 34.0f, laddersW = 30.0f, limiterW = regular ? 92.0f : 78.0f, gap = regular ? 26.0f : 18.0f;
+        float x = k.canvas.x;
+        k.inPort = { x, k.canvas.y, portW, k.canvas.h };
+        x += portW + 6.0f;
+        k.preLadders = { x, k.canvas.y, laddersW, k.canvas.h };
+        x += laddersW + gap;
+        const float right = k.canvas.right() - portW - 6.0f - laddersW - gap - limiterW - gap;
+        const float tileW = std::min (250.0f, std::floor ((right - x - 3.0f * gap) / 4.0f));
+        const float tileH = std::min (300.0f, k.canvas.h - 40.0f);
+        const float used = 4.0f * tileW + 3.0f * gap;
+        x += std::floor ((right - x - used) * 0.5f);
+        for (int i = 0; i < 4; ++i)
+            k.tiles[(size_t) i] = { x + (float) i * (tileW + gap), k.canvas.y + std::floor ((k.canvas.h - tileH) * 0.5f) - 6.0f, tileW, tileH };
+        float rx = k.canvas.right() - portW;
+        k.outPort = { rx, k.canvas.y, portW, k.canvas.h };
+        rx -= 6.0f + laddersW;
+        k.outLadders = { rx, k.canvas.y, laddersW, k.canvas.h };
+        rx -= gap + limiterW;
+        k.limiter = { rx, k.canvas.y, limiterW, k.canvas.h };
+        return k;
+    }
+
     // ---- CAPTURE --------------------------------------------------------------------
     CaptureLayout captureLayout (const Frame& f)
     {

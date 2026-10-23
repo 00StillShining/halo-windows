@@ -67,6 +67,8 @@ namespace halo
         //   print: post-rack, pre-limiter; what a PRINT FX take records
         StereoLevels inputLevels() { return inMeter.snapshot(); }
         StereoLevels printLevels() { return printMeter.snapshot(); }
+        //   pre-rack: after LEVEL, before the dub rack (RACK's left ladders)
+        StereoLevels preRackLevels() { return preRackMeter.snapshot(); }
 
         // The dub rack's parameters (written by the UI, read by the audio thread).
         RackParameters& rackParameters() noexcept { return rackParams; }
@@ -115,7 +117,7 @@ namespace halo
         RackParameters rackParams;
         std::atomic<bool> printFx { false };
         SafetyLimiter limiter;
-        AudioMeter meter, inMeter, printMeter;
+        AudioMeter meter, inMeter, printMeter, preRackMeter;
         juce::AudioBuffer<float> scratch;
         SessionRecorder recorder;
         std::shared_ptr<RollingCaptureBuffer> historyBuffer;

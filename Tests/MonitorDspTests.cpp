@@ -2,6 +2,7 @@
 // plus a test for the per-block meter ballistics fix.
 #include <doctest/doctest.h>
 
+#include "Core/DubRack.h"
 #include "Core/MonitorDsp.h"
 
 #include <cstring>
@@ -170,4 +171,38 @@ TEST_CASE ("in tap: reads the raw input and leaves the monitored output bit-iden
     CHECK (std::pow (10.0, s.peakL / 20.0) == doctest::Approx (0.98).epsilon (0.01));
     CHECK (std::pow (10.0, s.peakR / 20.0) == doctest::Approx (0.6).epsilon (0.01));
     CHECK (s.limitedL); // above the limiter's ceiling on the way in
+}
+
+TEST_CASE ("pre-rack tap: the rack's output is bit-identical with the tap on or off")
+{
+    // gain -> [pre-rack tap] -> dub rack (engaged, echo and spring on) -> limiter.
+    auto run = [] (bool tapOn, AudioMeter& pre)
+    {
+        MonitorGain gain (-6.0, 48000.0);
+        DubRack rack;
+        rack.prepare (48000.0, 512);
+        RackParameters params;
+        params.engaged = true;
+        params.springOn = true;
+        SafetyLimiter limiter;
+        std::vector<float> l = sine (8192, 0.7f, 110.0), r = sine (8192, 0.5f, 165.0);
+        for (int offset = 0; offset < 8192; offset += 512)
+        {
+            float* bl = l.data() + offset;
+            float* br = r.data() + offset;
+            gain.process (bl, br, 512);
+            if (tapOn)
+                pre.publish (bl, br, 512, MeterMath::peak (bl, 512), MeterMath::peak (br, 512));
+            rack.process (bl, br, 512, params);
+            limiter.process (bl, br, 512);
+        }
+        l.insert (l.end(), r.begin(), r.end());
+        return l;
+    };
+    AudioMeter tap, unused;
+    const auto a = run (true, tap), b = run (false, unused);
+    REQUIRE (a.size() == b.size());
+    CHECK (std::memcmp (a.data(), b.data(), a.size() * sizeof (float)) == 0);
+    // The tap reads after LEVEL (-6 db of a 0.7 sine), before the rack.
+    CHECK (std::pow (10.0, tap.snapshot().peakL / 20.0) == doctest::Approx (0.7 * std::pow (10.0, -6.0 / 20.0)).epsilon (0.02));
 }
