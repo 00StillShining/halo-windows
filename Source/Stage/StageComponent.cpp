@@ -486,6 +486,11 @@ namespace halo
         }
         if (meshLoaded)
             mesh.upload();
+        {
+            std::string error;
+            if (! keysAtlas.upload (HaloStageAssets::ep40_keys_sdf_htex, (size_t) HaloStageAssets::ep40_keys_sdf_htexSize, error))
+                log.line ("decals: ep40_keys_sdf.htex rejected: " + juce::String (error));
+        }
 
         // Slots: the pads in grid order, then the group pads (the converter and
         // the legacy loader assign them by name). Each turns about its own pivot.
@@ -683,6 +688,7 @@ namespace halo
     void StageComponent::openGLContextClosing()
     {
         mesh.release();
+        keysAtlas.release();
         displayTexture.release();
         printTexture.release();
         releasePrograms();
@@ -1068,8 +1074,12 @@ namespace halo
         glActiveTexture (GL_TEXTURE0);
         glActiveTexture (GL_TEXTURE6);
         glBindTexture (GL_TEXTURE_2D, mesh.materials);
+        glActiveTexture (GL_TEXTURE7);
+        glBindTexture (GL_TEXTURE_2D, keysAtlas.texture);
         glActiveTexture (GL_TEXTURE0);
         partProgram.set ("uMaterials", 6);
+        partProgram.set ("uKeyAtlas", 7);
+        partProgram.set ("uKeyAtlasOn", keysAtlas.valid() ? 1 : 0);
         partProgram.set ("uEnv", 4);
         partProgram.set ("uBrdfLut", 5);
         partProgram.set ("uEnvMaxMip", environment.maxMip());

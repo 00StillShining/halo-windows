@@ -522,9 +522,10 @@ def led_for(name):
     return 0xFFFF
 
 
-def to_v3(parts, source_name):
+def to_v3(parts, source_name, decal_parts=()):
     """The v2 part list (local vertices + part-to-model) -> .hmesh v3 bytes: one vertex
-    and index buffer in model space (rest pose), a material table, slots for pads and groups."""
+    and index buffer in model space (rest pose), a material table, slots for pads and groups.
+    decal_parts: parts whose UVs address the keys' SDF atlas (vertex mask bit 0)."""
     import hmesh_io
     import numpy as np
 
@@ -597,7 +598,7 @@ def to_v3(parts, source_name):
         rec["uv"] = np.round(uv * 65535).astype(np.uint16)
         rec["material"] = mat_ids
         rec["slot"] = slot
-        rec["mask"] = 1 if name == "chassis_topPlate" else 0
+        rec["mask"] = 1 if name == "chassis_topPlate" or name in decal_parts else 0
         rec["ao"] = 255
         vert_chunks.append(rec)
         idx_chunks.append((idx + base).astype(np.uint32))

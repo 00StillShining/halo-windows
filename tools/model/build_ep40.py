@@ -1,11 +1,13 @@
 """The EP-40 model compiler (docs/redesign/riddim-3d-plan.md section 4), first
 stage: the stepped chassis, the keys and their apertures, and the knobs are
 built from ep40/spec.py; every other part is carried over from the Blender
-model (usdz_to_hmesh.py) onto the surface it sits on (spec.CARRY_OVER). The
-key legends are carried over too, re-seated on the new caps, until the keys'
-decal atlas replaces them.
+model (usdz_to_hmesh.py) onto the surface it sits on (spec.CARRY_OVER). Key,
+plate and small-key legends are decals: TE's front drawing cut into the keys'
+SDF atlas (artwork/atlas.py), sampled through each cap's planar UVs; the old
+geometric legends are dropped.
 
     python -I tools/model/build_ep40.py <EP40.usdz> --out assets/stage/EP40.hmesh
+        [--atlas assets/stage/ep40_keys_sdf.htex] [--preview build/model/keys_atlas.png]
 
 Model space: Z up, metres, origin at the footprint centre, ports at +Y.
 """
@@ -22,6 +24,7 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "ep40"))
 import spec  # noqa: E402
 import usdz_to_hmesh as legacy  # noqa: E402
+from artwork import atlas as keys_atlas, svg_import  # noqa: E402
 
 
 # ------------------------------------------------------------------ frames
@@ -126,11 +129,13 @@ class Builder:
     def __init__(self):
         self.parts = {}  # name -> list of corners (p, n, colour, emissive, uv, roughness, metallic)
 
-    def add(self, name, tris, colour, roughness, metallic=0.0):
+    def add(self, name, tris, colour, roughness, metallic=0.0, uv=None):
+        """uv: optional function of a model-space point -> (u, v) (decal parts)."""
         corners = self.parts.setdefault(name, [])
         for ps, ns in tris:
             for p, n in zip(ps, ns):
-                corners.append((tuple(float(c) for c in p), tuple(float(c) for c in n), tuple(colour), 0.0, (0.0, 0.0),
+                p = tuple(float(c) for c in p)
+                corners.append((p, tuple(float(c) for c in n), tuple(colour), 0.0, uv(p) if uv else (0.0, 0.0),
                                 roughness, metallic))
 
     def add_corners(self, name, corners):
@@ -176,23 +181,6 @@ def split_body_and_legend(corners):
     return body, legend, body_colour
 
 
-def reseat(legend, body, cx, cy, top_z, top_w, top_h):
-    """Move a legend from its old cap onto the new one: same place relative to
-    the cap centre, scaled to the new top, printed on the new top face."""
-    pts = np.array([c[0] for t in body for c in t])
-    old_cx, old_cy = (pts[:, 0].min() + pts[:, 0].max()) / 2, (pts[:, 1].min() + pts[:, 1].max()) / 2
-    old_top = pts[:, 2].max()
-    old_w, old_h = pts[:, 0].max() - pts[:, 0].min(), pts[:, 1].max() - pts[:, 1].min()
-    s = min(top_w / old_w, top_h / old_h, 1.0) * 0.96
-    out = []
-    for t in legend:
-        for p, n, *rest in t:
-            # Flattened to a 0.05 mm print: the Blender legends were 0.6 mm blocks.
-            q = (cx + (p[0] - old_cx) * s, cy + (p[1] - old_cy) * s, top_z + max(p[2] - old_top, -0.0005) * 0.08)
-            out.append((q, n, *rest))
-    return out
-
-
 def carry(corners, mode, scale, y_remap=None):
     base = {"upper": UPPER, "deck": DECK}.get(mode)
     out = []
@@ -206,9 +194,41 @@ def carry(corners, mode, scale, y_remap=None):
     return out
 
 
-def build(usdz):
+def decal_tiles():
+    """Every decal part's footprint (reference mm) and include inset (artwork/atlas.py)."""
+    cell = spec.CELL.mm
+    tiles = []
+    for name, col, row in spec.FULL_KEYS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        tiles.append(keys_atlas.Tile(name, (x, y, x + cell, y + cell), (1.0, 1.0)))
+    cw, ch = spec.SHORT_CAP
+    pw, ph = spec.PLATE
+    for cap, plate, col, row in spec.FUNCTION_CELLS:
+        x, y = spec.COLUMN_LEFT[col], spec.ROW_TOP[row]
+        tiles.append(keys_atlas.Tile(cap, (x + (cell - cw) / 2, y + 0.5, x + (cell + cw) / 2, y + 0.5 + ch), (0.6, 0.6)))
+        tiles.append(keys_atlas.Tile(plate, (x + (cell - pw) / 2, y + cell - ph, x + (cell + pw) / 2, y + cell), (1.0, 0.7)))
+    sx0, sx1 = spec.SMALL_KEY_X
+    for name, (y0, y1) in spec.SMALL_KEY_Y.items():
+        tiles.append(keys_atlas.Tile(name, (sx0, y0, sx1, y1), (1.0, 1.0)))  # past the drawn key border
+    return tiles
+
+
+def build_atlas():
+    """-> (tiles by part name, atlas height, level-0 atlas, preview)."""
+    fills, _ = svg_import.load()
+    tiles = decal_tiles()
+    level0, preview = keys_atlas.build(fills, tiles)
+    return {t.name: t for t in tiles}, level0.shape[0], level0, preview
+
+
+def build(usdz, tiles, atlas_height):
     old = model_space(legacy.extract_parts(usdz))
     b = Builder()
+
+    def decal_uv(name):
+        tile = tiles[name]
+        # model metres -> reference mm (the inverse of X and Y) -> atlas UV
+        return lambda p: keys_atlas.uv(tile, atlas_height, p[0] * 1000.0 + 88.0, 120.0 - p[1] * 1000.0)
     cream, green, gap = legacy.CREAM, legacy.GREEN, legacy.GAP
 
     # Chassis: the dark-green shell, then the cream body in two steps: the
@@ -236,11 +256,11 @@ def build(usdz):
     g = spec.GAP.mm / 1000
 
     def rebuild_key(name, cx, cy, w, h, height, well=True, well_size=None):
-        body, legend, colour = split_body_and_legend(old[name])
+        body, _legend, colour = split_body_and_legend(old[name])
         roughness = min(body[0][0][5], CAP_ROUGHNESS)
         top_w, top_h = w - taper, h - taper
-        b.add(name, keycap(cx, cy, w, h, DECK, DECK + height, top_w, top_h, corner, fillet), colour, roughness)
-        b.add_corners(name, reseat(legend, body, cx, cy, DECK + height, top_w - 2 * fillet, top_h - 2 * fillet))
+        b.add(name, keycap(cx, cy, w, h, DECK, DECK + height, top_w, top_h, corner, fillet), colour, roughness,
+              uv=decal_uv(name))
         if well:
             ww, wh = well_size or (w, h)
             b.add(name + "_well", frame(cx, cy, ww, wh, g, DECK + 0.00002, corner), gap, 0.7)
@@ -255,12 +275,11 @@ def build(usdz):
         cw, ch = spec.SHORT_CAP
         rebuild_key(cap, cx, Y(top + 0.5 + ch / 2), cw / 1000, ch / 1000, key_h, well=False)
         pw, ph = spec.PLATE
-        body, legend, colour = split_body_and_legend(old[plate])
+        body, _legend, colour = split_body_and_legend(old[plate])
         pz = DECK + spec.PLATE_HEIGHT.mm / 1000
         pcy = Y(top + cell - ph / 2)
         b.add(plate, keycap(cx, pcy, pw / 1000, ph / 1000, DECK, pz, pw / 1000 - 0.0002, ph / 1000 - 0.0002,
-                            corner, 0.00015, fillet_steps=3), colour, body[0][0][5])
-        b.add_corners(plate, reseat(legend, body, cx, pcy, pz, pw / 1000 - 0.001, ph / 1000 - 0.001))
+                            corner, 0.00015, fillet_steps=3), colour, body[0][0][5], uv=decal_uv(plate))
         b.add(cap + "_well", frame(cx, cy, cell / 1000, cell / 1000, g, DECK + 0.00002, corner), gap, 0.7)
 
     sx0, sx1 = spec.SMALL_KEY_X
@@ -320,10 +339,24 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("usdz")
     ap.add_argument("--out", default="assets/stage/EP40.hmesh")
+    ap.add_argument("--atlas", default="assets/stage/ep40_keys_sdf.htex")
+    ap.add_argument("--preview", default="build/model/keys_atlas.png", help="review image of the atlas ('' for none)")
     a = ap.parse_args()
-    parts = build(a.usdz)
-    data = legacy.to_v3(parts, Path(a.usdz).name)
+    tiles, atlas_height, level0, preview = build_atlas()
+    for t in tiles.values():
+        if sum(t.ink_px.values()) == 0:
+            raise SystemExit(f"{t.name}: no legend ink inside its include rectangle")
+    parts = build(a.usdz, tiles, atlas_height)
+    data = legacy.to_v3(parts, Path(a.usdz).name, decal_parts=set(tiles))
     Path(a.out).write_bytes(data)
+    import htex_io
+    from artwork import sdf
+    Path(a.atlas).write_bytes(htex_io.write_htex(sdf.mips(level0), 3, channels=b"GOWC", flags=2))
+    print(f"wrote {a.atlas}: {level0.shape[1]} x {level0.shape[0]}, {len(tiles)} tiles")
+    if a.preview:
+        from PIL import Image
+        Path(a.preview).parent.mkdir(parents=True, exist_ok=True)
+        Image.fromarray(preview).save(a.preview)
     tris = sum(len(p[4]) for p in parts) // 3
     print(f"wrote {a.out}: {len(parts)} parts, {tris} triangles, {len(data)} bytes")
 

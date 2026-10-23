@@ -1439,3 +1439,24 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
 - Open for G2: pad 7's carried-over legend reads as "=", cap and plate legends are too small to
   read and not TE's lettering (decal atlas, M5b remainder), the VOLUME label sits partly under
   its knob.
+
+### M5b remainder: the keys' decal atlas (TE's own legends)
+
+- `tools/model/artwork/` (`svg_import`, `raster`, `inks`, `sdf`, `atlas`): TE's front drawing is
+  flattened into reference-mm polygons (fills only; strokes, outlines and the frame dropped),
+  rasterised in painter's order with each path's own fill rule at 48 px/mm, classified into the
+  four inks, and cut into one tile per decal part (20 full keys, 7 short caps, 7 plates, 3 small
+  keys). Per tile only ink inside the part's include rectangle that differs from the cap colour
+  is kept. SDF per ink (R green, G orange, B white, A charcoal), +-8 texels, compiler-built mips.
+- `assets/stage/ep40_keys_sdf.htex`: 2048 x 592 RGBA8 at 12 texels/mm (6.4 MB with mips).
+  Deviation: the plan's 2048 squared at 16 px/mm would be 22 MB embedded for no visible gain; the
+  four-tap shader keeps 0.3 mm strokes legible at `top` framing. Review image:
+  `build/model/keys_atlas.png`.
+- Caps carry planar UVs of their rest-pose XY into their tile and vertex mask bit 0;
+  `part.frag` prints the four inks (coverage from the SDF over one pixel, four sub-pixel taps,
+  roughness +0.08 under ink); `Source/Stage/DecalAtlas.{h,cpp}` uploads it raw with its mips and
+  8x anisotropy. The carried-over geometric legends are gone (81,418 -> 63,318 triangles).
+- Every pad now shows TE's chunky numerals, the conga, headstock, keys and ball, and every
+  function cap and plate its lettering (`m5b` shots). `build_ep40.py` fails if any decal tile is
+  empty; `HaloTests` checks the atlas (RGBA8 SDF, full mip chain) and ink under every pad top.
+- Measured (`m5b` hero, both looks): deck L* 85.8, gaps 9.3, PLAY 1.34 ok, RECORD 1.11 (open).

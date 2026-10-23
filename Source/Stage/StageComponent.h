@@ -3,6 +3,7 @@
 #include "App/AppModel.h"
 #include "Core/StageCamera.h"
 #include "Core/StagePose.h"
+#include "Stage/DecalAtlas.h"
 #include "Stage/DisplayRenderer.h"
 #include "Stage/Environment.h"
 #include "Stage/GlProgram.h"
@@ -156,6 +157,7 @@ namespace halo
 
         // GL-thread state
         HaloMesh mesh;
+        DecalAtlas keysAtlas; // the keys' legends (four-ink SDF)
         ShaderLibrary shaders { log };
         GlProgram partProgram, depthProgram, backgroundProgram, cardProgram;
         GlProgram resolveProgram, compositeProgram, fxaaProgram, selfTestProgram;

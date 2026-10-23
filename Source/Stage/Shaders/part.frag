@@ -10,7 +10,7 @@
 
 in vec3 vNormal; in vec3 vColour; in vec3 vEmissive; in vec2 vUV; in vec2 vMaterial;
 in vec3 vWorld; in vec3 vModel; in vec3 vModelNormal;
-flat in int vFlags; flat in int vSlot; in float vAO;
+flat in int vFlags; flat in int vSlot; flat in int vMask; in float vAO;
 
 // Material flags (Core/HmeshFormat.h).
 const int FLAG_LCD = 2;
@@ -21,6 +21,8 @@ uniform vec3 uEye;
 uniform vec3 uSlotGlow[32];   // linear emissive per slot (pad strike, active group)
 uniform sampler2D uTexture;   // LCD (sRGB image)
 uniform sampler2D uPrint;     // face silkscreen, linear premultiplied, model XY
+uniform sampler2D uKeyAtlas;  // keys' legends: SDF per ink (R green, G orange, B white, A charcoal), at vUV
+uniform int uKeyAtlasOn;
 uniform vec2 uDeviceSize;     // model width, depth (m)
 
 uniform sampler2DShadow uShadowMap;
@@ -301,6 +303,27 @@ void main()
         vec4 ink = texture (uPrint, uv);  // premultiplied
         albedo = albedo * (1.0 - ink.a) + ink.rgb;
         roughness = mix (roughness, 0.5, ink.a);
+    }
+    else if ((vMask & 1) != 0 && uKeyAtlasOn != 0 && mn.z > 0.5)
+    {
+        // Laser-printed legends: each ink's edge from its distance field,
+        // antialiased over one screen pixel, slightly rougher than the cap.
+        // Four sub-pixel taps at half the footprint, so 0.3 mm strokes stay
+        // visible (as grey, not gone) when a cap is only a few pixels across.
+        vec2 gx = dFdx (vUV) * 0.5, gy = dFdy (vUV) * 0.5;
+        vec4 fw = max (fwidth (textureGrad (uKeyAtlas, vUV, gx, gy)) * 0.5, vec4 (1e-4));
+        vec4 cover = vec4 (0.0);
+        for (int i = 0; i < 4; ++i)
+        {
+            vec2 o = (float (i & 1) - 0.5) * gx + (float (i >> 1) - 0.5) * gy;
+            cover += clamp ((textureGrad (uKeyAtlas, vUV + o, gx, gy) - 0.5) / fw + 0.5, 0.0, 1.0);
+        }
+        cover *= 0.25;
+        albedo = mix (albedo, srgbDecode (vec3 (0.957, 0.949, 0.925)), cover.b);   // white #F4F2EC
+        albedo = mix (albedo, srgbDecode (vec3 (0.169, 0.169, 0.157)), cover.a);   // charcoal #2B2B28
+        albedo = mix (albedo, srgbDecode (vec3 (1.0, 0.408, 0.114)), cover.g);     // orange #FF681D
+        albedo = mix (albedo, srgbDecode (vec3 (0.0, 0.314, 0.227)), cover.r);     // green #00503A
+        roughness = min (roughness + 0.08 * max (max (cover.r, cover.g), max (cover.b, cover.a)), 1.0);
     }
 
     // 7: unlit albedo (print included); 8: emissive only.
