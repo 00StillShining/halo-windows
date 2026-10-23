@@ -172,6 +172,11 @@ namespace halo
         int framesSinceShaderCheck = 0;
         juce::OpenGLTexture displayTexture;
         DepthTarget shadowTarget, heightTarget;
+        // The shadow and height maps depend only on the key direction and the
+        // slots' offsets (the device is static in model space, the camera is not
+        // in them), so they are re-rendered only when those change.
+        std::array<float, 3 + 3 * Hmesh::maxSlots> depthInputs {};
+        bool depthMapsValid = false;
         GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
         // Per-slot motion (slot 0 static, 1-12 pads, 13-16 groups), this frame.
         std::array<juce::Vector3D<float>, Hmesh::maxSlots> slotOffsets {}, slotPivots {};

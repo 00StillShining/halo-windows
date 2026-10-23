@@ -24,6 +24,7 @@ namespace halo
         // Counters that the renderer bumps itself (e.g. uniform lookups, draws).
         int uniformLookups = 0;
         int geometryDraws = 0;
+        int depthRenders = 0;   // shadow + height map re-renders (cached while nothing moves)
         bool tracksLookups = false; // set once uniform lookups are counted (GlProgram)
 
         // A summary line every `periodSeconds`, else an empty string.
@@ -42,7 +43,7 @@ namespace halo
 
         std::vector<double> gpuMs;
         std::map<juce::String, int> reasons;
-        int frames = 0, lookupsInWindow = 0, drawsInWindow = 0, maxDrawsPerFrame = 0;
+        int frames = 0, lookupsInWindow = 0, drawsInWindow = 0, maxDrawsPerFrame = 0, depthInWindow = 0;
         double windowStart = -1.0;
     };
 }

@@ -33,6 +33,7 @@ namespace halo
         collect();
         uniformLookups = 0;
         geometryDraws = 0;
+        depthRenders = 0;
         if (timerAvailable && ! pending[(size_t) next])
         {
             glBeginQuery (GL_TIME_ELAPSED, queries[(size_t) next]);
@@ -53,6 +54,7 @@ namespace halo
         ++reasons[reason];
         lookupsInWindow += uniformLookups;
         drawsInWindow += geometryDraws;
+        depthInWindow += depthRenders;
         maxDrawsPerFrame = std::max (maxDrawsPerFrame, geometryDraws);
     }
 
@@ -105,10 +107,11 @@ namespace halo
              << " tier=" << tier
              << " uniform_lookups_per_frame=" << (tracksLookups ? juce::String (frames > 0 ? (double) lookupsInWindow / frames : 0.0, 1) : juce::String ("untracked"))
              << " draws_per_frame_max=" << maxDrawsPerFrame
+             << " depth_renders=" << depthInWindow
              << " reasons=" << (why.isEmpty() ? juce::String ("none") : why);
 
         windowStart = now;
-        frames = lookupsInWindow = drawsInWindow = maxDrawsPerFrame = 0;
+        frames = lookupsInWindow = drawsInWindow = maxDrawsPerFrame = depthInWindow = 0;
         gpuMs.clear();
         reasons.clear();
         return line;

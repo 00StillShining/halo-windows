@@ -644,6 +644,7 @@ namespace halo
                 log.line ("map target incomplete (" + juce::String (width) + "x" + juce::String (height) + ")");
             glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) previous);
         };
+        depthMapsValid = false;
         makeTarget (shadowTarget, shadowMapSize, shadowMapSize, true);
         makeTarget (heightTarget, 1024, juce::roundToInt (1024.0f * heightHalfY / heightHalfX), false);
 
@@ -1114,10 +1115,24 @@ namespace halo
         const auto lightViewProj = keyLightViewProj (keyDirection);
         animatePads (state, dt);
         glDisable (GL_BLEND);
-        drawDepth (shadowTarget, lightViewProj, true);
-        drawDepth (heightTarget, heightProjection (groundZ), false);
-        glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
-        glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
+        std::array<float, 3 + 3 * Hmesh::maxSlots> inputs {};
+        inputs[0] = keyDirection.x; inputs[1] = keyDirection.y; inputs[2] = keyDirection.z;
+        for (size_t i = 0; i < slotOffsets.size(); ++i)
+        {
+            inputs[3 + 3 * i] = slotOffsets[i].x;
+            inputs[4 + 3 * i] = slotOffsets[i].y;
+            inputs[5 + 3 * i] = slotOffsets[i].z;
+        }
+        if (! depthMapsValid || inputs != depthInputs)
+        {
+            drawDepth (shadowTarget, lightViewProj, true);
+            drawDepth (heightTarget, heightProjection (groundZ), false);
+            glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
+            glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
+            depthInputs = inputs;
+            depthMapsValid = true;
+            ++stats.depthRenders;
+        }
         glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer); // the passes below output here
 
         const auto frame = targets.prepare (w, h, nowSeconds, log);
