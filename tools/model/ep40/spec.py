@@ -80,21 +80,28 @@ LABEL_PLATE = (0.0, 8.57, 119.55, 56.50)          # the #EEEFEA label plate
 SPEAKER = (119.55, 8.57, 175.50, 56.50)           # the speaker's cream slatted panel
 MIC = (131.6, 52.4, 1.6)                          # svg-path: the mic hole, centre and radius
 WINDOW = (0.0, 56.50, 176.0, 104.0)               # the screen acrylic, edge to edge, to the step
-PORT_TABS = {                                     # coloured inserts on the port strip
-    "port_output_tab": (7.85, 0.53, 23.80, 8.57),
-    "port_input_tab": (39.77, 0.53, 55.78, 8.57),
-    "port_sync_tab": (63.70, 0.53, 83.68, 8.57),  # one green insert, SYNC and MIDI halves
-    "port_midi_tab": (83.68, 0.53, 103.65, 8.57),
-    "port_usb_tab": (127.60, 0.53, 143.60, 8.57),
+# Coloured inserts on the port strip. They run to the port edge (the drawing's
+# 0.53 mm is its outline stroke) and, but for USB, wrap down the port wall.
+PORT_TABS = {
+    "port_output_tab": (7.85, 0.0, 23.80, 8.57),
+    "port_input_tab": (39.77, 0.0, 55.78, 8.57),
+    "port_sync_tab": (63.70, 0.0, 83.68, 8.57),   # one green insert, SYNC and MIDI halves
+    "port_midi_tab": (83.68, 0.0, 103.65, 8.57),
+    "port_usb_tab": (127.60, 0.0, 143.60, 8.57),
 }
+WRAPPED_TABS = ("port_output_tab", "port_input_tab", "port_sync_tab", "port_midi_tab")
 POWER_SLIDER = (153.6, -4.8, 161.5, 0.9)          # svg-path: the orange slider, past the port edge
-# The port wall (y = 0), x and z in reference mm. Positions as the old asset had
-# them ("carried": its Blender sockets), pending the top-edge drawing (6903449b...).
-JACKS = {"port_output_socket": 16.4, "port_input_socket": 43.1, "port_sync_socket": 67.2, "port_midi_socket": 90.6}
-JACK_Z, JACK_RADIUS = 8.5, 3.2                    # carried: 6.4 mm openings
-USB = (125.65, 9.0, 9.0, 3.4)                     # carried centre; USB-C opening 9.0 x 3.4 (estimate)
-POWER_RECESS = (151.0, 6.75, 164.0, 11.25)        # carried: the slider's slot
-PORT_STRIP = (7.0, 6.0, 169.0, 12.0)              # carried: the strip round the openings
+# The port wall (y = 0), x and z in reference mm, from TE's top-edge drawing
+# (6903449b..., "TOP SIDE": 0.2380 mm per unit, seen from behind, so x is
+# mirrored: x = 176 - (u - 75.8) x 0.238; z = (217.4 - v) x 0.238).
+JACKS = {"port_output_socket": (16.0,), "port_input_socket": (48.0,),      # svg-path: 3.5 mm jacks,
+         "port_sync_socket": (72.0, 80.0), "port_midi_socket": (88.0, 96.0)}  # SYNC and MIDI in / out
+JACK_Z = 7.38                                     # svg-path
+JACK_COLLAR, JACK_HOLE = 3.07, 1.80               # svg-path: collar and hole radii
+USB = (136.0, 6.83, 8.9, 3.2)                     # svg-path centre; USB-C opening 8.9 x 3.2 (standard)
+POWER_RECESS = (155.0, 5.4, 165.0, 10.5)          # svg-path: the slider's slot
+POWER_KNOB = (156.1, 5.8, 160.3, 10.0)            # svg-path: the slider, standing 3.8 mm out of the wall
+PORT_STRIP = (0.6, 3.4, 175.4, 15.4)              # the port face between shell and top edge
 INSERT_PROUD = Value(0.15, "plan")                # label plate and port inserts stand proud
 LCD_Z = Value(14.4, "plan")                       # D5: the icon plane
 GLASS_Z = (15.0, 16.0)                            # D5: the acrylic's underside and top (plan)

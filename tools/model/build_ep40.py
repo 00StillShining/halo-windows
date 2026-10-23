@@ -446,18 +446,30 @@ def build(usdz, tiles, atlas_height):
     # The port wall: the openings read as dark holes on the wall, not cylinders
     # standing off it; the power slider's orange tab stands out of its slot.
     sx0, sz0, sx1, sz1 = spec.PORT_STRIP
-    b.add("ports_strip", wall_shape([(sx0, sz0), (sx1, sz0), (sx1, sz1), (sx0, sz1)], 0.05), cream, 0.62)
-    for name, x in spec.JACKS.items():
-        ring = [(x + spec.JACK_RADIUS * math.cos(a), spec.JACK_Z + spec.JACK_RADIUS * math.sin(a))
-                for a in np.linspace(0, 2 * math.pi, 40, endpoint=False)]
-        b.add(name, wall_shape(ring, 0.1), gap, 0.7)
+    b.add("ports_strip", wall_shape([(sx0, sz0), (sx1, sz0), (sx1, sz1), (sx0, sz1)], 0.03), cream, 0.62)
+    # The inserts wrap down the wall (top-edge drawing), from the shell to the top.
+    for name in spec.WRAPPED_TABS:
+        tx0, _, tx1, _ = spec.PORT_TABS[name]
+        b.add(name, slab(X(tx0), X(tx1), Y(0.0) - 0.0002, Y(0.0) + spec.INSERT_PROUD.mm / 1000,
+                         Z(spec.SHELL_TOP.mm), Z(UPPER_TOP_MM + spec.INSERT_PROUD.mm), 0.0002, 0.0001, 0.0),
+              tab_colours[name], 0.45)
+    collar = {"port_output_socket": tab_colours["port_output_tab"], "port_input_socket": tab_colours["port_input_tab"],
+              "port_sync_socket": tab_colours["port_sync_tab"], "port_midi_socket": tab_colours["port_midi_tab"]}
+    wall = spec.INSERT_PROUD.mm
+
+    def disc_xz(x, z, r, n=40):
+        return [(x + r * math.cos(a), z + r * math.sin(a)) for a in np.linspace(0, 2 * math.pi, n, endpoint=False)]
+    for name, xs in spec.JACKS.items():
+        for x in xs:
+            b.add(name, wall_shape(disc_xz(x, spec.JACK_Z, spec.JACK_COLLAR), wall + 0.05), collar[name], 0.4)
+            b.add(name, wall_shape(disc_xz(x, spec.JACK_Z, spec.JACK_HOLE, 24), wall + 0.1), gap, 0.8)
     ux, uz, uw, uh = spec.USB
-    b.add("ports_usb", wall_shape(stadium_xz(ux, uz, uw, uh), 0.1), gap, 0.7)
+    b.add("ports_usb", wall_shape(stadium_xz(ux, uz, uw, uh), 0.1), gap, 0.8)
     px0, pz0, px1, pz1 = spec.POWER_RECESS
-    b.add("port_power_switch", wall_shape(stadium_xz((px0 + px1) / 2, (pz0 + pz1) / 2, px1 - px0, pz1 - pz0), 0.1), gap, 0.7)
-    tx0, ty0, tx1, _ = spec.POWER_SLIDER
-    tz = (pz0 + pz1) / 2
-    b.add("port_power_switch", slab(X(tx0), X(tx1), Y(0.0), Y(ty0), Z(tz - 1.6), Z(tz + 1.6), 0.0006, 0.0003, 0.0003),
+    b.add("port_power_switch", wall_shape(stadium_xz((px0 + px1) / 2, (pz0 + pz1) / 2, px1 - px0, pz1 - pz0), 0.1), gap, 0.8)
+    kx0, kz0, kx1, kz1 = spec.POWER_KNOB
+    out = spec.POWER_SLIDER[1] + 1.0   # the front drawing's tab, less its 1 mm outline stroke
+    b.add("port_power_switch", slab(X(kx0), X(kx1), Y(0.0), Y(out), Z(kz0), Z(kz1), 0.0006, 0.0003, 0.0003),
           legacy.ORANGE, 0.45)
 
     # Everything else is carried over, row by row.
