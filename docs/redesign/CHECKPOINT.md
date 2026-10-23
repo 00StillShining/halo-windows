@@ -1,3 +1,35 @@
+# Redesign checkpoint: 23 October 2026
+
+**Status:** every page is rebuilt in the OP-1 x OP-XY language (R0 to R13 plus a polish pass). The 3D Riddim stage is merged into `redesign/te-hardware` at `d81b485`. It has:
+- true proportions;
+- TE's own artwork;
+- the D5 screen;
+- the port wall, speaker and fader;
+- cached shadow maps.
+
+All tests pass: HaloTests 168, plus HaloUiTests and the write-site lint. Nothing is pushed.
+
+## Owner decisions recorded
+- No mock marking anywhere in the UI (`plan.md` section 0.3).
+- The RECORD highlight gate is waived because it matches TE's photo (riddim plan, Appendix B).
+- Smart App Control was turned off by the owner, so branch builds can run.
+
+## What is left
+- **Owner device checks with the real EP-40** (gate U4), on the branch build `build\Redesign\Halo_artefacts\Debug\Halo.exe`:
+  - sync;
+  - assign: armed, then the confirm card;
+  - delete card;
+  - EDIT send and SEND TO PADS: progress and AUTO-TRIM;
+  - a backup: cancel one, complete one;
+  - output menu;
+  - recording a take.
+- **3D:** the side-wall battery icon; M8 (baked AO, grain, floor reflection); M9 (live LCD, bloom); M10 (motion); M11 (tiers and hardening).
+- **Then:** merge `redesign/te-hardware` into `main` once the device checks pass.
+
+---
+
+## Earlier checkpoint (19 October 2026)
+
 # Redesign checkpoint: 19 October 2026 (end of day)
 
 Paused at the owner's request. Everything is committed locally; nothing is pushed.
