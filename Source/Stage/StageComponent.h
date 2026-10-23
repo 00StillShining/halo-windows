@@ -33,7 +33,8 @@ namespace halo
     // bursty the MIDI is.
     class StageComponent : public juce::Component,
                            private juce::OpenGLRenderer,
-                           private AppModel::Listener
+                           private AppModel::Listener,
+                           private juce::Timer
     {
     public:
         explicit StageComponent (AppModel&);
@@ -43,6 +44,7 @@ namespace halo
         void mouseDrag (const juce::MouseEvent&) override;
         void mouseDoubleClick (const juce::MouseEvent&) override;
         void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+        void resized() override;
 
         // The stage's surroundings (backdrop, floor, shadow, ring pool). Copied
         // under the lock; the GL thread picks it up on its next frame.
@@ -79,6 +81,17 @@ namespace halo
         void newOpenGLContextCreated() override;
         void renderOpenGL() override;
         void openGLContextClosing() override;
+
+        // On-demand repaint (D13, M10): every change asks for frames through
+        // this funnel, with its reason; the GL thread keeps drawing only while
+        // something moves (a pad settling, a glow fading, a recording pulse)
+        // or for 0.6 s after a request. Idle costs no frames.
+        void requestFrame (const char* reason);
+        void timerCallback() override; // message thread: notices camera moves (drag, wheel, ORBIT API)
+        bool onDemand = true;          // HALO_STAGE_CONTINUOUS=1 turns it off
+        std::atomic<double> wakeUntil { 0.0 };
+        std::atomic<const char*> frameReason { "startup" };
+        std::array<float, 4> lastCamera {};
 
         // AppModel::Listener (message thread)
         void statusChanged() override;
@@ -134,6 +147,7 @@ namespace halo
         };
 
         void animatePads (const SharedState&, float dt);
+        bool stillMoving (const SharedState&) const; // GL thread: on-demand repaint
         void renderFrame (const SharedState&, double nowSeconds, float dt, int width, int height, bool ready);
         void renderHigh (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);
         void renderLow (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);

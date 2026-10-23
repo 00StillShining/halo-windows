@@ -112,7 +112,9 @@ namespace halo
         context.setOpenGLVersionRequired (juce::OpenGLContext::openGL3_2);
         context.setRenderer (this);
         context.setComponentPaintingEnabled (false);
-        context.setContinuousRepainting (true);
+        // Frames only on demand (D13); HALO_STAGE_CONTINUOUS=1 restores the old loop.
+        onDemand = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_CONTINUOUS", {}) != "1";
+        context.setContinuousRepainting (! onDemand);
 
         // Dev hooks for repeatable screenshots (riddim-3d-plan.md, section 8).
         // HALO_STAGE_CAMERA=yaw,pitch,zoom; HALO_STAGE_PRESET=hero|top|low|keys|edge;
@@ -219,13 +221,55 @@ namespace halo
 
         // Last, so the GL thread never sees a half-configured stage.
         context.attachTo (*this);
+        if (onDemand)
+            startTimerHz (30);
     }
 
     void StageComponent::setLook (const StageLook& newLook)
     {
-        const juce::SpinLock::ScopedLockType sl (lock);
-        shared.look = newLook;
-        shared.lookDirty = true;
+        {
+            const juce::SpinLock::ScopedLockType sl (lock);
+            shared.look = newLook;
+            shared.lookDirty = true;
+        }
+        requestFrame ("look");
+    }
+
+    void StageComponent::requestFrame (const char* reason)
+    {
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        double until = wakeUntil.load();
+        while (until < now + 0.6 && ! wakeUntil.compare_exchange_weak (until, now + 0.6)) {}
+        frameReason = reason;
+        context.triggerRepaint();
+    }
+
+    void StageComponent::timerCallback()
+    {
+        const std::array<float, 4> camera { yawDegrees.load(), pitchDegrees.load(), zoom.load(),
+                                            orthoView.load() ? 1.0f : 0.0f };
+        if (camera != lastCamera)
+        {
+            lastCamera = camera;
+            requestFrame ("camera");
+        }
+    }
+
+    void StageComponent::resized()
+    {
+        requestFrame ("resize");
+    }
+
+    // GL thread: whether the scene is still changing on its own.
+    bool StageComponent::stillMoving (const SharedState& state) const
+    {
+        for (size_t i = 0; i < padAnim.size(); ++i)
+        {
+            const float target = state.pads[i].held ? keyTravel : 0.0f;
+            if (! padAnim[i].spring.settled (target) || padAnim[i].glow > 0.003f)
+                return true;
+        }
+        return state.ring.kind == RingState::Kind::recording; // the ring's own pulse
     }
 
     // A pose replaces every live or mock input with a fixed state. The
@@ -250,6 +294,7 @@ namespace halo
 
     StageComponent::~StageComponent()
     {
+        stopTimer();
         model.removeListener (this);
         context.detach();
     }
@@ -259,6 +304,7 @@ namespace halo
     {
         if (pose)
             return;
+        requestFrame ("status");
         const juce::SpinLock::ScopedLockType sl (lock);
         shared.ring = model.ring();
     }
@@ -267,6 +313,7 @@ namespace halo
     {
         if (pose)
             return;
+        requestFrame ("display");
         auto image = displayRenderer.render (state);
         const juce::SpinLock::ScopedLockType sl (lock);
         shared.displayImage = std::move (image);
@@ -295,6 +342,7 @@ namespace halo
             case PadHoldRegistry::Kind::sustain:
                 break;
         }
+        requestFrame ("pad");
     }
 
     void StageComponent::allPadsReleased()
@@ -304,6 +352,7 @@ namespace halo
         const juce::SpinLock::ScopedLockType sl (lock);
         for (auto& pad : shared.pads)
             pad.held = false;
+        requestFrame ("pad");
     }
 
     //==============================================================================
@@ -854,7 +903,7 @@ namespace halo
         std::array<juce::Vector3D<float>, Hmesh::maxSlots> glow {};
         for (size_t i = 0; i < 12; ++i)
             glow[1 + i] = orange * (padAnim[i].glow * glowHdr);
-        juce::ignoreUnused (green);
+        juce::ignoreUnused (green, state);
         static const auto glowNames = []
         {
             std::array<std::string, Hmesh::maxSlots> names;
@@ -951,7 +1000,16 @@ namespace halo
 
         stats.beginFrame();
         renderFrame (state, nowSeconds, dt, w, h, ready);
-        stats.endFrame ("continuous");
+        stats.endFrame (onDemand ? frameReason.load() : "continuous");
+        // On demand: keep drawing while the scene moves, while the stage has
+        // not yet settled at this size (HALO_STAGE_READY), or briefly after a
+        // request; otherwise stop until the next change asks.
+        if (onDemand && (! readyLogged || nowSeconds < wakeUntil.load() || stillMoving (state)))
+        {
+            if (stillMoving (state))
+                frameReason = "motion";
+            context.triggerRepaint();
+        }
 
        #if JUCE_DEBUG
         // HALO_STAGE_READBACK=<file.png>: the stage's own pixels, read straight
