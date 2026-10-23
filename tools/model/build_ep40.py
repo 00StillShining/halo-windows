@@ -338,6 +338,12 @@ def decal_tiles():
 def build_face(fills):
     """The deck silkscreen: everything inked on the deck that is not a key, plate,
     small key or knob (those parts carry their own artwork)."""
+    rects, discs = face_exclusions()
+    return face_atlas.build(fills, FACE_REGION, rects, discs)
+
+
+def face_exclusions():
+    """Where the face texture prints nothing: the parts' own areas."""
     cell, m = spec.CELL.mm, 0.3
     rects = []
     for _, col, row in spec.FULL_KEYS:
@@ -359,7 +365,70 @@ def build_face(fills):
     rects.append((px0 - 0.5, py0, px1 + 0.5, py1 + 0.5))
     rects.append(FADER_SLOT)
     discs = [(x, y, spec.KNOB_DISC[0] / 2 + m) for x, y in spec.KNOBS.values()]
-    return face_atlas.build(fills, FACE_REGION, rects, discs)
+    return rects, discs
+
+
+def check_artwork(fills, tiles, out_png, px_per_mm=6):
+    """--check (plan section 4.5): every inked pixel of TE's front drawing must be
+    a decal (inside a tile's include rectangle, or printed by the face texture),
+    or lie on a part that carries that colour itself (a cap, knob, insert, the
+    screen, the speaker). Anything else is unassigned. The overlay shows decal
+    ink green, part colour blue, unassigned red, over the drawing in grey."""
+    from artwork import inks, raster
+    from PIL import Image
+    region = (0.0, -5.0, spec.WIDTH.mm, spec.DEPTH.mm)
+    lab = raster.label_image(fills, region, px_per_mm, inks.classify)
+    h, w = lab.shape
+    ys = region[1] + (np.arange(h) + 0.5) / px_per_mm
+    xs = region[0] + (np.arange(w) + 0.5) / px_per_mm
+    yy, xx = np.meshgrid(ys, xs, indexing="ij")
+
+    def in_rects(rects):
+        m = np.zeros((h, w), bool)
+        for x0, y0, x1, y1 in rects:
+            m |= (xx >= x0) & (xx <= x1) & (yy >= y0) & (yy <= y1)
+        return m
+
+    ink = np.isin(lab, [inks.GREEN, inks.ORANGE, inks.WHITE, inks.CHARCOAL])
+    decal = np.zeros((h, w), bool)
+    for t in tiles.values():   # a tile prints every ink but its cap's own colour
+        inside = in_rects([(t.rect[0] + t.inset[0], t.rect[1] + t.inset[1], t.rect[2] - t.inset[0], t.rect[3] - t.inset[1])])
+        decal |= inside & ink & (lab != t.base)
+    rects, discs = face_exclusions()
+    face_keep = in_rects([FACE_REGION]) & ~in_rects(rects)
+    for cx, cy, r in discs:
+        face_keep &= (xx - cx) ** 2 + (yy - cy) ** 2 > r * r
+    decal |= face_keep & np.isin(lab, [inks.GREEN, inks.ORANGE])   # the face texture's two inks
+    # Parts that carry their own colour: caps and plates (whole cells), small keys,
+    # knobs, port inserts, the slider, the fader slot, the screen and the speaker.
+    cell = spec.CELL.mm
+    parts = [(spec.COLUMN_LEFT[c] - 0.5, spec.ROW_TOP[r] - 0.5, spec.COLUMN_LEFT[c] + cell + 0.5, spec.ROW_TOP[r] + cell + 0.5)
+             for _, c, r in spec.FULL_KEYS] + \
+            [(spec.COLUMN_LEFT[c] - 0.5, spec.ROW_TOP[r] - 0.5, spec.COLUMN_LEFT[c] + cell + 0.5, spec.ROW_TOP[r] + cell + 0.5)
+             for _, _, c, r in spec.FUNCTION_CELLS]
+    sx0, sx1 = spec.SMALL_KEY_X
+    parts += [(sx0 - 1.0, y0 - 1.0, sx1 + 1.0, y1 + 1.0) for y0, y1 in spec.SMALL_KEY_Y.values()]
+    parts += [(x0 - 0.6, y0 - 0.6, x1 + 0.6, y1 + 0.6) for x0, y0, x1, y1 in spec.PORT_TABS.values()]
+    px0, py0, px1, py1 = spec.POWER_SLIDER
+    wx0, wy0, wx1, wy1 = spec.WINDOW
+    parts += [(px0 - 1.0, py0 - 1.0, px1 + 1.0, py1 + 1.0), FADER_SLOT, (wx0, wy0, wx1, wy1 + 0.6), spec.SPEAKER,
+              (LABEL_PLATE[0], LABEL_PLATE[1] - 0.6, LABEL_PLATE[2] + 0.3, LABEL_PLATE[3])]
+    on_part = in_rects(parts)
+    for (x, y), d in zip(spec.KNOBS.values(), [spec.KNOB_DISC[0]] * 3):
+        on_part |= (xx - x) ** 2 + (yy - y) ** 2 <= (d / 2 + 0.6) ** 2
+    for x, y in spec.LEDS:
+        on_part |= (xx - x) ** 2 + (yy - y) ** 2 <= (spec.LED_DIAMETER / 2 + 0.6) ** 2
+    body = ink & ~decal & on_part
+    unassigned = ink & ~decal & ~on_part
+    img = np.full((h, w, 3), 235, np.uint8)
+    img[lab != inks.NONE] = (200, 200, 200)
+    img[decal] = (0, 150, 60)
+    img[body] = (60, 110, 220)
+    img[unassigned] = (230, 30, 30)
+    Path(out_png).parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(img).save(out_png)
+    empty = [t.name for t in tiles.values() if sum(t.ink_px.values()) == 0]
+    return int(unassigned.sum()) / px_per_mm ** 2, empty
 
 
 def build_atlas():
@@ -608,6 +677,8 @@ def main():
     ap.add_argument("--out", default="assets/stage/EP40.hmesh")
     ap.add_argument("--atlas", default="assets/stage/ep40_keys_sdf.htex")
     ap.add_argument("--face", default="assets/stage/ep40_face_sdf.htex")
+    ap.add_argument("--check", action="store_true",
+                    help="fail on drawing ink assigned to no decal and no part; overlay at build/model/check_overlay.png")
     ap.add_argument("--preview", default="build/model/keys_atlas.png", help="review image of the atlas ('' for none)")
     a = ap.parse_args()
     tiles, atlas_height, level0, preview, fills = build_atlas()
@@ -621,6 +692,11 @@ def main():
     from artwork import sdf
     Path(a.atlas).write_bytes(htex_io.write_htex(sdf.mips(level0), 3, channels=b"GOWC", flags=2))
     print(f"wrote {a.atlas}: {level0.shape[1]} x {level0.shape[0]}, {len(tiles)} tiles")
+    if a.check:
+        area, empty = check_artwork(fills, tiles, "build/model/check_overlay.png")
+        print(f"check: {area:.2f} mm2 of ink assigned to nothing; empty legends: {empty or 'none'}")
+        if area > 1.0 or empty:
+            raise SystemExit("check failed (see build/model/check_overlay.png)")
     face0, face_preview, face_ink = build_face(fills)
     if min(face_ink) == 0:
         raise SystemExit("deck silkscreen: an ink is empty")
