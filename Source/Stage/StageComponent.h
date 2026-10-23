@@ -46,6 +46,32 @@ namespace halo
         // under the lock; the GL thread picks it up on its next frame.
         void setLook (const StageLook&);
 
+        // ---- UI redesign camera API (plan R5: the ORBIT encoder). Additive and
+        // owned by the UI work; the stage's own drag / wheel handling is unchanged.
+        static constexpr float orbitMinYaw = -60.0f, orbitMaxYaw = 110.0f;
+        float orbitYaw() const noexcept { return yawDegrees.load(); }
+        float orbitPitch() const noexcept { return pitchDegrees.load(); }
+        void setOrbit (float yaw, float pitch)
+        {
+            yawDegrees = juce::jlimit (orbitMinYaw, orbitMaxYaw, yaw);
+            pitchDegrees = juce::jlimit (StageCamera::minPitch, StageCamera::maxPitch, pitch);
+            orthoView = false;
+            if (onCameraChanged) onCameraChanged();
+        }
+        void resetOrbit()
+        {
+            yawDegrees = heroYaw;
+            pitchDegrees = heroPitch;
+            zoom = 1.0f;
+            orthoView = false;
+            presetOffsetActive = false;
+            if (onCameraChanged) onCameraChanged();
+        }
+        float heroOrbitYaw() const noexcept { return heroYaw; }
+        float heroOrbitPitch() const noexcept { return heroPitch; }
+        std::function<void()> onCameraChanged; // message thread: a drag, a reset or setOrbit moved the view
+        // ---- end of the UI redesign camera API
+
     private:
         // OpenGLRenderer (GL thread)
         void newOpenGLContextCreated() override;

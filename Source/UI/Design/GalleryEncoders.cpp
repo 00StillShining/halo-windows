@@ -18,11 +18,11 @@ namespace halo
 
         void band (juce::Graphics& g, juce::Rectangle<float> r)
         {
-            paint::hazard (g, r.removeFromLeft (36.0f), 10.0f);
-            g.setColour (theme().honest.mock);
+            g.setColour (theme().scr.panel);
             g.fillRect (r);
-            paint::text (g, "FIXTURE" + dot + "GALLERY DATA, NOT DEVICE STATE", r.reduced (12.0f, 0.0f),
-                         HaloFonts::font (Role::tag), juce::Colour (0xff000005));
+            paint::hairlineH (g, r.getX(), r.getRight(), r.getBottom() - 1.0f, theme().scr.frame);
+            paint::text (g, "FIXTURE" + dot + "GALLERY DATA, NOT DEVICE STATE", r.reduced (24.0f, 0.0f),
+                         HaloFonts::font (Role::tag), theme().scr.ink);
         }
 
         void title (juce::Graphics& g, float x, float y, float w, const juce::String& s)

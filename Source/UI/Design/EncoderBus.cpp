@@ -111,6 +111,13 @@ namespace halo
         if (gesture.event (nowSeconds()) && b->beginGesture)
             b->beginGesture();
 
+        if (b->turn != nullptr)
+        {
+            b->turn (detents, speed);
+            touch (index);
+            changed();
+            return;
+        }
         const double norm = b->getNorm ? b->getNorm() : 0.0;
         double next = norm;
         if (b->steps > 0)

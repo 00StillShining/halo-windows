@@ -40,21 +40,31 @@ namespace halo
               [this] { const auto b = model.latestBackup(); return b ? Ep40Backup::describe (*b) : juce::String(); },
               [this] { model.backup().forceRescan(); },
               [this] (bool hide) { cardOpen = hide; updateMode(); },
-              deviceWrites.get() }),
-          rail (m, writeGate)
+              deviceWrites.get() })
     {
         setOpaque (true);
         setLookAndFeel (&lookAndFeel);
         // Desktop windows (popup menus, alert windows, tooltips) get it too.
         juce::LookAndFeel::setDefaultLookAndFeel (&lookAndFeel);
 
-        for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &stageFrame, &rail, &plate, &deck, &lane, &softKeys })
+        for (auto* c : std::initializer_list<juce::Component*> { &statusStrip, &playPage, &plate, &deck, &lane, &softKeys })
             addAndMakeVisible (c);
+        for (auto* p : std::initializer_list<juce::Component*> { &rackPanel, &libraryPanel, &editPanel, &loadPanel, &backupsPanel })
+            addChildComponent (p);
+        lane.setContent ([this] (juce::Graphics& g, juce::Rectangle<float> r)
+        {
+            if (model.mode() == AppMode::play)
+                playPage.paintLane (g, r, frame.density != layout::Density::regular);
+            else if (model.mode() == AppMode::chop)
+                chopPage.paintLane (g, r, frame.density != layout::Density::regular);
+        });
+        playPage.onLaneChanged = [this] { lane.repaint(); };
+        // One camera, one readout: drags on the stage move the ORBIT cell too.
+        stage.onCameraChanged = [this] { for (auto* cell : cells) cell->repaint(); };
         for (int i = 0; i < 4; ++i)
             addAndMakeVisible (cells.add (new ParamCell (bus, i)));
         deck.onHint = [this] (const juce::String& h) { deckHint = h; updateHint(); };
-        addChildComponent (chopSurface);
-        rail.onPreferredWidthChanged = [this] { layoutBody(); };
+        addChildComponent (chopPage);
         model.addListener (this);
         setWantsKeyboardFocus (true);
        #if HALO_HAS_STAGE_LOOK
@@ -74,7 +84,7 @@ namespace halo
         // Debug-only capture hooks, so UI states can be screenshotted without
         // clicking: HALO_RAIL=open|closed, HALO_MODE=1...7 (Ctrl+n order).
         const auto railHook = juce::SystemStats::getEnvironmentVariable ("HALO_RAIL", {});
-        rail.setExpanded (railHook != "closed");
+        playPage.setRailOpen (railHook != "closed");
         if (const auto mode = keymap::modeForCtrlDigit (juce::SystemStats::getEnvironmentVariable ("HALO_MODE", "1").getIntValue()))
             model.setMode (*mode);
         // HALO_UI_POSE=card:n,shift:1 pins the popup card or the shift layer for shots.
@@ -82,8 +92,6 @@ namespace halo
             bus.pinCard (card - 1);
         if (DevPose::get ("shift") == 1)
             bus.pinShift (true);
-       #else
-        rail.setExpanded (true);
        #endif
         updateMode();
         startTimer (500); // cells and pills follow cached model state at 2 Hz
@@ -111,15 +119,16 @@ namespace halo
         // U12: the stage renders only in PLAY (hidden, its GL context detaches),
         // and hides under a confirm card (H6: nothing JUCE paints sits over it).
         stage.setVisible (play && ! cardOpen);
-        stageFrame.setVisible (play);
-        chopSurface.setVisible (chop);
-        rail.setVisible (! chop);
+        playPage.setVisible (play);
+        chopPage.setVisible (chop);
+        for (auto m : { AppMode::rack, AppMode::capture, AppMode::edit, AppMode::load, AppMode::backups })
+            legacyPanel (m)->setVisible (m == mode);
         plate.setVisible (! play && ! chop);
         plate.setMode (mode);
         statusStrip.setMonitorOwnedByEncoder (play);
         updateBindings();
-        if (chop && ! chopSurface.hasKeyboardFocus (true) && ! cardOpen)
-            chopSurface.grabKeyboardFocus();
+        if (chop && ! chopPage.hasKeyboardFocus (true) && ! cardOpen)
+            chopPage.grabKeyboardFocus();
         if (mode != shownMode)
         {
             shownMode = mode;
@@ -137,7 +146,9 @@ namespace halo
         // Pages not rebuilt yet show dead cells until they land (honest: their
         // controls are the docked panel's, unchanged).
         if (mode == AppMode::play)
-            bus.setBindings (playBindings (model));
+            bus.setBindings (playBindings (model, stage));
+        else if (mode == AppMode::chop)
+            bus.setBindings (chopPage.bindings());
         else
             bus.setBindings ({});
         updateHint();
@@ -150,6 +161,8 @@ namespace halo
             hint = deckHint;
         else if (model.mode() == AppMode::play)
             hint = "drag: orbit" + dot + "wheel on stage: zoom" + dot + "double-click: reset";
+        else if (model.mode() == AppMode::chop)
+            hint = "shift + slice: nudge its cut" + dot + "shift + sensitivity press: clear cuts";
         else
             hint = "encoders arrive with this page" + dot + "use the panel on the right";
         softKeys.setHint (hint);
@@ -163,35 +176,58 @@ namespace halo
         lane.repaint();
     }
 
+    juce::Component* MainComponent::legacyPanel (AppMode m) noexcept
+    {
+        switch (m)
+        {
+            case AppMode::rack:    return &rackPanel;
+            case AppMode::capture: return &libraryPanel;
+            case AppMode::edit:    return &editPanel;
+            case AppMode::load:    return &loadPanel;
+            case AppMode::backups: return &backupsPanel;
+            case AppMode::play:
+            case AppMode::chop:
+            default:               return nullptr;
+        }
+    }
+
     void MainComponent::layoutBody()
     {
         const auto body = toInt (frame.body);
         const auto mode = model.mode();
+        dock = {};
         if (keymap::showsChop (mode))
         {
-            chopSurface.setBounds (body);
+            chopPage.setBounds (body);
+            chopPage.setFrame (frame);
             return;
         }
-        // Today's panels keep their rail width, docked at the right of the body.
-        auto rest = body;
-        const int railW = juce::jmin (rail.preferredWidth (getWidth()), body.getWidth() - 320);
-        rail.setBounds (rest.removeFromRight (railW));
-        rest.removeFromRight (8);
         if (keymap::showsStage (mode))
-            stageFrame.setBounds (rest);
-        else
-            plate.setBounds (rest);
-       #if JUCE_DEBUG
-        // H6: no JUCE child may overlap the GL child window.
-        if (stage.isVisible())
         {
-            const auto gl = stageFrame.getBoundsInParent().getPosition() + stageFrame.stageBounds().getPosition();
-            const auto glRect = stageFrame.stageBounds().withPosition (gl);
-            for (auto* c : getChildren())
-                if (c != &stageFrame && c->isVisible() && c != &tooltips)
-                    jassert (! c->getBounds().intersects (glRect));
+            playPage.setBounds (body);
+            playPage.setFrame (frame);
+           #if JUCE_DEBUG
+            // H6: no JUCE child may overlap the GL child window.
+            if (stage.isVisible())
+            {
+                const auto glRect = stage.getBounds() + playPage.stageFrame().getPosition() + playPage.getPosition();
+                for (auto* c : getChildren())
+                    if (c != &playPage && c->isVisible() && c != &tooltips)
+                        jassert (! c->getBounds().intersects (glRect));
+            }
+           #endif
+            return;
         }
-       #endif
+        // Today's panels keep their width (37% of the window, 520-640; RACK
+        // 420), docked at the right of the body beside the honest plate.
+        auto rest = body;
+        const int width = mode == AppMode::rack ? 420 : juce::jlimit (520, 640, (int) ((float) getWidth() * 0.37f));
+        dock = rest.removeFromRight (juce::jmin (width, body.getWidth() - 320));
+        if (auto* panel = legacyPanel (mode))
+            panel->setBounds (dock.withTrimmedLeft (1));
+        rest.removeFromRight (8);
+        plate.setBounds (rest);
+        repaint (dock);
     }
 
     void MainComponent::resized()
@@ -234,6 +270,13 @@ namespace halo
         g.fillRoundedRectangle (glass.expanded (1.0f), 13.0f);
         g.setColour (t.scr.bg);
         g.fillRoundedRectangle (glass, 12.0f);
+        // The legacy dock's own ground (the old rail drew it).
+        if (! dock.isEmpty())
+        {
+            g.setColour (legacyColours().paperHigh);
+            g.fillRect (dock);
+            paint::hairlineV (g, (float) dock.getX(), (float) dock.getY(), (float) dock.getBottom(), t.scr.rule);
+        }
     }
 
     void MainComponent::LegacyPlate::paint (juce::Graphics& g)
@@ -281,10 +324,15 @@ namespace halo
             return true;
         if (key.isKeyCode (juce::KeyPress::escapeKey))
         {
-            // Esc: leave CHOP to EDIT, else collapse the rail.
+            // Esc: leave CHOP to EDIT; in PLAY, collapse or open the rail.
             if (model.mode() == AppMode::chop)
             {
                 model.editor().closeChop();
+                return true;
+            }
+            if (model.mode() == AppMode::play)
+            {
+                playPage.setRailOpen (! playPage.isRailOpen());
                 return true;
             }
         }

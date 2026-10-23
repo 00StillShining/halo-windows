@@ -123,11 +123,10 @@ namespace halo
             {
                 g.fillAll (theme().scr.bg);
                 auto band = juce::Rectangle<float> (0.0f, 0.0f, (float) getWidth(), 26.0f);
-                paint::hazard (g, band.removeFromLeft (36.0f), 10.0f);
-                g.setColour (theme().honest.mock);
+                g.setColour (theme().scr.panel);
                 g.fillRect (band);
                 paint::text (g, "FIXTURE" + dot + "GALLERY DATA, NOT DEVICE STATE" + dot + "THE FOUR WRITE CONFIRMS" + dot + "ASSIGN SHOWN DEAD (GATE CLOSED WHILE OPEN)",
-                             band.reduced (12.0f, 0.0f), HaloFonts::font (Role::tag), juce::Colour (0xff000005));
+                             band.reduced (24.0f, 0.0f), HaloFonts::font (Role::tag), theme().scr.ink);
             }
 
         private:

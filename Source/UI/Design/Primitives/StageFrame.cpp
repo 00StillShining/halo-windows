@@ -48,7 +48,7 @@ namespace halo
     {
         const auto& t = theme();
         g.fillAll (t.scr.bg);
-        const bool mock = model.isMock();
+        // Owner decision: mock runs carry no marking (no band, no tab).
         const bool preview = model.display().feedMode == FeedMode::preview || ! model.isConnected();
 
         // Chrome row: what this is, the honest tabs, how to drive it.
@@ -60,18 +60,16 @@ namespace halo
         x += 18.0f;
         paint::text (g, "PLAY", { x, row.getY(), 60.0f, row.getHeight() }, labelFont, t.scr.ink);
         x += paint::textWidth (labelFont, "PLAY") + 8.0f;
-        const auto what = "ep" + enDash + "40 riddim" + dot + (mock ? "mock midi" : model.isConnected() ? "live midi" : "no ep" + enDash + "40 connected" + dot + "connect over usb");
+        const auto what = "ep" + enDash + "40 riddim" + dot + (model.isConnected() ? "live midi" : "no ep" + enDash + "40 connected" + dot + "connect over usb");
         const auto hint = "drag orbit" + dot + "wheel zoom" + dot + "double-click reset";
 
         // Tabs: the long forms when there's room, the short forms otherwise.
-        const juce::String mockLong = "MOCK SOURCE" + dot + "SYNTHETIC EP" + enDash + "40 MIDI, NOT REAL HARDWARE";
         const juce::String previewLong = "PREVIEW" + dot + "DEMO DISPLAY FRAMES, NOT THE DEVICE";
         const float whatW = paint::textWidth (ui, what) + 16.0f;
         const float hintW = paint::textWidth (ui, hint) + 8.0f;
         auto tabsWidth = [&] (bool longForm)
         {
             float w = 0.0f;
-            if (mock) w += paint::tagWidth (longForm ? mockLong : "MOCK SOURCE", paint::TagStyle::mock) + 8.0f;
             if (preview) w += paint::tagWidth (longForm ? previewLong : "PREVIEW", paint::TagStyle::preview) + 8.0f;
             return w;
         };
@@ -85,8 +83,6 @@ namespace halo
             x += whatW;
         }
         const float tagTop = row.getCentreY() - 9.0f;
-        if (mock)
-            x = paint::tag (g, { x, tagTop }, longTabs ? mockLong : juce::String ("MOCK SOURCE"), paint::TagStyle::mock, {}, {}, 18.0f).getRight() + 8.0f;
         if (preview)
             x = paint::tag (g, { x, tagTop }, longTabs ? previewLong : juce::String ("PREVIEW"), paint::TagStyle::preview, {}, {}, 18.0f).getRight() + 8.0f;
         if (showHint)
@@ -95,22 +91,10 @@ namespace halo
         // The band around the stage cell.
         const auto cell = stageBounds().toFloat();
         const auto outer = cell.expanded ((float) band);
-        if (mock)
-        {
-            juce::Graphics::ScopedSaveState save (g);
-            juce::Path ring;
-            ring.addRectangle (outer);
-            ring.addRectangle (preview ? cell.expanded (3.0f) : cell);
-            ring.setUsingNonZeroWinding (false);
-            g.reduceClipRegion (ring);
-            paint::hazard (g, outer, 14.0f);
-        }
+        juce::ignoreUnused (outer);
         if (preview)
-        {
-            const float inset = mock ? 1.5f : 4.0f;
-            paint::dashedRect (g, cell.expanded (inset), t.honest.preview, 1.5f, 6.0f, 4.0f);
-        }
-        if (! mock && ! preview)
+            paint::dashedRect (g, cell.expanded (4.0f), t.honest.preview, 1.5f, 6.0f, 4.0f);
+        else
         {
             g.setColour (t.scr.rule);
             g.drawRect (cell.expanded (1.0f), 1.0f);

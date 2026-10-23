@@ -74,13 +74,10 @@ target_sources(Halo PRIVATE
     Source/Stage/DisplayRenderer.cpp
     Source/Stage/StageComponent.cpp
     Source/UI/HaloLookAndFeel.cpp
-    Source/UI/PlayRail.cpp
-    Source/UI/MonitorPanel.cpp
     Source/UI/RackPanel.cpp
     Source/UI/WaveformView.cpp
     Source/UI/LibraryPanel.cpp
     Source/UI/EditPanel.cpp
-    Source/UI/ChopSurface.cpp
     Source/UI/LoadPanel.cpp
     Source/UI/BackupsPanel.cpp)
 
@@ -256,6 +253,9 @@ target_sources(Halo PRIVATE ${HALO_DESIGN_SOURCES}
     Source/UI/Design/Primitives/Deck.cpp
     Source/UI/Design/Primitives/StageFrame.cpp
     Source/UI/Pages/PlayEncoders.cpp
+    Source/UI/Pages/PlayPage.cpp
+    Source/UI/Design/Primitives/Waveform/Slicer.cpp
+    Source/UI/Pages/ChopPage.cpp
     Source/UI/Design/WriteGateDevice.cpp
     Source/UI/Design/Gallery.cpp
     Source/UI/Design/GalleryEncoders.cpp

@@ -15,7 +15,7 @@ namespace halo
 
     int PadGrid::rowHeightFor (int regionHeight, int g)
     {
-        return juce::jlimit (48, 100, (regionHeight - 3 * g) / 4);
+        return juce::jlimit (38, 100, (regionHeight - 3 * g) / 4); // 38: CHOP at the smallest sizes (its canvas keeps 120 px)
     }
 
     void PadGrid::setPads (const std::array<Pad, 12>& p)

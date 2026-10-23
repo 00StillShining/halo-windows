@@ -67,6 +67,25 @@ namespace halo::layout
     };
     PlayLayout playLayout (const Frame&, bool railOpen);
 
+    // ---- CHOP (plan section 3.7) ---------------------------------------------
+    struct ChopLayout
+    {
+        Rect header, overview, ruler, canvas, bracket, status;
+        Rect pads, output, send;   // regular: three zones; compact: output and send stack in one column
+        Rect notice;               // inside `send`, sized for the given notice text
+        bool stacked = false, showOverview = true;
+        float padRow = 48.0f;
+        static constexpr float minCanvas = 120.0f;
+    };
+    // noticeText is the longest notice the send zone may show right now.
+    ChopLayout chopLayout (const Frame&, std::string_view noticeText, bool noticeBoxed);
+
+    // A greedy word wrap with the generated metrics: the height a paragraph
+    // needs at this width (lineHeight per line).
+    float wrappedHeight (const fontmetrics::Role&, std::string_view utf8, float width, float lineHeight);
+    // Height of a Notice (plan 2.5) for the text at this outer width.
+    float noticeHeight (std::string_view utf8, float width, bool boxed);
+
     // ---- Text measurement from the generated metrics -------------------------
     float measure (const fontmetrics::Role&, std::string_view utf8);
     float measure (const fontmetrics::Role&, float em, std::string_view utf8);

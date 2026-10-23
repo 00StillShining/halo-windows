@@ -33,6 +33,8 @@ namespace halo
         const Library::Item& item() const noexcept { return current; }
         std::shared_ptr<const AudioData> audio() const noexcept { return source; }
         const WaveformSummary& summary() const noexcept { return wave; }
+        // The mono mixdown the waveforms draw from (shared with WaveCache's builder).
+        std::shared_ptr<const std::vector<float>> monoSamples() const noexcept { return monoShared; }
 
         // ---- EDIT ---------------------------------------------------------
         SamplePrep prep;
@@ -96,6 +98,7 @@ namespace halo
         void detect();
         int minGap() const;
         chop::PadPlan plan() const;
+        int detectedCuts() const noexcept { return (int) detected.size(); } // every onset found, before SLICES
         void auditionSlice (int index);
         void exportSlices();
 
@@ -122,6 +125,7 @@ namespace halo
         Library::Item current;
         std::shared_ptr<const AudioData> source;
         std::vector<float> mono;
+        std::shared_ptr<const std::vector<float>> monoShared; // the same samples, for WaveCache
         std::vector<chop::Onset> detected; // every onset found, before the SLICES choice
         WaveformSummary wave;
         bool loading = false;

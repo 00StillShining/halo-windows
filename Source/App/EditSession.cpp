@@ -87,6 +87,7 @@ namespace halo
             }
             source = std::make_shared<const AudioData> (std::move (*result.first));
             mono = source->monoMixdown();
+            monoShared = std::make_shared<const std::vector<float>> (mono);
             wave = WaveformSummary::build (mono, 1024);
             baseName = current.title.toUpperCase().retainCharacters ("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789").substring (0, 8);
             if (baseName.isEmpty())
@@ -237,6 +238,7 @@ namespace halo
             trimOnly.trimEndFrame = r.end;
             source = std::make_shared<const AudioData> (trimOnly.apply (*source));
             mono = source->monoMixdown();
+            monoShared = std::make_shared<const std::vector<float>> (mono);
             wave = WaveformSummary::build (mono, 1024);
             prep.trimStartFrame = 0;
             prep.trimEndFrame.reset();

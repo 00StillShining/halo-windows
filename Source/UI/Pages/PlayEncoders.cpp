@@ -19,7 +19,7 @@ namespace halo
         }
     }
 
-    std::array<std::optional<EncoderBinding>, 4> playBindings (AppModel& model)
+    std::array<std::optional<EncoderBinding>, 4> playBindings (AppModel& model, StageComponent& stage)
     {
         std::array<std::optional<EncoderBinding>, 4> b;
 
@@ -107,13 +107,32 @@ namespace halo
             b[1] = e;
         }
 
-        // 3. ORBIT: waits for the stage's camera setters (3D plan 4.4 item 4).
+        // 3. ORBIT: yaw on the turn, tilt on the shift layer; press = hero view.
         {
+            constexpr float lo = StageComponent::orbitMinYaw, hi = StageComponent::orbitMaxYaw;
+            const juce::String degree = juce::String::charToString ((juce::juce_wchar) 0x00B0);
             EncoderBinding e;
             e.label = "ORBIT";
-            e.available = [] { return false; };
-            e.reason = [] { return juce::String ("drag the stage to orbit"); };
+            e.getNorm = [&stage] { return (double) ((stage.orbitYaw() - lo) / (hi - lo)); };
+            e.setNorm = [&stage] (double n) { stage.setOrbit (lo + (float) n * (hi - lo), stage.orbitPitch()); };
+            e.reset = [&stage] { stage.resetOrbit(); };
+            e.step = 2.0 / (hi - lo);   // 2 degrees per detent
+            e.fine = 0.5 / (hi - lo);
+            e.coarse = 20.0 / (hi - lo);
+            e.format = [&stage] { return juce::String (juce::roundToInt (stage.orbitYaw())); };
+            e.unit = [degree] { return degree; };
+            e.caption = [&stage, degree] { return juce::String (juce::roundToInt (stage.orbitPitch())) + degree + " tilt"; };
+            e.hint = [] { return "wheel " + plusMinus + "2" + juce::String::charToString ((juce::juce_wchar) 0x00B0) + dot + "shift: tilt" + dot + "press: hero view"; };
             e.pressLabel = "reset view";
+            e.press = [&stage] { stage.resetOrbit(); };
+            e.shiftLabel = "TILT";
+            e.shiftTurn = [&stage] (int detents) { stage.setOrbit (stage.orbitYaw(), stage.orbitPitch() + 2.0f * (float) detents); };
+            e.shiftPressLabel = "top view";
+            e.shiftPress = [&stage] { stage.setOrbit (stage.orbitYaw(), 89.0f); };
+            e.gauge = [&stage] (juce::Graphics& g, juce::Rectangle<float> r, juce::Colour c, bool)
+            {
+                gauges::timeline (g, r, (stage.orbitYaw() - lo) / (hi - lo), 10, c);
+            };
             b[2] = e;
         }
 

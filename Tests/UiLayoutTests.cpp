@@ -186,3 +186,37 @@ TEST_CASE ("layout: the PLAY rail's sections fit at every size, with at least 3 
     CHECK (r.rail.x == doctest::Approx (1010.0f));
     CHECK (r.stage.right() == doctest::Approx (1000.0f));
 }
+
+TEST_CASE ("layout: CHOP keeps a 120 px canvas with the longest blocker at the minimum sizes")
+{
+    const std::string blocker = "16 slices are over 20 s (longest 31.5 s), the EP-40's limit per sound. "
+                                "Turn on AUTO-TRIM, use more slices, or CLOSE and trim in EDIT.";
+    for (auto size : { std::pair { 1180.0f, 720.0f }, std::pair { 1180.0f, 660.0f }, std::pair { 1440.0f, 900.0f },
+                       std::pair { 1280.0f, 800.0f }, std::pair { 1920.0f, 1080.0f } })
+    {
+        INFO ("size " << size.first << " x " << size.second);
+        const auto f = frame (size.first, size.second);
+        const auto c = chopLayout (f, blocker, true);
+        CHECK (c.canvas.h >= ChopLayout::minCanvas);
+        CHECK (c.padRow >= 38.0f);
+        CHECK (c.notice.h >= 40.0f);                  // it wraps; never ellipsised
+        CHECK (c.send.contains (c.notice));           // the whole blocker fits in its zone
+        CHECK (f.body.contains (c.canvas));
+        CHECK (f.body.contains (c.pads));
+        CHECK (f.body.contains (c.send));
+        CHECK_FALSE (c.canvas.overlaps (c.pads));
+        CHECK_FALSE (c.pads.overlaps (c.output));
+        CHECK_FALSE (c.output.overlaps (c.send));
+        CHECK (30.0f + 8.0f + 4.0f * c.padRow + 24.0f <= c.pads.h + 0.5f); // 4 pad rows fit
+    }
+    const auto r = chopLayout (frame (1440, 900), blocker, true);
+    CHECK_FALSE (r.stacked);
+    CHECK (r.pads.x == doctest::Approx (24.0f));
+    CHECK (r.pads.right() == doctest::Approx (470.0f));
+}
+
+TEST_CASE ("layout: wrapping counts lines with the generated metrics")
+{
+    CHECK (wrappedHeight (halo::fontmetrics::kBody, "short", 400.0f, 19.0f) == doctest::Approx (19.0f));
+    CHECK (wrappedHeight (halo::fontmetrics::kBody, std::string (60, 'a') + " " + std::string (60, 'a'), 300.0f, 19.0f) >= 38.0f);
+}

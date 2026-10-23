@@ -1,6 +1,8 @@
-"""H1 probes over a folder of ui_shots PNGs (plan section 6.1):
-  - the strip's honest slot carries MOCK yellow in every mode, size and scale;
-  - PLAY shots carry the caution band around the stage.
+"""Honesty probes over a folder of ui_shots PNGs (plan section 6.1):
+  - owner decision (2026-10-22): MOCK runs carry NO marking in the UI, so
+    there is no hazard yellow in the strip's honest slot or around the
+    stage, in any mode, size or scale. (PREVIEW, red blockers, orange notes
+    and the write confirms are unchanged.)
 
 Run isolated with the tools venv:
   tools\\.venv\\Scripts\\python -I tools/dev/probe_honest.py build/shots/ui/r4
@@ -47,13 +49,13 @@ def main():
             return (int(border + x * scale), int(top + y * scale), int(border + (x + bw) * scale), int(top + (y + bh) * scale))
 
         slot = fraction(img, box(110, 14, 110, 22))
-        ok = slot >= 8.0
+        ok = slot < 0.5
         line = f"{path.name}: honest slot {slot:.1f}% yellow"
         if mode == 1:
             band_y = 50 + 22 + 30
             band = fraction(img, box(24, band_y, 8, 160))
             line += f", stage band {band:.1f}% yellow"
-            ok = ok and band >= 25.0
+            ok = ok and band < 0.5
         print(("ok   " if ok else "FAIL ") + line)
         failures += 0 if ok else 1
     print(f"probe_honest: {failures} failure(s)")
