@@ -87,6 +87,9 @@ namespace halo
         // something moves (a pad settling, a glow fading, a recording pulse)
         // or for 0.6 s after a request. Idle costs no frames.
         void requestFrame (const char* reason);
+    public:
+        void noteGlDebugError (const char* message); // GL thread, Debug: from the KHR_debug callback
+    private:
         void timerCallback() override; // message thread: notices camera moves (drag, wheel, ORBIT API)
         bool onDemand = true;          // HALO_STAGE_CONTINUOUS=1 turns it off
         std::atomic<double> wakeUntil { 0.0 };
@@ -217,6 +220,7 @@ namespace halo
         int readyWidth = 0, readyHeight = 0, framesAtSize = 0;
         double sizeSince = 0.0;
         bool readyLogged = false, readbackDone = false;
+        std::atomic<int> glDebugErrors { 0 };   // Debug: KHR_debug errors and high-severity messages (M11)
 
         // Shared between threads
         juce::SpinLock lock;

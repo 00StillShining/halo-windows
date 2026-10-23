@@ -498,8 +498,36 @@ namespace halo
         glDeleteTextures (1, &texture);
     }
 
+   #if JUCE_DEBUG
+    // KHR_debug (M11): count GL errors and high-severity messages; log the first few.
+    static void KHRONOS_APIENTRY onGlDebugMessage (GLenum, GLenum type, GLuint, GLenum severity, GLsizei,
+                                                   const GLchar* message, const void* user)
+    {
+        if (type != GL_DEBUG_TYPE_ERROR && severity != GL_DEBUG_SEVERITY_HIGH)
+            return;
+        auto* stage = static_cast<StageComponent*> (const_cast<void*> (user));
+        stage->noteGlDebugError (message);
+    }
+
+    void StageComponent::noteGlDebugError (const char* message)
+    {
+        if (++glDebugErrors <= 5)
+            log.line ("gl debug: " + juce::String::fromUTF8 (message != nullptr ? message : "(no message)"));
+    }
+   #endif
+
     void StageComponent::newOpenGLContextCreated()
     {
+       #if JUCE_DEBUG
+        if (glDebugMessageCallback != nullptr
+            && (juce::OpenGLHelpers::isExtensionSupported ("GL_KHR_debug") || juce::OpenGLHelpers::isExtensionSupported ("GL_ARB_debug_output")))
+        {
+            glEnable (GL_DEBUG_OUTPUT);
+            glEnable (GL_DEBUG_OUTPUT_SYNCHRONOUS);
+            glDebugMessageCallback (onGlDebugMessage, this);
+            log.line ("gl debug: KHR_debug callback on");
+        }
+       #endif
         {
             std::string error;
             meshLoaded = mesh.parse (HaloStageAssets::EP40_hmesh, (size_t) HaloStageAssets::EP40_hmeshSize, error);
@@ -701,6 +729,10 @@ namespace halo
 
     void StageComponent::openGLContextClosing()
     {
+       #if JUCE_DEBUG
+        if (glDebugMessageCallback != nullptr)
+            glDebugMessageCallback (nullptr, nullptr);
+       #endif
         mesh.release();
         keysAtlas.release();
         displayTexture.release();
@@ -1043,7 +1075,8 @@ namespace halo
         if (statsEnabled)
             if (const auto line = stats.poll (nowSeconds, tierName); line.isNotEmpty())
                 log.line (line + " targets=" + juce::String (targets.allocatedWidth()) + "x" + juce::String (targets.allocatedHeight())
-                          + " allocations=" + juce::String (targets.reallocations()));
+                          + " allocations=" + juce::String (targets.reallocations())
+                          + " gl_errors=" + juce::String (glDebugErrors.load()));
         if (ready)
             noteFrameForReady (w, h);
     }
