@@ -240,3 +240,25 @@ TEST_CASE ("layout: EDIT's AUTO-TRIM note fits beside the band at every minimum 
     CHECK (r.band.y == doctest::Approx (126.0f));
     CHECK (r.right.x == doctest::Approx (716.0f));
 }
+
+TEST_CASE ("layout: LOAD's pads column fits, PROJECT and GROUP share one row")
+{
+    for (auto size : { std::pair { 1440.0f, 900.0f }, std::pair { 1180.0f, 720.0f }, std::pair { 1180.0f, 660.0f } })
+    {
+        INFO ("size " << size.first << " x " << size.second);
+        const auto f = frame (size.first, size.second);
+        const auto l = loadLayout (f);
+        CHECK (l.padRow >= LoadLayout::minPadRow);
+        // 30 + 8 + 4 rows + 3 gaps fits above the status line
+        CHECK (l.keysRow.y + 30.0f + 8.0f + 4.0f * l.padRow + 3.0f * 8.0f <= l.status.y);
+        CHECK (l.pads.bottom() <= l.status.y);
+        // nine project keys, four group keys, the gaps: one row, inside the column
+        CHECK (9.0f * l.projectKeyW + 4.0f * l.groupKeyW + 11.0f * l.keyGap + 14.0f <= l.keysRow.w + 0.01f);
+        CHECK (l.projectKeyW >= 28.0f);
+        CHECK_FALSE (l.pads.overlaps (l.list));
+        CHECK (f.body.contains (l.list));
+        CHECK (l.list.w >= 560.0f);
+    }
+    CHECK (loadLayout (frame (1440, 900)).padRow >= 90.0f);
+    CHECK (loadLayout (frame (1180, 660)).padRow >= 44.0f);
+}

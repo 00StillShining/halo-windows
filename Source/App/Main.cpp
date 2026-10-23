@@ -14,6 +14,44 @@
 
 namespace halo
 {
+   #if JUCE_DEBUG
+    // HALO_LOAD_FIXTURE: a made-up library for LOAD shots (mock source only).
+    void loadLibraryFixture (AppModel& model)
+    {
+        Ep40Library::Info info;
+        info.product = "EP-40";
+        info.os = "2.5.0";
+        info.capacityBytes = 127'815'680;
+        info.freeBytes = 23'268'000;
+        const char* names[] { "KICKS", "SNARES", "HATS", "PERC", "BASS", "KEYS", "VOX", "FX", "LOOPS", "USER" };
+        for (int c = 0; c < 10; ++c)
+            info.categories.push_back ({ names[c], c * 100 + (c == 0 ? 1 : 0), c * 100 + 99 });
+        const char* words[] { "BIGKICK", "DUB KICK", "SUB THUMP", "STEPPER", "ROCKERS", "ONE DROP", "RIMSHOT", "SNARE ROLL", "CLAP VERB",
+                              "HAT CLOSED", "HAT OPEN", "SHAKER", "BONGO HI", "BONGO LO", "COWBELL", "SUB BASS", "DUB BASS", "WOBBLE",
+                              "ORGAN BUBBLE", "SKANK CHORD", "MELODICA", "TOAST", "SELECTA", "WHOOP", "SIREN", "TAPE ECHO", "SPRING HIT",
+                              "RIDDIM LOOP", "DRUM BREAK", "MY TAKE" };
+        std::vector<Ep40Library::Sound> sounds;
+        juce::Random rng (7);
+        for (int c = 0; c < 10; ++c)
+            for (int k = 0; k < (c == 9 ? 6 : 12); ++k)
+            {
+                Ep40Library::Sound s;
+                s.slot = c * 100 + 1 + k;
+                s.name = juce::String (words[(c * 3 + k) % 30]) + (k >= 3 ? " " + juce::String (k - 1) : juce::String());
+                s.channels = c >= 5 ? 2 : 1;
+                s.sampleRate = 46875.0;
+                const double seconds = c == 8 ? 4.0 + rng.nextFloat() * 6.0 : 0.2 + rng.nextFloat() * 1.4;
+                s.bytes = (std::uint32_t) (seconds * s.sampleRate * 2.0 * s.channels);
+                sounds.push_back (s);
+            }
+        std::array<std::array<int, 12>, 4> pads {};
+        for (int g = 0; g < 4; ++g)
+            for (int i = 0; i < 12; ++i)
+                pads[(size_t) g][(size_t) i] = (g == 0 && i == 11) || (g == 3 && i > 7) ? 0 : (std::min (g * 2 + i / 3, 9)) * 100 + 1 + (i * 5 + g) % 12;
+        model.device().loadFixture (std::move (info), std::move (sounds), pads, 3);
+    }
+   #endif
+
     class MainWindow : public juce::DocumentWindow
     {
     public:
@@ -162,6 +200,11 @@ namespace halo
                         else model->editor().exportEdit();
                     });
             }
+            // HALO_LOAD_FIXTURE=1 (mock only): a made-up EP-40 library so LOAD's
+            // available state can be shot. Downloads from it fail honestly.
+            if (env ("HALO_LOAD_FIXTURE") == "1" && model->isMock())
+                for (int ms : { 700, 1600, 2600 }) // again if the mock's connection change cleared it
+                    juce::Timer::callAfterDelay (ms, [this] { if (! model->device().isFixture()) loadLibraryFixture (*model); });
             // HALO_DEVTEST=download:<slot>: once the EP-40 library is synced, download
             // one sound into build\devtest-<slot>.wav (never into the library).
             // HALO_DEVTEST=writetest: the first guarded write round trip. Needs a

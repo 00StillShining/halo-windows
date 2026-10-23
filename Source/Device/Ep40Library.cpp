@@ -65,8 +65,25 @@ namespace halo
         progressText.clear();
         for (auto& g : pads)
             g.fill (-1);
+        fixture = false;
         sendChangeMessage();
     }
+
+   #if JUCE_DEBUG
+    void Ep40Library::loadFixture (Info i, std::vector<Sound> s, std::array<std::array<int, 12>, 4> padSlots, int projectNumber)
+    {
+        ++generation;
+        deviceInfo = std::move (i);
+        soundList = std::move (s);
+        pads = padSlots;
+        project = projectNumber;
+        lastError.clear();
+        progressText.clear();
+        current = State::ready;
+        fixture = true;
+        sendChangeMessage();
+    }
+   #endif
 
     void Ep40Library::fail (const juce::String& message)
     {
@@ -343,6 +360,8 @@ namespace halo
 
     void Ep40Library::download (int slot, std::function<void (std::optional<AudioData>, juce::String)> done)
     {
+        if (fixture)
+            return done (std::nullopt, "Sound " + juce::String (slot) + " can't be read: no EP-40 is connected.");
         const auto* s = sound (slot);
         if (s == nullptr)
             return done (std::nullopt, "No sound in slot " + juce::String (slot));

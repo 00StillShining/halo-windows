@@ -118,7 +118,11 @@ namespace halo
             }
 
             if (p.selected)
-                pictograms::draw (g, Pict::play, { r.getX() + 6.0f, r.getBottom() - 17.0f, 11.0f, 11.0f }, ink, 1.4f, true);
+            {
+                // Short rows with a name: the play mark moves right, clear of the text.
+                const bool right = p.name.isNotEmpty() && r.getHeight() < 70.0f;
+                pictograms::draw (g, Pict::play, { right ? r.getRight() - 17.0f : r.getX() + 6.0f, r.getBottom() - 17.0f, 11.0f, 11.0f }, ink, 1.4f, true);
+            }
 
             if (p.start)
             {

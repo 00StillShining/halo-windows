@@ -81,6 +81,14 @@ namespace halo
         // Firmware error text seen on the wire: all FILE traffic stops.
         void deviceReportedError (const std::string& text);
 
+       #if JUCE_DEBUG
+        // Shots only (HALO_LOAD_FIXTURE=1, debug builds, the mock source): a
+        // made-up library so LOAD's available state can be photographed. It
+        // never talks to a device; clear() (any connection change) drops it.
+        void loadFixture (Info, std::vector<Sound>, std::array<std::array<int, 12>, 4> padSlots, int projectNumber);
+       #endif
+        bool isFixture() const noexcept { return fixture; }
+
     private:
         using Done = std::function<void (bool ok)>;
         void fail (const juce::String&);
@@ -100,5 +108,6 @@ namespace halo
         int project = 1;
         std::array<std::array<int, 12>, 4> pads {};
         int generation = 0;
+        bool fixture = false;
     };
 }

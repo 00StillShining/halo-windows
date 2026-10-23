@@ -88,6 +88,19 @@ namespace halo::layout
     };
     EditLayout editLayout (const Frame&);
 
+    // ---- LOAD (plan section 3.9) ---------------------------------------------
+    // Header, storage row, the pads column (PROJECT + GROUP on one row over
+    // the PadGrid) beside the three-column browser, then the status line and
+    // the actions across the body.
+    struct LoadLayout
+    {
+        Rect header, storage, keysRow, pads, list, status, actions;
+        float padRow = 48;
+        float projectKeyW = 30, groupKeyW = 36, keyGap = 3;
+        static constexpr float minPadRow = 44.0f;
+    };
+    LoadLayout loadLayout (const Frame&);
+
     // A greedy word wrap with the generated metrics: the height a paragraph
     // needs at this width (lineHeight per line).
     float wrappedHeight (const fontmetrics::Role&, std::string_view utf8, float width, float lineHeight);

@@ -207,6 +207,37 @@ namespace halo::layout
         return std::max (16.0f, wrappedHeight (fontmetrics::kBodyStrong, text, (width - 24.0f - 26.0f) * 0.98f, line)) + 18.0f;
     }
 
+    // ---- LOAD -----------------------------------------------------------------------
+    LoadLayout loadLayout (const Frame& f)
+    {
+        LoadLayout l;
+        const auto& b = f.body;
+        const bool regular = f.density == Density::regular;
+        const float headerH = regular ? 44.0f : 40.0f, storageH = 24.0f, gap = regular ? 8.0f : 6.0f;
+        const float actionsH = regular ? 44.0f : 36.0f, statusH = 22.0f;
+        float y = b.y;
+        l.header = { b.x, y, b.w, headerH };
+        y += headerH + 4.0f;
+        l.storage = { b.x, y, b.w, storageH };
+        y += storageH + gap;
+        l.actions = { b.x, b.bottom() - actionsH, b.w, actionsH };
+        l.status = { b.x, l.actions.y - 4.0f - statusH, b.w, statusH };
+        const float bottom = l.status.y - gap;
+        const float leftW = regular && ! f.narrow ? 536.0f : 440.0f;
+        // PROJECT 1-9 and GROUP a-d share one 30 px row, equal widths in each group.
+        l.keyGap = 3.0f;
+        const float groupGap = 14.0f;
+        const float unit = (leftW - groupGap - 8.0f * l.keyGap - 3.0f * l.keyGap) / (9.0f + 4.0f * 1.2f);
+        l.projectKeyW = std::floor (unit);
+        l.groupKeyW = std::floor (unit * 1.2f);
+        l.keysRow = { b.x, y, leftW, 30.0f };
+        const float padsTop = y + 30.0f + 8.0f;
+        l.padRow = std::clamp (std::floor ((bottom - padsTop - 3.0f * 8.0f) / 4.0f), 38.0f, 100.0f); // PadGrid::gap = 8
+        l.pads = { b.x, padsTop, leftW, 4.0f * l.padRow + 3.0f * 8.0f };
+        l.list = { b.x + leftW + 16.0f, y, b.w - leftW - 16.0f, bottom - y };
+        return l;
+    }
+
     // ---- EDIT -----------------------------------------------------------------------
     EditLayout editLayout (const Frame& f)
     {

@@ -115,9 +115,9 @@ namespace halo
             valueRight = numerals::drawWithUnit (g, value, b->unitText(), 14.0f, baseline, capH, e.line, e.line);
         else
         {
-            const auto font = HaloFonts::font (Role::uiLight, capH * 1.25f);
-            paint::text (g, value, { 14.0f, baseline - capH * 1.6f, w - 24.0f, capH * 1.6f }, font, e.line, juce::Justification::bottomLeft);
-            valueRight += paint::textWidth (font, value);
+            // Inter's cap height is about 0.73 em: match the figures' cap height.
+            const auto font = HaloFonts::font (Role::uiLight, capH / 0.73f * 0.9f);
+            valueRight = paint::textAt (g, value, 14.0f, baseline, font, e.line);
         }
 
         // Gauge to the right of the value, and its caption.
