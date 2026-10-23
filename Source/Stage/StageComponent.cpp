@@ -340,7 +340,10 @@ namespace halo
             if (! padAnim[i].spring.settled (target) || padAnim[i].glow > 0.003f)
                 return true;
         }
-        return state.ring.kind == RingState::Kind::recording; // the ring's own pulse
+        // The ring's own animation: the recording pulse and the discovering
+        // comet both move with time (ringLight / floor.glsl ringPool mode 1).
+        return state.ring.kind == RingState::Kind::recording
+            || state.ring.kind == RingState::Kind::discovering;
     }
 
     // A pose replaces every live or mock input with a fixed state. The
