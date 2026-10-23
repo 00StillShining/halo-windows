@@ -1476,3 +1476,10 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
 - Not yet: the label plate (RIDDIM wordmark), port strip and side-wall icon are still the
   carried-over geometry; neutral mode (`artwork/neutral.py`) not started; the LEVEL/PITCH
   readability gate (L* difference >= 30) not measured.
+- Label plate (shots pending): the face texture now starts at the label plate (y 8); above
+  the step only the drawn plate (0..119.55 x 8.57..56.50 mm) is printed, so RIDDIM, SUPERTONE
+  and ORIGINAL LAYERING MACHINE are TE's own wordmark and lettering. `brand_panel` keeps its
+  body only and its material is a decal target (53,915 triangles). Face texture 1408 x 1856 RG8
+  (7 MB with mips). Builds and all tests pass; not yet seen on screen: Windows Smart App Control
+  blocked this particular Debug build from launching (Code Integrity event 3077), so its shots
+  are pending.

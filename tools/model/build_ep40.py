@@ -30,7 +30,11 @@ import usdz_to_hmesh as legacy  # noqa: E402
 from artwork import atlas as keys_atlas, face as face_atlas, svg_import  # noqa: E402
 
 # The deck silkscreen texture's extent (reference mm): the step to the front edge.
-FACE_REGION = (0.0, spec.STEP_Y.mm, spec.WIDTH.mm, spec.DEPTH.mm)
+# The face texture's extent (reference mm): from the label plate's top edge to the
+# front edge. Above the step only the label plate is printed (LABEL_PLATE).
+FACE_REGION = (0.0, 8.0, spec.WIDTH.mm, spec.DEPTH.mm)
+# The label plate as drawn (svg-path: the #EEEFEA fill, 0..119.55 x 8.57..56.50 mm).
+LABEL_PLATE = (0.0, 8.57, 119.55, 56.50)
 # The fader's slot as drawn (svg-px): the 3D track covers it; its tick stays printed.
 FADER_SLOT = (14.2, 168.0, 17.3, 208.5)
 
@@ -235,7 +239,11 @@ def build_face(fills):
     sx0, sx1 = spec.SMALL_KEY_X
     for y0, y1 in spec.SMALL_KEY_Y.values():
         rects.append((sx0 - 0.8, y0 - 0.8, sx1 + 0.8, y1 + 0.8))   # drawn borders run wider than the keys
-    rects.append((0.0, spec.STEP_Y.mm, spec.WIDTH.mm, spec.STEP_Y.mm + 1.0))  # the screen's edge
+    # Above the step: nothing but the label plate (ports, speaker and screen are parts).
+    lx0, ly0, lx1, ly1 = LABEL_PLATE
+    rects.append((lx1 + 0.05, FACE_REGION[1], spec.WIDTH.mm, spec.STEP_Y.mm + 1.0))
+    rects.append((0.0, ly1 - 0.05, lx1 + 0.05, spec.STEP_Y.mm + 1.0))
+    rects.append((0.0, FACE_REGION[1], lx1 + 0.05, ly0 + 0.4))
     rects.append(FADER_SLOT)
     discs = [(x, y, spec.KNOB_DISC[0] / 2 + m) for x, y in spec.KNOBS.values()]
     return face_atlas.build(fills, FACE_REGION, rects, discs)
@@ -348,6 +356,11 @@ def build(usdz, tiles, atlas_height):
             ys = [c[0][1] for c in old["display_bezel"]]
             lo, hi = min(ys), max(ys)
             remap = lambda y, lo=lo, hi=hi: hi - (hi - y) * (hi - screen_front) / (hi - lo)
+        if name == "brand_panel":
+            # The plate keeps its body; RIDDIM, SUPERTONE and the strapline are
+            # the face texture's now (to_v3 makes its material a decal target).
+            body, _legend, _ = split_body_and_legend(corners)
+            corners = [c for t in body for c in t]
         b.add_corners(name, carry(corners, mode, scale, remap))
 
     identity = [1.0 if r == c else 0.0 for c in range(4) for r in range(4)]

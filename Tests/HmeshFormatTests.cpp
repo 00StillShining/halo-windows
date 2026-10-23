@@ -342,9 +342,9 @@ TEST_CASE ("EP-40 face atlas: the deck silkscreen is a two-ink SDF with ink in b
     REQUIRE_MESSAGE (face.has_value(), error);
     CHECK (face->format == Htex::Format::rg8);
     CHECK ((face->flags & Htex::sdf) != 0);
-    // 176 x 136 mm (the step to the front edge) at 8 texels per mm.
+    // 176 x 232 mm (the label plate's top edge to the front edge) at 8 texels per mm.
     CHECK (face->width == 1408);
-    CHECK (face->height == 1088);
+    CHECK (face->height == 1856);
     int strongest[2] {};
     for (std::uint32_t y = 0; y < face->height; y += 2)
         for (std::uint32_t x = 0; x < face->width; x += 2)

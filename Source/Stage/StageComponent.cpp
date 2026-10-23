@@ -1032,8 +1032,8 @@ namespace halo
         partProgram.set ("uHeightMap", 2);
         partProgram.set ("uFaceAtlas", 3);
         partProgram.set ("uFaceAtlasOn", faceAtlas.valid() ? 1 : 0);
-        // tools/model/build_ep40.py FACE_REGION: the step (y 104) to the front edge, reference mm.
-        partProgram.set ("uFaceRect", 0.0f, 104.0f, 176.0f, 136.0f);
+        // tools/model/build_ep40.py FACE_REGION: the label plate's top edge (y 8) to the front edge, reference mm.
+        partProgram.set ("uFaceRect", 0.0f, 8.0f, 176.0f, 232.0f);
         partProgram.set ("uEye", camera.eye.x, camera.eye.y, camera.eye.z);
         partProgram.setMat4 ("uLightViewProj", lightViewProj.mat);
         partProgram.set ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));

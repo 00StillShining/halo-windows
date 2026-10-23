@@ -546,7 +546,7 @@ def to_v3(parts, source_name, decal_parts=()):
         flags_for_part = 0
         if name == "display_surface":
             flags_for_part |= hmesh_io.MATERIAL_FLAGS["lcd"]
-        if name == "chassis_topPlate":
+        if name in ("chassis_topPlate", "brand_panel"):
             flags_for_part |= hmesh_io.MATERIAL_FLAGS["decalTarget"]
 
         mat_ids = np.zeros(n_vert, dtype=np.uint8)
