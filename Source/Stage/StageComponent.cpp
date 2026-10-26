@@ -11,9 +11,11 @@ namespace halo
     namespace
     {
         // Mechanics from HaloMechanics.swift.
-        constexpr float travelMin = 0.0011f, travelMax = 0.0013f; // metres
-        constexpr float pressTau = 0.020f, releaseTau = 0.035f;    // ~65 ms in, ~110 ms out
-        constexpr float ledFloor = 0.16f, ledScale = 0.74f, ledDecayTau = 0.09f;
+        constexpr float keyTravel = 0.0013f;            // metres: one travel for every strike (O5 pending)
+        // Aperture underglow (D3): HDR orange x (0.4 + 0.6 velocity) on the
+        // struck pad's liner, fading over ~150 ms (3 tau) after release.
+        constexpr float glowFloor = 0.4f, glowScale = 0.6f, glowDecayTau = 0.05f, glowHdr = 3.0f;
+        constexpr float padLightScale = 0.3f;               // the cue's warmth on neighbouring caps
         constexpr float ringDiscoverPeriod = 4.0f;
 
         // Halo cue colours on the device itself (pad strike, active group). Device
@@ -24,7 +26,6 @@ namespace halo
         constexpr float deviceWidth = 0.176f, deviceDepth = 0.240f;
         constexpr int shadowMapSize = 2048;
         constexpr float shadowExtent = 0.20f; // half-size of the key light's ortho box
-        constexpr float heightHalfX = 0.115f, heightHalfY = 0.145f, heightTop = 0.030f;
         // The key light's direction until the studio environment supplies it.
         const juce::Vector3D<float> defaultKeyDir = juce::Vector3D<float> (-0.45f, 1.0f, 0.55f).normalised();
 
@@ -40,19 +41,6 @@ namespace halo
             m[5] = 1.0f / halfHeight;
             m[10] = -2.0f / (zFar - zNear);
             m[14] = -(zFar + zNear) / (zFar - zNear);
-            m[15] = 1.0f;
-            return Mat (m);
-        }
-
-        // Looks straight down the model's -Z onto the face; depth 0 is
-        // heightTop and depth 1 is the ground.
-        Mat heightProjection (float groundZ)
-        {
-            float m[16] {};
-            m[0] = 1.0f / heightHalfX;
-            m[5] = 1.0f / heightHalfY;
-            m[10] = -2.0f / (heightTop - groundZ);
-            m[14] = (heightTop + groundZ) / (heightTop - groundZ);
             m[15] = 1.0f;
             return Mat (m);
         }
@@ -125,14 +113,16 @@ namespace halo
         context.setOpenGLVersionRequired (juce::OpenGLContext::openGL3_2);
         context.setRenderer (this);
         context.setComponentPaintingEnabled (false);
-        context.setContinuousRepainting (true);
+        // Frames only on demand (D13); HALO_STAGE_CONTINUOUS=1 restores the old loop.
+        onDemand = juce::SystemStats::getEnvironmentVariable ("HALO_STAGE_CONTINUOUS", {}) != "1";
+        context.setContinuousRepainting (! onDemand);
 
         // Dev hooks for repeatable screenshots (riddim-3d-plan.md, section 8).
         // HALO_STAGE_CAMERA=yaw,pitch,zoom; HALO_STAGE_PRESET=hero|top|low|keys|edge;
         // HALO_STAGE_DEBUG=1..4 view AO, key shadow, height map or floor terms,
         // 5 the material swatch card, 6 the silhouette mask, 7 unlit albedo,
         // 8 emissive only. HALO_STAGE_POSE freezes input (Core/StagePose.h).
-        // HALO_STAGE_TIER=high|low, HALO_STAGE_TONEMAP=neutral|agx|aces,
+        // HALO_STAGE_TIER=high|low|still, HALO_STAGE_TONEMAP=neutral|agx|aces,
         // HALO_STAGE_FXAA=1 forces FXAA on the High tier.
         const auto env = [] (const char* name) { return juce::SystemStats::getEnvironmentVariable (name, {}); };
        #if JUCE_DEBUG
@@ -231,14 +221,191 @@ namespace halo
         }
 
         // Last, so the GL thread never sees a half-configured stage.
-        context.attachTo (*this);
+       #if JUCE_DEBUG
+        // HALO_STAGE_FLING=deg/s: start an orbit glide as if a drag had been
+        // released (inertia check without driving the mouse).
+        if (const auto fling = env ("HALO_STAGE_FLING"); fling.isNotEmpty())
+        {
+            flingYaw = fling.getFloatValue();
+            flingWroteYaw = yawDegrees.load();
+            flingWrotePitch = pitchDegrees.load();
+            lastTimerTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 1.5; // after the first frames
+            log.line ("fling: " + fling + " deg/s from yaw " + juce::String (flingWroteYaw));
+        }
+       #endif
+        // The camera as set up above, so the first timer tick is not a "change".
+        lastCamera = { yawDegrees.load(), pitchDegrees.load(), zoom.load(), orthoView.load() ? 1.0f : 0.0f };
+        if (tierRequest == "still")
+            enterStillTier ("requested");
+        else
+        {
+            context.attachTo (*this);
+            if (onDemand)
+                startTimerHz (30);
+        }
     }
 
     void StageComponent::setLook (const StageLook& newLook)
     {
-        const juce::SpinLock::ScopedLockType sl (lock);
-        shared.look = newLook;
-        shared.lookDirty = true;
+        {
+            const juce::SpinLock::ScopedLockType sl (lock);
+            shared.look = newLook;
+            shared.lookDirty = true;
+        }
+        requestFrame ("look");
+    }
+
+    void StageComponent::requestFrame (const char* reason)
+    {
+        if (stillTier)
+        {
+            repaint();
+            return;
+        }
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        double until = wakeUntil.load();
+        while (until < now + 0.6 && ! wakeUntil.compare_exchange_weak (until, now + 0.6)) {}
+        frameReason = reason;
+        context.triggerRepaint();
+    }
+
+    void StageComponent::timerCallback()
+    {
+        if (flingYaw != 0.0f || flingPitch != 0.0f)
+        {
+            // Someone else moved the camera (ORBIT API, reset): stop gliding.
+            if (yawDegrees.load() != flingWroteYaw || pitchDegrees.load() != flingWrotePitch)
+                flingYaw = flingPitch = 0.0f;
+            else
+            {
+                const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+                const float dt = (float) juce::jlimit (0.0, 0.1, now - lastTimerTime);
+                lastTimerTime = juce::jmax (lastTimerTime, now);
+                const float yaw = juce::jlimit (-60.0f, 110.0f, yawDegrees.load() + flingYaw * dt);
+                const float pitch = juce::jlimit (StageCamera::minPitch, StageCamera::maxPitch, pitchDegrees.load() + flingPitch * dt);
+                yawDegrees = flingWroteYaw = yaw;
+                pitchDegrees = flingWrotePitch = pitch;
+                const float decay = std::exp (-dt / 0.25f);   // eases out over ~0.75 s
+                flingYaw *= decay;
+                flingPitch *= decay;
+                if (std::abs (flingYaw) < 1.0f && std::abs (flingPitch) < 1.0f)
+                {
+                    flingYaw = flingPitch = 0.0f;
+                    log.line ("fling: settled at yaw " + juce::String (yaw, 2));
+                }
+                if (onCameraChanged) onCameraChanged(); // UI redesign camera API
+            }
+        }
+        const std::array<float, 4> camera { yawDegrees.load(), pitchDegrees.load(), zoom.load(),
+                                            orthoView.load() ? 1.0f : 0.0f };
+        if (camera != lastCamera)
+        {
+            lastCamera = camera;
+            requestFrame ("camera");
+        }
+    }
+
+    void StageComponent::enterStillTier (const juce::String& why)
+    {
+        if (stillTier.exchange (true))
+            return;
+        log.line ("tier: still (" + why + ")");
+        stopTimer();
+        if (context.isAttached())
+            context.detach();
+        planImage = juce::ImageCache::getFromMemory (HaloStageAssets::ep40_plan_png, HaloStageAssets::ep40_plan_pngSize);
+        setOpaque (true);
+        repaint();
+    }
+
+    void StageComponent::paint (juce::Graphics& g)
+    {
+        if (! stillTier)
+            return;
+        StageLook currentLook;
+        juce::Image lcd;
+        std::array<bool, 12> held {};
+        {
+            const juce::SpinLock::ScopedLockType sl (lock);
+            currentLook = shared.look;
+            lcd = shared.displayImage;
+            for (size_t i = 0; i < held.size(); ++i)
+                held[i] = shared.pads[i].held;
+        }
+        g.fillAll (currentLook.backdrop);
+        // The device's plan, 176 x 240 mm, fitted with a margin.
+        const auto area = getLocalBounds().toFloat().reduced (getHeight() * 0.06f);
+        const float scale = juce::jmin (area.getWidth() / 176.0f, area.getHeight() / 240.0f);
+        const juce::Rectangle<float> device (area.getCentreX() - 88.0f * scale, area.getCentreY() - 120.0f * scale,
+                                             176.0f * scale, 240.0f * scale);
+        auto mm = [&] (float x0, float y0, float x1, float y1)
+        {
+            return juce::Rectangle<float> (device.getX() + x0 * scale, device.getY() + y0 * scale, (x1 - x0) * scale, (y1 - y0) * scale);
+        };
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        if (planImage.isValid())
+            g.drawImage (planImage, device);
+        // The live LCD in its window (the screen's reference rectangle).
+        g.setColour (juce::Colour (0xff0b5e40));
+        g.fillRect (mm (0.0f, 56.5f, 176.0f, 104.0f));
+        if (lcd.isValid())
+            g.drawImage (lcd, mm (2.65f, 59.72f, 172.65f, 102.19f));
+        // Pad cues (D3): the struck pads' apertures glow.
+        static constexpr float columnLeft[] { 55.7f, 79.7f, 103.6f }, rowTop[] { 136.3f, 160.3f, 184.2f, 208.2f };
+        for (size_t i = 0; i < held.size(); ++i)
+            if (held[i])
+            {
+                const auto cell = mm (columnLeft[i % 3], rowTop[i / 3], columnLeft[i % 3] + 16.0f, rowTop[i / 3] + 16.0f);
+                g.setColour (cueOrange.withAlpha (0.35f));
+                g.drawRoundedRectangle (cell.expanded (0.8f * scale), 2.0f * scale, 1.6f * scale);
+                g.setColour (cueOrange);
+                g.drawRoundedRectangle (cell, 1.5f * scale, 0.7f * scale);
+            }
+        g.setColour (currentLook.backdrop.contrasting (0.55f));
+        g.setFont (juce::FontOptions (12.0f));
+        g.drawText ("3D view unavailable on this GPU: plan view", getLocalBounds().removeFromBottom (22), juce::Justification::centred);
+
+        // HALO_STAGE_READY for tools/dev/stage_shots.ps1, as the GL tiers log it.
+        if (getWidth() > 0 && getHeight() > 0 && ! readyLogged)
+        {
+            readyLogged = true;
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<StageComponent> (this)]
+            {
+                if (safe == nullptr)
+                    return;
+                const auto bounds = safe->getScreenBounds();
+                const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (bounds);
+                const double scale = display != nullptr ? display->scale : 1.0;
+                safe->log.line ("HALO_STAGE_READY stage=" + juce::String (juce::roundToInt (bounds.getX() * scale)) + ","
+                                + juce::String (juce::roundToInt (bounds.getY() * scale)) + ","
+                                + juce::String (juce::roundToInt (bounds.getWidth() * scale)) + ","
+                                + juce::String (juce::roundToInt (bounds.getHeight() * scale)) + " scale=" + juce::String (scale, 3)
+                                + " tier=still");
+            });
+        }
+    }
+
+    void StageComponent::resized()
+    {
+        if (stillTier)
+            readyLogged = false;   // a new size: log READY again once painted
+        requestFrame ("resize");
+    }
+
+    // GL thread: whether the scene is still changing on its own.
+    bool StageComponent::stillMoving (const SharedState& state) const
+    {
+        for (size_t i = 0; i < padAnim.size(); ++i)
+        {
+            const float target = state.pads[i].held ? keyTravel : 0.0f;
+            // A held pad's glow is steady; only a released one fades.
+            if (! padAnim[i].spring.settled (target) || (! state.pads[i].held && padAnim[i].glow > 0.01f))
+                return true;
+        }
+        // The ring's own animation: the recording pulse and the discovering
+        // comet both move with time (ringLight / floor.glsl ringPool mode 1).
+        return state.ring.kind == RingState::Kind::recording
+            || state.ring.kind == RingState::Kind::discovering;
     }
 
     // A pose replaces every live or mock input with a fixed state. The
@@ -263,6 +430,7 @@ namespace halo
 
     StageComponent::~StageComponent()
     {
+        stopTimer();
         model.removeListener (this);
         context.detach();
     }
@@ -272,6 +440,7 @@ namespace halo
     {
         if (pose)
             return;
+        requestFrame ("status");
         const juce::SpinLock::ScopedLockType sl (lock);
         shared.ring = model.ring();
     }
@@ -280,6 +449,7 @@ namespace halo
     {
         if (pose)
             return;
+        requestFrame ("display");
         auto image = displayRenderer.render (state);
         const juce::SpinLock::ScopedLockType sl (lock);
         shared.displayImage = std::move (image);
@@ -308,6 +478,7 @@ namespace halo
             case PadHoldRegistry::Kind::sustain:
                 break;
         }
+        requestFrame ("pad");
     }
 
     void StageComponent::allPadsReleased()
@@ -317,13 +488,32 @@ namespace halo
         const juce::SpinLock::ScopedLockType sl (lock);
         for (auto& pad : shared.pads)
             pad.held = false;
+        requestFrame ("pad");
     }
 
     //==============================================================================
     void StageComponent::mouseDown (const juce::MouseEvent&)
     {
-        dragStartYaw = yawDegrees.load();
-        dragStartPitch = pitchDegrees.load();
+        flingYaw = flingPitch = 0.0f;
+        dragYawRate = dragPitchRate = 0.0f;
+        dragStartYaw = lastDragYaw = yawDegrees.load();
+        dragStartPitch = lastDragPitch = pitchDegrees.load();
+        lastDragTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    }
+
+    void StageComponent::mouseUp (const juce::MouseEvent&)
+    {
+        // Glide only if the pointer was still moving when it let go.
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (now - lastDragTime > 0.08)
+            return;
+        flingYaw = juce::jlimit (-240.0f, 240.0f, dragYawRate);
+        flingPitch = juce::jlimit (-120.0f, 120.0f, dragPitchRate);
+        flingWroteYaw = yawDegrees.load();
+        flingWrotePitch = pitchDegrees.load();
+        lastTimerTime = now;
+        if (! isTimerRunning())
+            startTimerHz (30);
     }
 
     void StageComponent::mouseDrag (const juce::MouseEvent& e)
@@ -332,6 +522,16 @@ namespace halo
         pitchDegrees = juce::jlimit (StageCamera::minPitch, StageCamera::maxPitch,
                                      dragStartPitch + (float) e.getDistanceFromDragStartY() * 0.3f);
         orthoView = false;
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (const double dt = now - lastDragTime; dt > 1.0e-3)
+        {
+            const float k = (float) juce::jmin (1.0, dt / 0.05);   // ~50 ms smoothing
+            dragYawRate += ((yawDegrees.load() - lastDragYaw) / (float) dt - dragYawRate) * k;
+            dragPitchRate += ((pitchDegrees.load() - lastDragPitch) / (float) dt - dragPitchRate) * k;
+            lastDragYaw = yawDegrees.load();
+            lastDragPitch = pitchDegrees.load();
+            lastDragTime = now;
+        }
         if (onCameraChanged) onCameraChanged(); // UI redesign camera API
     }
 
@@ -395,6 +595,11 @@ namespace halo
             {
                 log.line ("tier: low tier failed too; the stage cannot draw");
                 tierName = "none";
+                juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<StageComponent> (this)]
+                {
+                    if (safe != nullptr)
+                        safe->enterStillTier ("no GL tier could build");
+                });
                 return false;
             }
         }
@@ -462,8 +667,36 @@ namespace halo
         glDeleteTextures (1, &texture);
     }
 
+   #if JUCE_DEBUG
+    // KHR_debug (M11): count GL errors and high-severity messages; log the first few.
+    static void KHRONOS_APIENTRY onGlDebugMessage (GLenum, GLenum type, GLuint, GLenum severity, GLsizei,
+                                                   const GLchar* message, const void* user)
+    {
+        if (type != GL_DEBUG_TYPE_ERROR && severity != GL_DEBUG_SEVERITY_HIGH)
+            return;
+        auto* stage = static_cast<StageComponent*> (const_cast<void*> (user));
+        stage->noteGlDebugError (message);
+    }
+
+    void StageComponent::noteGlDebugError (const char* message)
+    {
+        if (++glDebugErrors <= 5)
+            log.line ("gl debug: " + juce::String::fromUTF8 (message != nullptr ? message : "(no message)"));
+    }
+   #endif
+
     void StageComponent::newOpenGLContextCreated()
     {
+       #if JUCE_DEBUG
+        if (glDebugMessageCallback != nullptr
+            && (juce::OpenGLHelpers::isExtensionSupported ("GL_KHR_debug") || juce::OpenGLHelpers::isExtensionSupported ("GL_ARB_debug_output")))
+        {
+            glEnable (GL_DEBUG_OUTPUT);
+            glEnable (GL_DEBUG_OUTPUT_SYNCHRONOUS);
+            glDebugMessageCallback (onGlDebugMessage, this);
+            log.line ("gl debug: KHR_debug callback on");
+        }
+       #endif
         {
             std::string error;
             meshLoaded = mesh.parse (HaloStageAssets::EP40_hmesh, (size_t) HaloStageAssets::EP40_hmeshSize, error);
@@ -478,6 +711,8 @@ namespace halo
                 log.line ("decals: ep40_keys_sdf.htex rejected: " + juce::String (error));
             if (! faceAtlas.upload (HaloStageAssets::ep40_face_sdf_htex, (size_t) HaloStageAssets::ep40_face_sdf_htexSize, error))
                 log.line ("decals: ep40_face_sdf.htex rejected: " + juce::String (error));
+            if (! deckAO.upload (HaloStageAssets::ep40_deck_ao_htex, (size_t) HaloStageAssets::ep40_deck_ao_htexSize, error))
+                log.line ("ao: ep40_deck_ao.htex rejected: " + juce::String (error));
         }
 
         // Slots: the pads in grid order, then the group pads (the converter and
@@ -625,7 +860,13 @@ namespace halo
                 glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
                 glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
                 glFramebufferTexture2D (GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, target.texture, 0);
-                glDrawBuffer (GL_NONE);
+                // The same depth as a plain float, read unfiltered by the soft
+                // shadow's blocker search (a depth texture in compare mode cannot be).
+                target.depthCopy = texture (GL_R32F, GL_RED, GL_FLOAT);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+                glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+                glFramebufferTexture2D (GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, target.depthCopy, 0);
+                glDrawBuffer (GL_COLOR_ATTACHMENT0);
                 glReadBuffer (GL_NONE);
             }
             else
@@ -646,7 +887,6 @@ namespace halo
         };
         depthMapsValid = false;
         makeTarget (shadowTarget, shadowMapSize, shadowMapSize, true);
-        makeTarget (heightTarget, 1024, juce::roundToInt (1024.0f * heightHalfY / heightHalfX), false);
 
 
        #if JUCE_DEBUG
@@ -658,18 +898,24 @@ namespace halo
 
     void StageComponent::openGLContextClosing()
     {
+       #if JUCE_DEBUG
+        if (glDebugMessageCallback != nullptr)
+            glDebugMessageCallback (nullptr, nullptr);
+       #endif
         mesh.release();
         keysAtlas.release();
         displayTexture.release();
         faceAtlas.release();
+        deckAO.release();
         releasePrograms();
         targets.release();
         environment.release();
         stats.release();
-        for (auto* target : { &shadowTarget, &heightTarget })
+        for (auto* target : { &shadowTarget })
         {
             if (target->fbo != 0) glDeleteFramebuffers (1, &target->fbo);
             if (target->texture != 0) glDeleteTextures (1, &target->texture);
+            if (target->depthCopy != 0) glDeleteTextures (1, &target->depthCopy);
             if (target->depthBuffer != 0) glDeleteRenderbuffers (1, &target->depthBuffer);
             *target = {};
         }
@@ -689,24 +935,23 @@ namespace halo
             if (target.strikeCount != anim.seenStrikes)
             {
                 anim.seenStrikes = target.strikeCount;
-                anim.led = ledFloor + ledScale * target.velocity * target.velocity;
+                anim.glow = glowFloor + glowScale * target.velocity;
             }
-            const float depth = target.held ? travelMin + (travelMax - travelMin) * target.velocity : 0.0f;
+            const float depth = target.held ? keyTravel : 0.0f;
             if (pose)
             {
-                anim.depth = depth; // frozen: the pose shows the settled state
+                anim.spring = { depth, 0.0f }; // frozen: the pose shows the settled state
                 continue;
             }
-            const float tau = depth > anim.depth ? pressTau : releaseTau;
-            anim.depth += (depth - anim.depth) * (1.0f - std::exp (-dt / tau));
+            anim.spring.step (depth, dt);
             if (! target.held)
-                anim.led *= std::exp (-dt / ledDecayTau);
+                anim.glow *= std::exp (-dt / glowDecayTau);
         }
 
         // Pad travel as slot offsets (model space, along -Z).
         slotOffsets.fill ({});
         for (size_t i = 0; i < 12; ++i)
-            slotOffsets[1 + i] = { 0.0f, 0.0f, -padAnim[i].depth };
+            slotOffsets[1 + i] = { 0.0f, 0.0f, -padAnim[i].spring.depth };
     }
 
     // Depth-only pass of the whole device into `target`. The key light's map works
@@ -717,8 +962,8 @@ namespace halo
         glViewport (0, 0, target.width, target.height);
         glDepthMask (GL_TRUE);
         glClearDepth (1.0);
-        glClearColor (groundZ, groundZ, groundZ, groundZ); // height map: bare floor
-        glClear (GL_DEPTH_BUFFER_BIT | (target.depthBuffer != 0 ? GL_COLOR_BUFFER_BIT : 0));
+        glClearColor (1.0f, 1.0f, 1.0f, 1.0f); // the far plane: no blocker
+        glClear (GL_DEPTH_BUFFER_BIT | GL_COLOR_BUFFER_BIT);
         glEnable (GL_DEPTH_TEST);
         glDepthFunc (GL_LESS);
         glEnable (GL_POLYGON_OFFSET_FILL);
@@ -846,20 +1091,39 @@ namespace halo
         glDepthMask (GL_TRUE);
     }
 
-    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state)
+    void StageComponent::drawModel (const Mat& viewProj, const SharedState& state, bool mirror)
     {
         const auto toWorld = modelToWorld();
         const auto orange = linear (cueOrange);
         const auto green = linear (cueGreen.brighter (0.6f));
         partProgram.setMat4 ("uViewProj", viewProj.mat);
 
-        // Halo cues on the device, per slot: a struck pad's glow, the active group.
+        // Halo's pad cue (D3): the struck pad's aperture liner glows (by the
+        // well's slot, part.frag); no cap ever changes colour. The active group
+        // shows on the LCD's group icon, not as a tint on the pad.
         std::array<juce::Vector3D<float>, Hmesh::maxSlots> glow {};
         for (size_t i = 0; i < 12; ++i)
-            glow[1 + i] = orange * (padAnim[i].led * 0.9f);
-        for (size_t g = 0; g < 4; ++g)
-            if (state.displayLive && state.activeGroup && (size_t) *state.activeGroup == g)
-                glow[13 + g] = green * 0.35f;
+            glow[1 + i] = orange * (padAnim[i].glow * glowHdr);
+        // The four brightest cues also warm their neighbours (diffuse point
+        // lights at the apertures; the reflection pass mirrors them too).
+        {
+            std::array<size_t, 12> order {};
+            for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+            std::sort (order.begin(), order.end(), [this] (size_t a, size_t b) { return padAnim[a].glow > padAnim[b].glow; });
+            static const char* posNames[] { "uPadLightPos[0]", "uPadLightPos[1]", "uPadLightPos[2]", "uPadLightPos[3]" };
+            static const char* colourNames[] { "uPadLightColour[0]", "uPadLightColour[1]", "uPadLightColour[2]", "uPadLightColour[3]" };
+            for (size_t k = 0; k < 4; ++k)
+            {
+                const size_t i = order[k];
+                const auto& pv = slotPivots[1 + i];
+                // Model (x, y, z) -> world (x, z, -y); the aperture sits at the key's base.
+                const juce::Vector3D<float> world (pv.x, pv.z - 0.0012f, -pv.y);
+                const auto c = orange * (padAnim[i].glow * padLightScale);
+                partProgram.set (posNames[k], world.x, world.y, world.z);
+                partProgram.set (colourNames[k], c.x, c.y, c.z);
+            }
+        }
+        juce::ignoreUnused (green, state);
         static const auto glowNames = []
         {
             std::array<std::string, Hmesh::maxSlots> names;
@@ -875,7 +1139,16 @@ namespace halo
         glActiveTexture (GL_TEXTURE0);
         if (displayTexture.getTextureID() != 0)
             displayTexture.bind();
-        partProgram.setMat4 ("uModel", toWorld.mat);
+        if (mirror)
+        {
+            // Reflect world y about the floor (y = groundZ): y' = 2 groundZ - y.
+            float m[16] { 1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 2.0f * groundZ, 0, 1 };
+            partProgram.setMat4 ("uModel", then (toWorld, Mat (m)).mat);
+        }
+        else
+            partProgram.setMat4 ("uModel", toWorld.mat);
+        partProgram.set ("uMirror", mirror ? look.floorReflection : 0.0f);
+        partProgram.set ("uMirrorFloorY", groundZ);
         partProgram.set ("uKind", 0);
         setSlotUniforms (partProgram);
         ++stats.geometryDraws;
@@ -884,7 +1157,7 @@ namespace halo
         // The screen acrylic (D5), after everything opaque: it adds its
         // reflection and lets the LCD through (rgb added, alpha = transmittance),
         // leaving depth and the device mask's alpha alone.
-        if (mesh.hasGlass() && debugView == 0)
+        if (mesh.hasGlass() && debugView == 0 && ! mirror)
         {
             glEnable (GL_BLEND);
             // Low tier: display values, so a screen blend (src x (1 - dst)) that
@@ -947,7 +1220,16 @@ namespace halo
 
         stats.beginFrame();
         renderFrame (state, nowSeconds, dt, w, h, ready);
-        stats.endFrame ("continuous");
+        stats.endFrame (onDemand ? frameReason.load() : "continuous");
+        // On demand: keep drawing while the scene moves, while the stage has
+        // not yet settled at this size (HALO_STAGE_READY), or briefly after a
+        // request; otherwise stop until the next change asks.
+        if (onDemand && (! readyLogged || nowSeconds < wakeUntil.load() || stillMoving (state)))
+        {
+            if (stillMoving (state))
+                frameReason = "motion";
+            context.triggerRepaint();
+        }
 
        #if JUCE_DEBUG
         // HALO_STAGE_READBACK=<file.png>: the stage's own pixels, read straight
@@ -981,7 +1263,8 @@ namespace halo
         if (statsEnabled)
             if (const auto line = stats.poll (nowSeconds, tierName); line.isNotEmpty())
                 log.line (line + " targets=" + juce::String (targets.allocatedWidth()) + "x" + juce::String (targets.allocatedHeight())
-                          + " allocations=" + juce::String (targets.reallocations()));
+                          + " allocations=" + juce::String (targets.reallocations())
+                          + " gl_errors=" + juce::String (glDebugErrors.load()));
         if (ready)
             noteFrameForReady (w, h);
     }
@@ -1041,7 +1324,7 @@ namespace halo
         glActiveTexture (GL_TEXTURE1);
         glBindTexture (GL_TEXTURE_2D, shadowTarget.texture);
         glActiveTexture (GL_TEXTURE2);
-        glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
+        glBindTexture (GL_TEXTURE_2D, deckAO.texture);
         glActiveTexture (GL_TEXTURE3);
         glBindTexture (GL_TEXTURE_2D, faceAtlas.texture);
         glActiveTexture (GL_TEXTURE0);
@@ -1049,7 +1332,8 @@ namespace halo
         partProgram.use();
         partProgram.set ("uTexture", 0);
         partProgram.set ("uShadowMap", 1);
-        partProgram.set ("uHeightMap", 2);
+        partProgram.set ("uDeckAO", 2);
+        partProgram.set ("uDeckAOOn", deckAO.valid() ? 1 : 0);
         partProgram.set ("uFaceAtlas", 3);
         partProgram.set ("uFaceAtlasOn", faceAtlas.valid() ? 1 : 0);
         // tools/model/build_ep40.py FACE_REGION: the whole top, port edge to front edge, reference mm.
@@ -1057,8 +1341,6 @@ namespace halo
         partProgram.set ("uEye", camera.eye.x, camera.eye.y, camera.eye.z);
         partProgram.setMat4 ("uLightViewProj", lightViewProj.mat);
         partProgram.set ("uShadowRadius", 0.0014f / (2.0f * shadowExtent));
-        partProgram.set ("uHeightRect", 0.0f, 0.0f, heightHalfX, heightHalfY);
-        partProgram.set ("uHeightTexel", 2.0f * heightHalfX / (float) heightTarget.width);
         partProgram.set ("uDeviceSize", deviceWidth, deviceDepth);
         glActiveTexture (GL_TEXTURE4);
         glBindTexture (GL_TEXTURE_CUBE_MAP, environment.cubeMap());
@@ -1069,9 +1351,14 @@ namespace halo
         glBindTexture (GL_TEXTURE_2D, mesh.materials);
         glActiveTexture (GL_TEXTURE7);
         glBindTexture (GL_TEXTURE_2D, keysAtlas.texture);
+        glActiveTexture (GL_TEXTURE8);
+        glBindTexture (GL_TEXTURE_2D, shadowTarget.depthCopy);
         glActiveTexture (GL_TEXTURE0);
         partProgram.set ("uMaterials", 6);
         partProgram.set ("uKeyAtlas", 7);
+        partProgram.set ("uShadowDepth", 8);
+        partProgram.set ("uShadowDepthRange", 1.2f - 0.05f);  // keyLightViewProj's near..far (m)
+        partProgram.set ("uShadowTexel", 2.0f * shadowExtent);   // metres across the map
         partProgram.set ("uKeyAtlasOn", keysAtlas.valid() ? 1 : 0);
         partProgram.set ("uEnv", 4);
         partProgram.set ("uBrdfLut", 5);
@@ -1126,9 +1413,6 @@ namespace halo
         if (! depthMapsValid || inputs != depthInputs)
         {
             drawDepth (shadowTarget, lightViewProj, true);
-            drawDepth (heightTarget, heightProjection (groundZ), false);
-            glBindTexture (GL_TEXTURE_2D, heightTarget.texture);
-            glGenerateMipmap (GL_TEXTURE_2D); // cone-traced AO reads wide taps from coarse mips
             depthInputs = inputs;
             depthMapsValid = true;
             ++stats.depthRenders;
@@ -1196,7 +1480,21 @@ namespace halo
             drawModel (viewProj, state);
             const GLenum floorOnly[] { GL_NONE, GL_COLOR_ATTACHMENT1 };
             glDrawBuffers (2, floorOnly);
+            // The floor reflection (dark look): the mirrored device into the floor
+            // target's rgb, behind the real device in depth; the ground then
+            // writes only its contact-shadow alpha over it.
+            const bool reflect = look.floorReflection > 0.0f && debugView == 0;
+            if (reflect)
+            {
+                glFrontFace (GL_CW); // mirrored: keep gl_FrontFacing meaning outside
+                drawModel (viewProj, state, true);
+                glFrontFace (GL_CCW);
+                partProgram.set ("uMirror", 0.0f);
+                glColorMaski (1, GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+            }
             drawGround (viewProj, state, time, frame.width, frame.height);
+            if (reflect)
+                glColorMaski (1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         }
         glDisable (GL_DEPTH_TEST);
 

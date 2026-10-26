@@ -2,6 +2,7 @@
 
 #include "App/AppModel.h"
 #include "Core/StageCamera.h"
+#include "Core/PadSpring.h"
 #include "Core/StagePose.h"
 #include "Stage/DecalAtlas.h"
 #include "Stage/DisplayRenderer.h"
@@ -32,7 +33,8 @@ namespace halo
     // bursty the MIDI is.
     class StageComponent : public juce::Component,
                            private juce::OpenGLRenderer,
-                           private AppModel::Listener
+                           private AppModel::Listener,
+                           private juce::Timer
     {
     public:
         explicit StageComponent (AppModel&);
@@ -40,8 +42,11 @@ namespace halo
 
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
         void mouseDoubleClick (const juce::MouseEvent&) override;
         void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+        void resized() override;
+        void paint (juce::Graphics&) override; // the Still tier only (M11)
 
         // The stage's surroundings (backdrop, floor, shadow, ring pool). Copied
         // under the lock; the GL thread picks it up on its next frame.
@@ -79,6 +84,26 @@ namespace halo
         void renderOpenGL() override;
         void openGLContextClosing() override;
 
+        // On-demand repaint (D13, M10): every change asks for frames through
+        // this funnel, with its reason; the GL thread keeps drawing only while
+        // something moves (a pad settling, a glow fading, a recording pulse)
+        // or for 0.6 s after a request. Idle costs no frames.
+        void requestFrame (const char* reason);
+        // Still tier (M11): when no GL tier can run (or HALO_STAGE_TIER=still),
+        // the GL context is detached and the stage paints TE's plan view with
+        // the live LCD image and the pad cues over it. Never a blank stage.
+        void enterStillTier (const juce::String& why);
+        std::atomic<bool> stillTier { false };
+        juce::Image planImage;
+    public:
+        void noteGlDebugError (const char* message); // GL thread, Debug: from the KHR_debug callback
+    private:
+        void timerCallback() override; // message thread: notices camera moves (drag, wheel, ORBIT API)
+        bool onDemand = true;          // HALO_STAGE_CONTINUOUS=1 turns it off
+        std::atomic<double> wakeUntil { 0.0 };
+        std::atomic<const char*> frameReason { "startup" };
+        std::array<float, 4> lastCamera {};
+
         // AppModel::Listener (message thread)
         void statusChanged() override;
         void displayChanged (const DisplayState&) override;
@@ -106,14 +131,14 @@ namespace halo
 
         struct PadAnim
         {
-            float depth = 0.0f;
-            float led = 0.0f;
+            PadSpring spring;      // travel (Core/PadSpring.h)
+            float glow = 0.0f;     // aperture underglow level (D3)
             int seenStrikes = 0;
         };
 
         struct DepthTarget
         {
-            GLuint fbo = 0, texture = 0, depthBuffer = 0;
+            GLuint fbo = 0, texture = 0, depthBuffer = 0, depthCopy = 0; // depthCopy: R32F, for the blocker search
             int width = 0, height = 0;
         };
 
@@ -133,6 +158,7 @@ namespace halo
         };
 
         void animatePads (const SharedState&, float dt);
+        bool stillMoving (const SharedState&) const; // GL thread: on-demand repaint
         void renderFrame (const SharedState&, double nowSeconds, float dt, int width, int height, bool ready);
         void renderHigh (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);
         void renderLow (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);
@@ -146,7 +172,9 @@ namespace halo
         void drawCard (int height);
         void setPartUniforms (const StageView&, const juce::Matrix3D<float>& lightViewProj);
         void drawGround (const juce::Matrix3D<float>& viewProj, const SharedState&, float time, int viewportWidth, int viewportHeight);
-        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&);
+        // mirror: the floor reflection pass (M8): the device mirrored in the floor
+        // plane, written to the floor target's rgb; glass is skipped.
+        void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&, bool mirror = false);
         void setSlotUniforms (GlProgram&);
         RingLight ringLight (const SharedState&, float time) const;
 
@@ -159,6 +187,7 @@ namespace halo
         HaloMesh mesh;
         DecalAtlas keysAtlas; // the keys' legends (four-ink SDF)
         DecalAtlas faceAtlas; // the deck's silkscreen (green and orange SDF over FaceRegion)
+        DecalAtlas deckAO;    // baked AO of the top surfaces, model XY (tools/model/ep40/ao.py)
         ShaderLibrary shaders { log };
         GlProgram partProgram, depthProgram, backgroundProgram, cardProgram;
         GlProgram resolveProgram, compositeProgram, fxaaProgram, selfTestProgram;
@@ -171,10 +200,10 @@ namespace halo
         bool fxaaEngaged = false;
         int framesSinceShaderCheck = 0;
         juce::OpenGLTexture displayTexture;
-        DepthTarget shadowTarget, heightTarget;
-        // The shadow and height maps depend only on the key direction and the
-        // slots' offsets (the device is static in model space, the camera is not
-        // in them), so they are re-rendered only when those change.
+        DepthTarget shadowTarget;
+        // The shadow map depends only on the key direction and the slots'
+        // offsets (the device is static in model space, the camera is not in
+        // it), so it is re-rendered only when those change.
         std::array<float, 3 + 3 * Hmesh::maxSlots> depthInputs {};
         bool depthMapsValid = false;
         GLuint emptyVao = 0, groundVao = 0, groundVbo = 0;
@@ -199,6 +228,7 @@ namespace halo
         int readyWidth = 0, readyHeight = 0, framesAtSize = 0;
         double sizeSince = 0.0;
         bool readyLogged = false, readbackDone = false;
+        std::atomic<int> glDebugErrors { 0 };   // Debug: KHR_debug errors and high-severity messages (M11)
 
         // Shared between threads
         juce::SpinLock lock;
@@ -212,6 +242,14 @@ namespace halo
         Vec3f presetOffset; // world metres, set once by HALO_STAGE_PRESET before the GL thread starts
         std::atomic<bool> presetOffsetActive { true };
         float dragStartYaw = 0.0f, dragStartPitch = 0.0f;
+        // Orbit inertia (M10): a released drag glides on and eases to a stop.
+        // Any other camera change (the ORBIT API, a reset, a new drag) stops it.
+        float dragYawRate = 0.0f, dragPitchRate = 0.0f;   // degrees per second, smoothed
+        double lastDragTime = 0.0;
+        float lastDragYaw = 0.0f, lastDragPitch = 0.0f;
+        float flingYaw = 0.0f, flingPitch = 0.0f;         // degrees per second while gliding
+        float flingWroteYaw = 0.0f, flingWrotePitch = 0.0f;
+        double lastTimerTime = 0.0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StageComponent)
     };

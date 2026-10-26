@@ -10,7 +10,7 @@
 
 in vec3 vNormal; in vec3 vColour; in vec3 vEmissive; in vec2 vUV; in vec2 vMaterial;
 in vec3 vWorld; in vec3 vModel; in vec3 vModelNormal;
-flat in int vFlags; flat in int vSlot; flat in int vMask; in float vAO;
+flat in int vFlags; flat in int vSlot; flat in int vMask; in float vAO; in float vTransmission;
 
 // Material flags (Core/HmeshFormat.h).
 const int FLAG_GLASS = 1;
@@ -20,6 +20,10 @@ const int FLAG_DECAL_TARGET = 16;
 uniform int uKind;            // 0 the device (one draw; materials say LCD or printed deck), 3 ground
 uniform vec3 uEye;
 uniform vec3 uSlotGlow[32];   // linear emissive per slot (pad strike, active group)
+// D3's pad cue also warms its surroundings: up to four small diffuse-only
+// point lights at the struck pads' apertures (radius 30 mm), world space.
+uniform vec3 uPadLightPos[4];
+uniform vec3 uPadLightColour[4]; // linear irradiance at 1 cm, 0 = off
 uniform sampler2D uTexture;   // LCD (sRGB image)
 uniform sampler2D uFaceAtlas; // deck silkscreen: SDF per ink (R green, G orange) over uFaceRect
 uniform int uFaceAtlasOn;
@@ -30,11 +34,13 @@ uniform vec2 uDeviceSize;     // model width, depth (m)
 
 uniform sampler2DShadow uShadowMap;
 uniform mat4 uLightViewProj;
-uniform float uShadowRadius;  // PCF radius in shadow-map UV
+uniform float uShadowRadius;  // (unused since PCSS-lite; kept for the Low tier's uniform list)
+uniform sampler2D uShadowDepth;      // the shadow map's depth as a plain float (blocker search)
+uniform float uShadowDepthRange;     // metres from the light's near to far plane
+uniform float uShadowTexel;          // metres across the shadow map (1 in UV)
 
-uniform sampler2D uHeightMap; // model-space z of the highest surface
-uniform vec4 uHeightRect;     // centre xy, half extent xy (model space)
-uniform float uHeightTexel;   // metres per texel at mip 0
+uniform sampler2D uDeckAO;    // baked AO of the top surfaces over uFaceRect (tools/model/ep40/ao.py)
+uniform int uDeckAOOn;
 
 // The studio (Stage/Environment): prefiltered reflections, split-sum table,
 // SH9 ambient irradiance (with the floor bounce), and the analytic key and rim.
@@ -50,6 +56,8 @@ uniform float uGlassSheen;      // screen acrylic: reflection scale (0 = no shee
 uniform float uGlassRoughness;  // screen acrylic: perceptual roughness of the sheen
 uniform float uGlassPeak;       // screen acrylic: soft ceiling of the sheen (linear luma)
 uniform float uExposure;
+uniform float uMirror;        // > 0: the floor reflection pass (dark look strength), M8
+uniform float uMirrorFloorY;  // world height of the floor plane
 uniform int uToneMapper;
 uniform int uDebug;           // 0 normal; 1 AO, 2 key shadow, 3 height contours, 4 floor terms,
                               // 6 mask, 7 albedo, 8 emissive, 9 world normals
@@ -87,6 +95,26 @@ vec4 radiance (vec3 c)
 #endif
 }
 
+// Where a lit device colour goes: the device target, or, in the floor
+// reflection pass, the floor target's rgb, weighted by black glass's Fresnel
+// at this view and faded within about 20 mm of the floor so it reads as a
+// sheen under the case, never a mirror.
+void emit (vec3 lit)
+{
+#if HALO_HDR
+    if (uMirror > 0.0)
+    {
+        float below = max (uMirrorFloorY - vWorld.y, 0.0);
+        float cosView = clamp ((uEye.y - uMirrorFloorY) / max (length (uEye - vWorld), 1e-4), 0.0, 1.0);
+        float k = uMirror * (0.3 + 0.7 * pow (1.0 - cosView, 3.0)) * exp (-below / 0.007);
+        floorOut = vec4 (lit * k, 0.0);
+        fragColour = vec4 (0.0);
+        return;
+    }
+#endif
+    fragColour = radiance (lit);
+}
+
 //---------------------------------------------------------------- shadows
 const vec2 poisson[12] = vec2[12] (
     vec2 (-0.326, -0.406), vec2 (-0.840, -0.074), vec2 (-0.696,  0.457),
@@ -94,6 +122,10 @@ const vec2 poisson[12] = vec2[12] (
     vec2 ( 0.519,  0.767), vec2 ( 0.185, -0.893), vec2 ( 0.507,  0.064),
     vec2 ( 0.896,  0.412), vec2 (-0.322, -0.933), vec2 (-0.792, -0.598));
 
+// PCSS-lite: a blocker search in the plain depth copy finds how far the
+// receiver sits behind what shades it; the penumbra then grows with that
+// distance times the softbox's angular size, so a key's shadow is crisp where
+// it meets the deck and opens out away from it (M8).
 float keyShadow (vec3 world, vec3 n, float softness, float noise)
 {
     vec3 p = world + n * 0.00030 + uKeyDir * 0.00015;
@@ -103,50 +135,35 @@ float keyShadow (vec3 world, vec3 n, float softness, float noise)
         return 1.0;
     float a = noise * 6.2831853;
     mat2 rot = mat2 (cos (a), sin (a), -sin (a), cos (a));
+
+    // Blockers within the widest penumbra this light can cast (6 mm).
+    float search = 0.006 / uShadowTexel;
+    float blocker = 0.0, found = 0.0;
+    for (int i = 0; i < 12; ++i)
+    {
+        float d = texture (uShadowDepth, s.xy + rot * poisson[i] * search).r;
+        if (d < s.z - 0.0004)
+        {
+            blocker += d;
+            found += 1.0;
+        }
+    }
+    if (found == 0.0)
+        return 1.0;
+    float behind = (s.z - blocker / found) * uShadowDepthRange;            // metres, receiver behind blocker
+    float penumbra = clamp (behind * tan (uKeyRadius), 0.00025, 0.006);     // metres
+    float radius = penumbra / uShadowTexel * softness;
+
     // Hardware-filtered taps on a rotated Poisson disc, mirrored at half
     // radius so the penumbra's core stays dense.
     float lit = 0.0;
     for (int i = 0; i < 8; ++i)
     {
-        vec2 o = rot * poisson[i] * uShadowRadius * softness;
+        vec2 o = rot * poisson[i] * radius;
         lit += texture (uShadowMap, vec3 (s.xy + o, s.z - 0.00025));
         lit += texture (uShadowMap, vec3 (s.xy - o * 0.5, s.z - 0.00025));
     }
     return lit / 16.0;
-}
-
-//---------------------------------------------------------------- height-field AO
-// `footprint` is the width (m) the sample should average over; coarser mips
-// make far taps cone-shaped, so occlusion fades in smoothly instead of
-// switching on as a single tap crosses a key's edge.
-float heightAt (vec2 xy, float footprint)
-{
-    vec2 uv = (xy - uHeightRect.xy) / uHeightRect.zw * 0.5 + 0.5;
-    return textureLod (uHeightMap, uv, max (log2 (footprint / uHeightTexel), 0.0)).r;
-}
-
-// Horizon-based occlusion over `directions` fixed directions.
-float heightAO (vec3 p, vec3 n, float reach, int directions)
-{
-    vec2 base = p.xy + n.xy * 0.00045;
-    float occlusion = 0.0, weights = 0.0;
-    float step = 6.2831853 / float (directions);
-    for (int i = 0; i < directions; ++i)
-    {
-        float a = (float (i) + 0.5) * step;
-        vec2 dir = vec2 (cos (a), sin (a));
-        // Walls only look outwards; tops look everywhere.
-        float w = clamp (n.z + dot (dir, n.xy), 0.0, 1.0);
-        float slope = 0.0;
-        for (int j = 1; j <= 4; ++j)
-        {
-            float r = reach * float (j * j);
-            slope = max (slope, (heightAt (base + dir * r, r * 0.7) - p.z) / r);
-        }
-        occlusion += w * slope * inversesqrt (1.0 + slope * slope);
-        weights += w;
-    }
-    return 1.0 - occlusion / max (weights, 0.0001);
 }
 
 //---------------------------------------------------------------- studio
@@ -208,18 +225,32 @@ vec4 inkCover (sampler2D atlas, vec2 uv)
     return cover * 0.25;
 }
 
+// Where the shaded point really is (the reflection pass shades the unmirrored point).
+vec3 shadePos;
+
 vec3 shade (vec3 albedo, float roughness, vec3 n, vec3 v, float shadow, float ao)
 {
     float rough = specularAA (n, roughness);
-    // Satin plastic: the key wraps a little past the terminator.
-    float keyNoL = clamp ((dot (n, uKeyDir) + 0.08) / 1.08, 0.0, 1.0);
+    // Satin plastic: the key wraps a little past the terminator; frosted
+    // stems (vTransmission) wrap further and pass the key through to their
+    // far side, so they glow faintly where backlit (plan section 3.4).
+    float wrap = 0.08 + vTransmission * 0.6;
+    float keyNoL = clamp ((dot (n, uKeyDir) + wrap) / (1.0 + wrap), 0.0, 1.0);
     float rimNoL = max (dot (n, uRimDir), 0.0);
     vec3 irradiance = irradianceSH (n) * ao
                     + uKeyE * keyNoL * shadow * mix (1.0, ao, 0.35)
-                    + uRimE * rimNoL * ao;
+                    + uRimE * rimNoL * ao
+                    + (uKeyE + uRimE) * vTransmission * 0.5 * clamp (-dot (n, uKeyDir), 0.0, 1.0) * mix (0.6, 1.0, ao);
     float NoV = clamp (dot (n, v), 1e-4, 1.0);
     vec2 dfg = texture (uBrdfLut, vec2 (NoV, rough)).rg;
     float fresnel = 0.04 * dfg.x + dfg.y;
+    for (int i = 0; i < 4; ++i)
+    {
+        vec3 toLight = uPadLightPos[i] - shadePos;
+        float d = length (toLight);
+        float reach = 1.0 - smoothstep (0.0, 0.030, d);
+        irradiance += uPadLightColour[i] * max (dot (n, toLight / max (d, 1e-5)), 0.0) * reach * reach;
+    }
     vec3 diffuse = albedo / PI * irradiance * (1.0 - fresnel);
     return diffuse + studioSpecular (n, v, rough, shadow, ao);
 }
@@ -250,7 +281,10 @@ void ground (float noise)
     if (fade <= 0.0)
         discard;
     float shadow = gap < 0.03 ? keyShadow (vWorld, vec3 (0.0, 1.0, 0.0), 2.5, noise) : 1.0;
-    float near = gap < 0.016 ? heightAO (vModel, vec3 (0.0, 0.0, 1.0), 0.0009, 8) : 1.0;
+    // The floor's view of the room closed off by the case beside it: about
+    // half the sky behind a 12 mm wall, fading out within ~12 mm (analytic,
+    // the device is a box on the floor; this was a height-map AO).
+    float near = 1.0 - 0.5 * inversesqrt (1.0 + pow (gap / 0.012, 2.0)) * (1.0 - smoothstep (0.004, 0.014, gap));
     float wide = 1.0 - exp (-gap / 0.016);
     float a = (1.0 - near) * 0.55 + (1.0 - wide) * 0.42 + (1.0 - shadow) * 0.30;
     a = clamp (a, 0.0, 0.82) * fade * border;
@@ -289,8 +323,26 @@ void main()
     if (! gl_FrontFacing) mn = -mn;
     vec3 v = normalize (uEye - vWorld);
 
-    float shadow = keyShadow (vWorld, n, 1.0, noise);
-    float ao = clamp (1.0 - (1.0 - heightAO (vModel, mn, 0.0006, 10)) * 1.6, 0.0, 1.0);
+    // The reflection pass: the mirror image of the real, lit device is that
+    // device seen from the mirrored eye, so shade the unmirrored point with the
+    // unmirrored normal and the mirrored eye (light, shadow and studio stay real).
+    vec3 shadeWorld = vWorld;
+    if (uMirror > 0.0)
+    {
+        shadeWorld = vec3 (vWorld.x, 2.0 * uMirrorFloorY - vWorld.y, vWorld.z);
+        n *= vec3 (1.0, -1.0, 1.0);
+        v = normalize (vec3 (uEye.x, 2.0 * uMirrorFloorY - uEye.y, uEye.z) - shadeWorld);
+    }
+    shadePos = shadeWorld;
+    float shadow = keyShadow (shadeWorld, n, 1.0, noise);
+    // Baked AO (tools/model/ep40/ao.py): per vertex, and from the deck texture
+    // on the top surfaces, whose few large triangles carry too few vertices.
+    float ao = vAO;
+    if ((vFlags & FLAG_DECAL_TARGET) != 0 && mn.z > 0.5 && uDeckAOOn != 0)
+    {
+        vec2 aoUV = (vec2 (vModel.x * 1000.0 + 88.0, 120.0 - vModel.y * 1000.0) - uFaceRect.xy) / uFaceRect.zw;
+        ao = texture (uDeckAO, aoUV).r;
+    }
     // Faces near the floor see less of the room.
     ao *= mix (0.72, 1.0, clamp (smoothstep (-0.0095, -0.002, vModel.z) + max (mn.z, 0.0), 0.0, 1.0));
 
@@ -334,7 +386,7 @@ void main()
         if (uDebug == 7 || uDebug == 8) { fragColour = displayValue (srgbEncode (tex)); return; }
         // Backlit under the acrylic (drawn after, with its sheen): nearly unshaded.
         vec3 c = tex * mix (0.86, 1.0, shadow) * mix (0.8, 1.0, ao);
-        fragColour = radiance (c);
+        emit (c);
         return;
     }
 
@@ -366,13 +418,15 @@ void main()
 
     // 7: unlit albedo (print included); 8: emissive only.
     if (uDebug == 7) { fragColour = displayValue (srgbEncode (albedo)); return; }
-    if (uDebug == 8) { fragColour = displayValue (srgbEncode (vEmissive * 0.6 + uSlotGlow[vSlot])); return; }
+    if (uDebug == 8) { int gs = (vMask >> 1) & 31; fragColour = displayValue (srgbEncode (vEmissive * 0.6 + (gs > 0 ? uSlotGlow[gs] : vec3 (0.0)))); return; }
     if (uDebug == 9) { fragColour = displayValue (n * 0.5 + 0.5); return; }
     if (uDebug == 1) { fragColour = displayValue (vec3 (ao)); return; }
     if (uDebug == 2) { fragColour = displayValue (vec3 (shadow)); return; }
-    if (uDebug == 3) { fragColour = displayValue (vec3 (fract (heightAt (vModel.xy, 0.0) * 100.0))); return; }
+    if (uDebug == 3) { fragColour = displayValue (vec3 (vAO)); return; }   // vertex AO alone
 
     vec3 lit = shade (albedo, roughness, n, v, shadow, ao);
-    lit += vEmissive * 0.6 + uSlotGlow[vSlot];
-    fragColour = radiance (lit);
+    // Aperture underglow (D3): a well's mask bits 1-5 name its key's slot.
+    int glowSlot = (vMask >> 1) & 31;
+    lit += vEmissive * 0.6 + (glowSlot > 0 ? uSlotGlow[glowSlot] : vec3 (0.0));
+    emit (lit);
 }

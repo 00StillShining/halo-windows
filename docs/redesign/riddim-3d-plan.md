@@ -1596,3 +1596,85 @@ Measured results, newest last. Shots live in the git-ignored `build/shots/<miles
   GPU p50 0.229 ms). Stage pixels identical to the uncached build.
 - M8 not done: baked vertex and deck AO (and deleting the height-map AO), PCSS-lite and the
   analytic contact term, PA66 grain, glass clearcoat and stem transmission, floor reflection.
+
+### Polish phase (after the te-hardware merge 8a605c5): M7 to M11
+
+Verified on screen before the owner's GUI cutoff (19:21):
+- **Side walls** (2b127c6): TE's side drawings give five dark-green plugs per wall (along 16,
+  24, 48.1, 216, 224 mm; z 7.98) and, on the -X wall, the battery icon (arrow and "x4"),
+  embossed 0.15 / 0.30 mm. Lint measures the body width apart from these details.
+- **Orbit flicker** (c7fa282, M7 gate): legends tracked through a 30-frame, 1-degree keys orbit
+  at minimum radius; ink-mass jitter per step median 0.16 %, worst-step p95 7.2 % (gate 10 %).
+- **Baked AO** (c3a3534, M8): `tools/model/ep40/ao.py`, a 0.1 mm height field of the opaque rest
+  pose, horizon occlusion per vertex and for the top surfaces (`ep40_deck_ao.htex`, 1024 x 1408).
+  The height-map AO, its target, pass and re-mip are deleted; the floor's contact term is
+  analytic. Hero / keys, both looks: deck L* 86.0, gaps 6.9, mean change 2.6 / 255.
+
+Built headless after the cutoff, now **verified on screen** (shots q1-q8, see below):
+- **PCSS-lite** (d6f1771): a blocker search in an R32F copy of the shadow depth; the PCF radius
+  follows the receiver's distance behind the blocker times the softbox's angular size.
+- **Floor reflection, dark look** (2e22162): the device mirrored in the floor into the floor
+  target's rgb, shaded from the mirrored eye, black glass's Fresnel x look.floorReflection,
+  faded within ~20 mm; Paper unchanged.
+- **Frosted stems** (25cced2): thickness transmission 0.35 on the knob and fader stems. The
+  screen's clearcoat is the existing acrylic lobe (roughness 0.05).
+- **PA66 grain: dropped.** 40-90 um bumps are under 0.4 px at the closest framing
+  (0.16 mm / px); they would only add a constant roughness the material already carries.
+- **Live LCD** (b04f37a, M9): `Core/LcdState` (exhaustive tests: nothing lights without a
+  backing field; every preview frame differs from live in backlight and digits). Digits are
+  TE's own ten-segment shapes (`Stage/LcdSegments.h`, generated from the screen SVG by
+  `artwork/lcd_segments.py`). **Deviation:** preview reads "SIM", not "PRV": TE's digit has no
+  middle bars and cannot draw a V (it reads "PRY"). Waiting reads "___" and lights nothing.
+  The pad grid and dot beacon are gone; icon halos blur once. Verified as images with the new
+  windowless `HaloLcdPreview` tool. Bloom (scene) not done: in-glass halation covers lit icons,
+  and nothing else HDR-bright is lit today (LEDs stay dark under D4).
+- **Motion** (4c147e1, M10): `Core/PadSpring` (tests: press < 90 ms, release overshoot < 6 %,
+  30 / 144 fps agree, one travel); D3 underglow on the struck pad's well (slot in mask bits 1-5),
+  caps never change colour, group tint removed. Point lights and the O3 LED echo not done.
+- **On-demand repaint** (a0ec0fa, M10): frames only on change (pad, display, status, look,
+  resize, camera incl. the ORBIT API via a 30 Hz check), while motion lasts, until READY, and
+  0.6 s after a request; stats tag the reason. `HALO_STAGE_CONTINUOUS=1` restores the loop.
+- **Hardening** (f26e852, 15dfdd2, M11): a KHR_debug error counter (Debug, `gl_errors` in the
+  stats line); the Still tier (TE's plan view `ep40_plan.png` + live LCD + pad cues) when no GL
+  tier builds or `HALO_STAGE_TIER=still`.
+
+Shots pending (take in this order): hero / keys / top / low in dark and paper (PCSS, AO,
+reflection, stems, LCD in place); `DEBUG=2` keys crop (penumbra crisp at contact); `low` dark
+(reflection subtle, no mirror); `hit` dark with `DEBUG=8` (emission only on the liner);
+`HALO_STAGE_STATS=1` idle (0 frames over 60 s, connected mock) and a pad burst; preview and
+waiting LCD on the device; `HALO_STAGE_TIER=low` and `=still` canonical sets; `gl_errors=0`.
+
+### Verification day (shots q1-q9) and the M10 / M11 remainder
+
+- **PCSS-lite** (q1, `DEBUG=2`): contact shadows are crisp at the key bases and open out away from
+  them; no fixed grain. Hero both looks: deck L* 86.1, gaps 6.9, PLAY +0.079 (RECORD waived).
+- **Floor reflection** (q1 `low` dark): a faint warm band of the shell under the case, fading
+  within ~20 mm; it reads as black glass, not a mirror. Paper unchanged.
+- **Underglow** (q2 `hit`, `DEBUG=8`): emission only on the struck pad's aperture liner; caps
+  unchanged. **Point lights** (5640313, q6b): the four brightest cues each warm their
+  neighbours through a 30 mm diffuse light: the facing walls change by up to dE 8 (149 px above
+  dE 2), nothing else moves.
+- **LCD on the device** (q4): live "120" at full backlight, waiting "___" dim with nothing lit,
+  preview "SIM" with the demo's icons on the dimmest backlight. No haze over the LCD.
+- **On-demand frames** (q3, Debug stats): at rest with the mock connected, 77 startup frames,
+  then **0 frames** for the remaining 30-60 s; the discovering ring keeps drawing (motion, 0
+  shadow re-renders) so the comet animates; with live mock input the stage legitimately draws
+  continuously (the mock's pads and LCD change every few frames: reasons display / motion).
+  Two fixes (1323073): a held pad's steady glow no longer keeps frames coming; the first camera
+  poll is not a "change".
+- **Tiers** (q5): `HALO_STAGE_TIER=low` gives complete hero, keys, top, low and hit sets in both
+  looks; `=still` shows TE's plan view with the live LCD and the struck pad's cue (it now logs
+  READY so the harness can capture it). No KHR_debug errors in any Debug run.
+- **Orbit inertia** (d0458c3): a released drag glides and eases out over ~0.75 s; it stops as soon
+  as anything else moves the camera (the ORBIT API, a reset, a new drag), and reports each step
+  through `onCameraChanged`. Debug `HALO_STAGE_FLING=120`: from yaw 28 it settled at 59.8.
+- **O3 LED echo: not built.** The LEDs mark parameter selection on the device; echoing pad hits
+  on them would show state the device does not (D4), and O3 is still the owner's call.
+- **Release timing, RTX 5080** (q8, mock MIDI running, hero 960 x 546): GPU p50 0.30-0.34 ms, p95
+  0.30-0.46 ms (budget 1.5 ms), 3-4 geometry draws, 144 fps vsync. The shadow map re-renders on
+  every frame a pad moves, as designed. AMD iGPU still unmeasured (owner's GPU switch).
+- **Soak** (q9, 30 min, Debug, mock MIDI): 1800 s of live mock input at 144 fps, 898 stats windows: gl_errors 0 throughout (KHR_debug), render targets allocated twice at startup and never again, GPU p95 0.38-0.94 ms (Debug); process private memory 381 MB at minute 1, 363-365 MB from minute 6 to 21 (stable), whole-GPU memory 1086-1129 MiB (per-process VRAM is not reported under WDDM).
+- Release build fix: `Source/App/Main.cpp` read `HALO_REDUCED_MOTION` through a Debug-only helper
+  and did not compile in Release.
+- **G3 review sheet:** `build/review/g3_sheet.png` (hero, keys, low / top and the cue / LCD rows,
+  dark and paper, beside TE's photos). For the owner's sign-off; O3 to decide.

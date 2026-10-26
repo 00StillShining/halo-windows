@@ -1,7 +1,7 @@
-in float vHeight;
+in float vDepth;
 out vec4 fragColour;
 
 void main()
 {
-    fragColour = vec4 (vHeight);
+    fragColour = vec4 (vDepth);
 }
