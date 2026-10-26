@@ -326,10 +326,31 @@ namespace halo
         g.setColour (currentLook.backdrop.contrasting (0.55f));
         g.setFont (juce::FontOptions (12.0f));
         g.drawText ("3D view unavailable on this GPU: plan view", getLocalBounds().removeFromBottom (22), juce::Justification::centred);
+
+        // HALO_STAGE_READY for tools/dev/stage_shots.ps1, as the GL tiers log it.
+        if (getWidth() > 0 && getHeight() > 0 && ! readyLogged)
+        {
+            readyLogged = true;
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<StageComponent> (this)]
+            {
+                if (safe == nullptr)
+                    return;
+                const auto bounds = safe->getScreenBounds();
+                const auto* display = juce::Desktop::getInstance().getDisplays().getDisplayForRect (bounds);
+                const double scale = display != nullptr ? display->scale : 1.0;
+                safe->log.line ("HALO_STAGE_READY stage=" + juce::String (juce::roundToInt (bounds.getX() * scale)) + ","
+                                + juce::String (juce::roundToInt (bounds.getY() * scale)) + ","
+                                + juce::String (juce::roundToInt (bounds.getWidth() * scale)) + ","
+                                + juce::String (juce::roundToInt (bounds.getHeight() * scale)) + " scale=" + juce::String (scale, 3)
+                                + " tier=still");
+            });
+        }
     }
 
     void StageComponent::resized()
     {
+        if (stillTier)
+            readyLogged = false;   // a new size: log READY again once painted
         requestFrame ("resize");
     }
 
