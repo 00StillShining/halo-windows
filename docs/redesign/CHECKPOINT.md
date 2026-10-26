@@ -1,3 +1,28 @@
+# Redesign checkpoint: 26 October 2026
+
+**Status:** the redesign is complete in mock testing.
+- **Pages:** all seven are rebuilt and polished.
+- **3D stage:** fully merged (`2851024`) and signed off at G3 against TE's photos. It has:
+  - soft shadows and baked AO;
+  - a dark-look floor reflection;
+  - the live LCD with honest provenance;
+  - pad springs and cue lights;
+  - on-demand frames (0 frames at rest);
+  - orbit inertia;
+  - the Low and Still tiers.
+- **Performance and tests:** RTX 5080 Release GPU p95 0.3-0.5 ms; a 30-minute soak with 0 GL errors and flat memory; HaloTests 176, HaloUiTests and the lint all green. Nothing is pushed.
+- **Decisions:**
+  - O3 LED echo: not built. The LEDs mark parameter selection on the device, so echoing pad hits would show false state.
+  - The RECORD highlight gate is waived.
+  - No mock marking in the UI.
+
+## What is left (needs the owner)
+1. Device checks with the real EP-40 on `build\Redesign\Halo_artefacts\Debug\Halo.exe`: sync, assign (armed, then the card), delete card, EDIT send and SEND TO PADS (progress and AUTO-TRIM), backup (cancel one, complete one), output menu, recording a take.
+2. Optional: AMD iGPU timing. This needs Halo set to "Power saving" in Windows Graphics settings.
+3. Merge `redesign/te-hardware` into `main` when the owner is happy.
+
+---
+
 # Redesign checkpoint: 23 October 2026
 
 **Status:** every page is rebuilt in the OP-1 x OP-XY language (R0 to R13 plus a polish pass). The 3D Riddim stage is merged into `redesign/te-hardware` at `d81b485`. It has:
