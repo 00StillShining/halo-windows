@@ -1707,5 +1707,11 @@ waiting LCD on the device; `HALO_STAGE_TIER=low` and `=still` canonical sets; `g
 - Verified: shots `gr1` (hero, keys, top, low; dark and paper) and the app screenshot
   `gr1/hero-dark.png`: legends and the LCD read clearly. Known, not addressed (finalised as
   is): on the dark plastics the 0.2 mm shell/body parting groove shows as a faint dotted line
-  in the `low` view (a sub-pixel up-facing sliver); the Still tier's plan image is still TE's
-  colours.
+  in the `low` view (a sub-pixel up-facing sliver).
+- The Still tier's flat plan view follows the colourway too (owner request): the artwork
+  pipeline (`tools/model/artwork/plan_poster.py`) labels every pixel of TE's front drawing
+  with a class (a 3D material name such as `pad:key white`, or a key / face ink) into
+  `assets/stage/ep40_plan_classes.png` plus `Source/Stage/PlanClasses.h`; the stage colours
+  the classes with the active colourway's lookups and inks and averages 3 x 3, with the live
+  LCD (in the colourway's LCD palette) and the pad cue on top. Verified in shots `still2`
+  (graphite and te, `HALO_STAGE_TIER=still`).

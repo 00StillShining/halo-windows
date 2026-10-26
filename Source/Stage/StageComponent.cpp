@@ -3,6 +3,7 @@
 #include "Core/ToneCurves.h"
 
 #include <HaloStageAssets.h>
+#include "Stage/PlanClasses.h"
 
 using namespace juce::gl;
 
@@ -264,7 +265,10 @@ namespace halo
         else
             displayChanged (model.display());
         if (stillTier)
+        {
+            buildPlan (c);
             repaint();
+        }
         requestFrame ("colourway");
     }
 
@@ -328,6 +332,56 @@ namespace halo
         }
     }
 
+    // The Still tier's plan view in a colourway: TE's front drawing as a map of
+    // classes (assets/stage/ep40_plan_classes.png, tools/model/artwork/
+    // plan_poster.py), each coloured like the 3D model's materials and inks,
+    // then averaged 3 x 3 (antialiasing) to 4 px/mm.
+    void StageComponent::buildPlan (const DeviceColourway& c)
+    {
+        std::array<juce::PixelRGB, plan::classes.size()> lut {};
+        for (size_t i = 0; i < plan::classes.size(); ++i)
+        {
+            const juce::String name (plan::classes[i].name);
+            auto colour = juce::Colour (0xff000000u | plan::classes[i].teSrgb);
+            if (name.startsWith ("ink:"))
+                colour = c.keyInks[(size_t) juce::jmax (0, juce::StringArray { "ink:green", "ink:orange", "ink:white", "ink:charcoal" }.indexOf (name))];
+            else if (name.startsWith ("face:"))
+                colour = c.faceInks[name == "face:orange" ? 1u : 0u];
+            else if (const auto o = c.lookup (name.toStdString()))
+                colour = o->colour;
+            if (name == "screen:green")
+                planScreen = colour;
+            lut[i].setARGB (255, colour.getRed(), colour.getGreen(), colour.getBlue());
+        }
+        const auto classes = juce::ImageCache::getFromMemory (HaloStageAssets::ep40_plan_classes_png,
+                                                              HaloStageAssets::ep40_plan_classes_pngSize);
+        if (! classes.isValid())
+        {
+            planImage = {};
+            return;
+        }
+        constexpr int k = 3;
+        const int w = classes.getWidth() / k, h = classes.getHeight() / k;
+        juce::Image out (juce::Image::RGB, w, h, false);
+        const juce::Image::BitmapData src (classes, juce::Image::BitmapData::readOnly);
+        juce::Image::BitmapData dst (out, juce::Image::BitmapData::writeOnly);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x)
+            {
+                int r = 0, gr = 0, b = 0;
+                for (int dy = 0; dy < k; ++dy)
+                    for (int dx = 0; dx < k; ++dx)
+                    {
+                        const int id = juce::jlimit (0, (int) lut.size() - 1, (int) src.getPixelColour (x * k + dx, y * k + dy).getRed());
+                        r += lut[(size_t) id].getRed();
+                        gr += lut[(size_t) id].getGreen();
+                        b += lut[(size_t) id].getBlue();
+                    }
+                dst.setPixelColour (x, y, juce::Colour ((juce::uint8) (r / (k * k)), (juce::uint8) (gr / (k * k)), (juce::uint8) (b / (k * k))));
+            }
+        planImage = out;
+    }
+
     void StageComponent::enterStillTier (const juce::String& why)
     {
         if (stillTier.exchange (true))
@@ -336,7 +390,12 @@ namespace halo
         stopTimer();
         if (context.isAttached())
             context.detach();
-        planImage = juce::ImageCache::getFromMemory (HaloStageAssets::ep40_plan_png, HaloStageAssets::ep40_plan_pngSize);
+        DeviceColourway c;
+        {
+            const juce::SpinLock::ScopedLockType sl (lock);
+            c = shared.colourway;
+        }
+        buildPlan (c);
         setOpaque (true);
         repaint();
     }
@@ -371,7 +430,7 @@ namespace halo
         if (planImage.isValid())
             g.drawImage (planImage, device);
         // The live LCD in its window (the screen's reference rectangle).
-        g.setColour (juce::Colour (0xff0b5e40));
+        g.setColour (planScreen);
         g.fillRect (mm (0.0f, 56.5f, 176.0f, 104.0f));
         if (lcd.isValid())
             g.drawImage (lcd, mm (2.65f, 59.72f, 172.65f, 102.19f));

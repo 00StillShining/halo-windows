@@ -99,7 +99,9 @@ namespace halo
         // the live LCD image and the pad cues over it. Never a blank stage.
         void enterStillTier (const juce::String& why);
         std::atomic<bool> stillTier { false };
-        juce::Image planImage;
+        juce::Image planImage;              // the plan view, in the colourway (message thread)
+        juce::Colour planScreen;            // the screen window's colour round the LCD
+        void buildPlan (const DeviceColourway&);
     public:
         void noteGlDebugError (const char* message); // GL thread, Debug: from the KHR_debug callback
     private:

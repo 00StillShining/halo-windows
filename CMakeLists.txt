@@ -134,7 +134,7 @@ juce_add_binary_data(HaloStageAssets
         assets/stage/ep40_deck_ao.htex
         assets/stage/ep40_face_sdf.htex
         assets/stage/ep40_keys_sdf.htex
-        assets/stage/ep40_plan.png
+        assets/stage/ep40_plan_classes.png
         assets/stage/studio.henv)
 target_link_libraries(Halo PRIVATE HaloStageAssets)
 
