@@ -152,7 +152,8 @@ namespace halo
                                                    galleryPage > 0 ? createGallery (galleryPage) : nullptr);
             model->start();
             // Reduced motion: the system's animation setting, or HALO_REDUCED_MOTION=1.
-            motion::setReduced (! windowsChrome::animationsEnabled() || env ("HALO_REDUCED_MOTION") == "1");
+            motion::setReduced (! windowsChrome::animationsEnabled()
+                                || juce::SystemStats::getEnvironmentVariable ("HALO_REDUCED_MOTION", {}) == "1");
 
            #if JUCE_DEBUG
             // HALO_UI_READY: the window is up and laid out (the harness waits for it).
