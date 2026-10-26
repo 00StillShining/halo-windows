@@ -15,6 +15,7 @@ namespace halo
         // Aperture underglow (D3): HDR orange x (0.4 + 0.6 velocity) on the
         // struck pad's liner, fading over ~150 ms (3 tau) after release.
         constexpr float glowFloor = 0.4f, glowScale = 0.6f, glowDecayTau = 0.05f, glowHdr = 3.0f;
+        constexpr float padLightScale = 0.3f;               // the cue's warmth on neighbouring caps
         constexpr float ringDiscoverPeriod = 4.0f;
 
         // Halo cue colours on the device itself (pad strike, active group). Device
@@ -1038,6 +1039,25 @@ namespace halo
         std::array<juce::Vector3D<float>, Hmesh::maxSlots> glow {};
         for (size_t i = 0; i < 12; ++i)
             glow[1 + i] = orange * (padAnim[i].glow * glowHdr);
+        // The four brightest cues also warm their neighbours (diffuse point
+        // lights at the apertures; the reflection pass mirrors them too).
+        {
+            std::array<size_t, 12> order {};
+            for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+            std::sort (order.begin(), order.end(), [this] (size_t a, size_t b) { return padAnim[a].glow > padAnim[b].glow; });
+            static const char* posNames[] { "uPadLightPos[0]", "uPadLightPos[1]", "uPadLightPos[2]", "uPadLightPos[3]" };
+            static const char* colourNames[] { "uPadLightColour[0]", "uPadLightColour[1]", "uPadLightColour[2]", "uPadLightColour[3]" };
+            for (size_t k = 0; k < 4; ++k)
+            {
+                const size_t i = order[k];
+                const auto& pv = slotPivots[1 + i];
+                // Model (x, y, z) -> world (x, z, -y); the aperture sits at the key's base.
+                const juce::Vector3D<float> world (pv.x, pv.z - 0.0012f, -pv.y);
+                const auto c = orange * (padAnim[i].glow * padLightScale);
+                partProgram.set (posNames[k], world.x, world.y, world.z);
+                partProgram.set (colourNames[k], c.x, c.y, c.z);
+            }
+        }
         juce::ignoreUnused (green, state);
         static const auto glowNames = []
         {

@@ -20,6 +20,10 @@ const int FLAG_DECAL_TARGET = 16;
 uniform int uKind;            // 0 the device (one draw; materials say LCD or printed deck), 3 ground
 uniform vec3 uEye;
 uniform vec3 uSlotGlow[32];   // linear emissive per slot (pad strike, active group)
+// D3's pad cue also warms its surroundings: up to four small diffuse-only
+// point lights at the struck pads' apertures (radius 30 mm), world space.
+uniform vec3 uPadLightPos[4];
+uniform vec3 uPadLightColour[4]; // linear irradiance at 1 cm, 0 = off
 uniform sampler2D uTexture;   // LCD (sRGB image)
 uniform sampler2D uFaceAtlas; // deck silkscreen: SDF per ink (R green, G orange) over uFaceRect
 uniform int uFaceAtlasOn;
@@ -221,6 +225,9 @@ vec4 inkCover (sampler2D atlas, vec2 uv)
     return cover * 0.25;
 }
 
+// Where the shaded point really is (the reflection pass shades the unmirrored point).
+vec3 shadePos;
+
 vec3 shade (vec3 albedo, float roughness, vec3 n, vec3 v, float shadow, float ao)
 {
     float rough = specularAA (n, roughness);
@@ -237,6 +244,13 @@ vec3 shade (vec3 albedo, float roughness, vec3 n, vec3 v, float shadow, float ao
     float NoV = clamp (dot (n, v), 1e-4, 1.0);
     vec2 dfg = texture (uBrdfLut, vec2 (NoV, rough)).rg;
     float fresnel = 0.04 * dfg.x + dfg.y;
+    for (int i = 0; i < 4; ++i)
+    {
+        vec3 toLight = uPadLightPos[i] - shadePos;
+        float d = length (toLight);
+        float reach = 1.0 - smoothstep (0.0, 0.030, d);
+        irradiance += uPadLightColour[i] * max (dot (n, toLight / max (d, 1e-5)), 0.0) * reach * reach;
+    }
     vec3 diffuse = albedo / PI * irradiance * (1.0 - fresnel);
     return diffuse + studioSpecular (n, v, rough, shadow, ao);
 }
@@ -319,6 +333,7 @@ void main()
         n *= vec3 (1.0, -1.0, 1.0);
         v = normalize (vec3 (uEye.x, 2.0 * uMirrorFloorY - uEye.y, uEye.z) - shadeWorld);
     }
+    shadePos = shadeWorld;
     float shadow = keyShadow (shadeWorld, n, 1.0, noise);
     // Baked AO (tools/model/ep40/ao.py): per vertex, and from the deck texture
     // on the top surfaces, whose few large triangles carry too few vertices.
