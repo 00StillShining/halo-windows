@@ -52,6 +52,9 @@ endif()
 # ---------------------------------------------------------------------------
 juce_add_gui_app(Halo
     PRODUCT_NAME "Halo"
+    # The app icon (tools/icon/make_icon.py): the ring glyph on black glass.
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/halo-1024.png"
+    ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/halo-small.png"
     COMPANY_NAME "stillshining"
     VERSION ${PROJECT_VERSION})
 
