@@ -63,11 +63,8 @@ uniform int uDebug;           // 0 normal; 1 AO, 2 key shadow, 3 height contours
                               // 6 mask, 7 albedo, 8 emissive, 9 world normals
 
 // Low tier ground passes only.
-uniform int uGroundPass;      // 0 contact shadow, 1 key-light spot, 2 ring pool
+uniform int uGroundPass;      // 0 contact shadow, 1 key-light spot
 uniform vec3 uShadowTint;     // display value
-uniform int uRingMode;
-uniform float uRingLevel, uRingPeriod, uTime;
-uniform vec3 uRingColour;     // display value
 uniform float uFloorSpot;
 uniform vec2 uViewport;
 
@@ -262,12 +259,6 @@ void ground (float noise)
     float border = stageBorder (gl_FragCoord.xy, uViewport);
 
 #if ! HALO_HDR
-    if (uGroundPass == 2)
-    {
-        float pool = ringPool (vModel.xy, uDeviceSize, gap, uRingMode, uRingLevel, uTime, uRingPeriod);
-        fragColour = vec4 (uRingColour * pool * border, 1.0); // screen-blended
-        return;
-    }
     if (uGroundPass == 1)
     {
         fragColour = vec4 (vec3 (1.0, 0.97, 0.92) * floorSpot (gap, uFloorSpot) * border, 1.0); // screen-blended

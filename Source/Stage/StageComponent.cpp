@@ -16,7 +16,6 @@ namespace halo
         // struck pad's liner, fading over ~150 ms (3 tau) after release.
         constexpr float glowFloor = 0.4f, glowScale = 0.6f, glowDecayTau = 0.05f, glowHdr = 3.0f;
         constexpr float padLightScale = 0.3f;               // the cue's warmth on neighbouring caps
-        constexpr float ringDiscoverPeriod = 4.0f;
 
         // Halo cue colours on the device itself (pad strike, active group). Device
         // facts, not look tokens: the riddim orange and green (plan section 2.5).
@@ -402,10 +401,7 @@ namespace halo
             if (! padAnim[i].spring.settled (target) || (! state.pads[i].held && padAnim[i].glow > 0.01f))
                 return true;
         }
-        // The ring's own animation: the recording pulse and the discovering
-        // comet both move with time (ringLight / floor.glsl ringPool mode 1).
-        return state.ring.kind == RingState::Kind::recording
-            || state.ring.kind == RingState::Kind::discovering;
+        return false;
     }
 
     // A pose replaces every live or mock input with a fixed state. The
@@ -415,7 +411,6 @@ namespace halo
         const auto display = p.display();
         auto image = displayRenderer.render (display);
         const juce::SpinLock::ScopedLockType sl (lock);
-        shared.ring = p.ring;
         shared.displayImage = std::move (image);
         shared.displayDirty = true;
         shared.activeGroup = display.activeGroup;
@@ -438,11 +433,10 @@ namespace halo
     //==============================================================================
     void StageComponent::statusChanged()
     {
-        if (pose)
-            return;
-        requestFrame ("status");
-        const juce::SpinLock::ScopedLockType sl (lock);
-        shared.ring = model.ring();
+        // Nothing on the stage follows the connection status: the ring state
+        // shows in the UI's status strip (the floor ring pool was removed at
+        // the owner's request, plan D6), and the LCD's provenance comes with
+        // displayChanged.
     }
 
     void StageComponent::displayChanged (const DisplayState& state)
@@ -812,8 +806,8 @@ namespace halo
         }
 
         // Ground quad in model space under the chassis, at the lowest shadow-casting
-        // point: it carries the contact shadow (and, on the Low tier, the ring pool
-        // and key spot). Only as large as those fade out (see part.frag).
+        // point: it carries the contact shadow (and, on the Low tier, the key
+        // spot). Only as large as those fade out (see part.frag).
         const float gx = 0.26f, gy = 0.34f;
         const float quad[] { -gx, -gy, groundZ, 0, 0,   gx, -gy, groundZ, 1, 0,
                              -gx,  gy, groundZ, 0, 1,   gx,  gy, groundZ, 1, 1 };
@@ -1019,35 +1013,16 @@ namespace halo
         glDrawArrays (GL_TRIANGLES, 0, 3);
     }
 
-    StageComponent::RingLight StageComponent::ringLight (const SharedState& state, float time) const
-    {
-        // Levels and cadence from the honest ring state (HaloRingRig.swift).
-        RingLight r;
-        switch (state.ring.kind)
-        {
-            case RingState::Kind::discovering: r = { 1, 0.60f }; break;
-            case RingState::Kind::connected:   r = { 2, 0.20f }; break;
-            case RingState::Kind::monitoring:  r = { 2, 0.40f }; break;
-            case RingState::Kind::recording:   r = { 2, 0.22f + 0.18f * (1.0f + std::sin (time * juce::MathConstants<float>::twoPi / 3.2f)) }; break;
-            case RingState::Kind::transfer:    r = { 2, 0.15f + 0.75f * (float) state.ring.transferProgress }; break;
-            case RingState::Kind::error:       r = { 2, 0.40f }; break;
-            case RingState::Kind::disconnected: break;
-        }
-        return r;
-    }
-
     // The floor around the device, drawn after it (the floor hidden under the
     // device fails the depth test).
     // High tier: one pass writing the contact shadow into the floor target;
     //   the pool and key spot are computed analytically in the composite.
-    // Low tier: up to three passes over the backdrop: key-light spot (dark look,
-    //   screen), contact shadow (alpha toward the tint), ring pool (screen).
-    void StageComponent::drawGround (const Mat& viewProj, const SharedState& state, float time, int vw, int vh)
+    // Low tier: up to two passes over the backdrop: key-light spot (dark look,
+    //   screen) and the contact shadow (alpha toward the tint).
+    void StageComponent::drawGround (const Mat& viewProj, int vw, int vh)
     {
         if (debugView >= 5)
             return;
-        const auto ring = ringLight (state, time);
-        const auto ringColour = toVec (StageLook::ringColour (look, state.ring.kind));
         const auto tint = toVec (look.shadowTint);
 
         Mat identity;
@@ -1056,12 +1031,7 @@ namespace halo
         partProgram.setMat4 ("uViewProj", viewProj.mat);
         partProgram.set ("uKind", 3);
         partProgram.set ("uShadowTint", tint.x, tint.y, tint.z);
-        partProgram.set ("uRingMode", ring.mode);
-        partProgram.set ("uRingLevel", ring.level);
-        partProgram.set ("uRingColour", ringColour.x, ringColour.y, ringColour.z);
-        partProgram.set ("uRingPeriod", ringDiscoverPeriod);
         partProgram.set ("uFloorSpot", look.floorSpot);
-        partProgram.set ("uTime", time);
         partProgram.set ("uViewport", (float) vw, (float) vh);
 
         glDepthMask (GL_FALSE);
@@ -1084,8 +1054,6 @@ namespace halo
             if (look.floorSpot > 0.0f)
                 pass (1, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
             pass (0, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); // shadow
-            if (ring.mode != 0 && ring.level > 0.0f)
-                pass (2, GL_ONE_MINUS_DST_COLOR, GL_ONE);   // screen
             glDisable (GL_BLEND);
         }
         glDepthMask (GL_TRUE);
@@ -1426,13 +1394,10 @@ namespace halo
         const auto camera = StageCamera::view (deviceBox, yawDegrees.load(), pitchDegrees.load(), zoom.load(),
                                                (float) w / (float) h, orthoView.load(),
                                                presetOffsetActive.load() ? presetOffset : Vec3f {});
-        // A pose freezes the clock too, so two captures of one pose match.
-        const float time = pose ? 1.0f : (float) (nowSeconds - startTime);
-
         if (targets.isHdr())
-            renderHigh (state, camera, frame, w, h, time);
+            renderHigh (state, camera, frame, w, h);
         else
-            renderLow (state, camera, frame, w, h, time);
+            renderLow (state, camera, frame, w, h);
 
         // Back to JUCE's framebuffer and a clean state for the next frame.
         glBindFramebuffer (GL_FRAMEBUFFER, (GLuint) mainFramebuffer);
@@ -1444,7 +1409,7 @@ namespace halo
     // High tier (plan section 3.2): MSAA HDR scene -> custom resolve ->
     // composite (tone map once, floor, exact sRGB, dither) -> optional FXAA.
     void StageComponent::renderHigh (const SharedState& state, const StageView& camera, const RenderTargets::Frame& frame,
-                                     int w, int h, float time)
+                                     int w, int h)
     {
         GLint output = 0;
         glGetIntegerv (GL_FRAMEBUFFER_BINDING, &output);
@@ -1492,7 +1457,7 @@ namespace halo
                 partProgram.set ("uMirror", 0.0f);
                 glColorMaski (1, GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
             }
-            drawGround (viewProj, state, time, frame.width, frame.height);
+            drawGround (viewProj, frame.width, frame.height);
             if (reflect)
                 glColorMaski (1, GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         }
@@ -1539,13 +1504,6 @@ namespace halo
         const auto tint = toVec (look.shadowTint);
         compositeProgram.set ("uShadowTint", tint.x, tint.y, tint.z);
         compositeProgram.set ("uFloorSpot", look.floorSpot);
-        const auto ring = ringLight (state, time);
-        const auto ringColour = toVec (StageLook::ringColour (look, state.ring.kind));
-        compositeProgram.set ("uRingColour", ringColour.x, ringColour.y, ringColour.z);
-        compositeProgram.set ("uRingMode", ring.mode);
-        compositeProgram.set ("uRingLevel", ring.level);
-        compositeProgram.set ("uRingPeriod", ringDiscoverPeriod);
-        compositeProgram.set ("uTime", time);
         compositeProgram.set ("uDeviceSize", deviceWidth, deviceDepth);
         const auto inverse = invert (camera.viewProjection);
         compositeProgram.setMat4 ("uInvViewProj", inverse.data());
@@ -1580,7 +1538,7 @@ namespace halo
     // Low tier: today's forward path into an LDR target (tone mapped per
     // fragment, exact sRGB), then FXAA and the dither into the window.
     void StageComponent::renderLow (const SharedState& state, const StageView& camera, const RenderTargets::Frame& frame,
-                                    int w, int h, float time)
+                                    int w, int h)
     {
         GLint output = 0;
         glGetIntegerv (GL_FRAMEBUFFER_BINDING, &output);
@@ -1601,7 +1559,7 @@ namespace halo
             glDepthFunc (GL_LEQUAL);
             setPartUniforms (camera, keyLightViewProj (keyDirection));
             drawModel (viewProj, state);
-            drawGround (viewProj, state, time, frame.width, frame.height);
+            drawGround (viewProj, frame.width, frame.height);
             glDisable (GL_DEPTH_TEST);
         }
 

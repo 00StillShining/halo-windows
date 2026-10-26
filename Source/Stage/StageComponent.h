@@ -28,7 +28,7 @@ namespace halo
     // KeyTravelAnimator / HaloRingRig). OpenGL 3.2, rendered on JUCE's GL thread.
     //
     // The message thread only writes small "targets" (which pads are held, the
-    // latest display image, the ring state) under a spin lock. The GL thread
+    // latest display image) under a spin lock. The GL thread
     // animates toward them, so pad travel and LED decay stay smooth however
     // bursty the MIDI is.
     class StageComponent : public juce::Component,
@@ -48,7 +48,7 @@ namespace halo
         void resized() override;
         void paint (juce::Graphics&) override; // the Still tier only (M11)
 
-        // The stage's surroundings (backdrop, floor, shadow, ring pool). Copied
+        // The stage's surroundings (backdrop, floor, shadow). Copied
         // under the lock; the GL thread picks it up on its next frame.
         void setLook (const StageLook&);
 
@@ -122,7 +122,6 @@ namespace halo
             std::array<PadTarget, 12> pads {};
             std::optional<int> activeGroup;
             bool displayLive = false;
-            RingState ring;
             juce::Image displayImage;
             bool displayDirty = false;
             StageLook look = StageLook::paper();
@@ -150,18 +149,11 @@ namespace halo
             juce::Vector3D<float> linear;
         };
 
-        // How the ring pool looks for a ring state: 0 none, 1 discover sweep, 2 steady.
-        struct RingLight
-        {
-            int mode = 0;
-            float level = 0.0f;
-        };
-
         void animatePads (const SharedState&, float dt);
         bool stillMoving (const SharedState&) const; // GL thread: on-demand repaint
         void renderFrame (const SharedState&, double nowSeconds, float dt, int width, int height, bool ready);
-        void renderHigh (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);
-        void renderLow (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height, float time);
+        void renderHigh (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height);
+        void renderLow (const SharedState&, const StageView&, const RenderTargets::Frame&, int width, int height);
         void noteFrameForReady (int width, int height);
         void applyPose (const StagePose&);
         bool buildPrograms();
@@ -171,12 +163,11 @@ namespace halo
         void drawBackground (int height);
         void drawCard (int height);
         void setPartUniforms (const StageView&, const juce::Matrix3D<float>& lightViewProj);
-        void drawGround (const juce::Matrix3D<float>& viewProj, const SharedState&, float time, int viewportWidth, int viewportHeight);
+        void drawGround (const juce::Matrix3D<float>& viewProj, int viewportWidth, int viewportHeight);
         // mirror: the floor reflection pass (M8): the device mirrored in the floor
         // plane, written to the floor target's rgb; glass is skipped.
         void drawModel (const juce::Matrix3D<float>& viewProj, const SharedState&, bool mirror = false);
         void setSlotUniforms (GlProgram&);
-        RingLight ringLight (const SharedState&, float time) const;
 
         AppModel& model;
         StageLog log; // first: other members log while they are built

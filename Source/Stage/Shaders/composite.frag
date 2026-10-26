@@ -5,12 +5,11 @@
 //   floor:  base = the floor token with graph paper receding in perspective
 //           (a real plane under the device, found per pixel from the inverse
 //           view-projection), lit by the key spot (dark look), blended toward
-//           the shadow tint by the contact shadow, then the ring pool
-//           screen-blended on top: floor = base + (1 - base) * light. All in
-//           display values, exactly as the Low tier blends them, so both tiers
-//           match and the pool keeps its warm orange on a cool floor (a
-//           display-linear screen of saturated orange reads pink there). No
-//           light leaves base exact: the stage border is the token to the bit.
+//           the shadow tint by the contact shadow; the key spot is screen-
+//           blended: floor = base + (1 - base) * light. All in display values,
+//           exactly as the Low tier blends them, so both tiers match. No light
+//           leaves base exact: the stage border is the token to the bit.
+//           The floor reflection (dark look) is added on top.
 //   out = device over floor -> sRGB -> +-0.5 LSB dither (unless FXAA follows,
 //         which dithers after itself).
 #include "common.glsl"
@@ -25,9 +24,6 @@ uniform vec4 uMinor, uMajor;  // floor grid lines (display colour, strength)
 uniform vec2 uGridMm;         // minor, major spacing on the floor (mm)
 uniform vec3 uShadowTint;     // display value
 uniform float uFloorSpot;     // display-encoded key spot strength (dark look)
-uniform vec3 uRingColour;     // display value
-uniform int uRingMode;
-uniform float uRingLevel, uRingPeriod, uTime;
 uniform vec2 uDeviceSize;     // model metres
 uniform mat4 uInvViewProj;    // world from clip
 uniform float uFloorY;        // world height of the floor
@@ -90,7 +86,7 @@ void main()
     {
         // Floor: the token, graph paper receding in perspective round the
         // device (fading out before the stage edge, so the border is the token),
-        // the key spot, the contact shadow and the ring pool.
+        // the key spot and the contact shadow.
         float border = stageBorder (fc, uViewport);
         bool onFloor;
         vec2 modelXY = floorPoint (fc, onFloor);
@@ -98,7 +94,7 @@ void main()
         float minorLine = pristineGrid (mm / uGridMm.x, 0.25 / uGridMm.x);
         float majorLine = pristineGrid (mm / uGridMm.y, 0.45 / uGridMm.y);
         vec3 baseEnc = uCanvas;
-        float spot = 0.0, pool = 0.0;
+        float spot = 0.0;
         if (onFloor)
         {
             float paper = (1.0 - smoothstep (0.24, 0.50, length (modelXY))) * border;
@@ -106,13 +102,11 @@ void main()
             baseEnc = mix (baseEnc, uMajor.rgb, majorLine * uMajor.a * paper);
             float gap = footprintGap (modelXY, uDeviceSize);
             spot = floorSpot (gap, uFloorSpot) * border;
-            pool = ringPool (modelXY, uDeviceSize, gap, uRingMode, uRingLevel, uTime, uRingPeriod) * border;
         }
         // The contact shadow blends toward the tint in display values, the
         // response the shadow terms were tuned for (a linear multiply reads
         // far weaker in the penumbra).
         vec3 litEnc = mix (baseEnc + (1.0 - baseEnc) * spot, uShadowTint, floorTerms.a);
-        litEnc += (1.0 - litEnc) * uRingColour * pool;
         vec3 floorColour = srgbDecode (litEnc);
         // The device's reflection in a dark glossy floor (M8; zero on Paper),
         // tone mapped like the device it mirrors.

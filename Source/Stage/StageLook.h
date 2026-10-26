@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Core/RingState.h"
 #include "Core/ToneCurves.h"
 
 #include <juce_graphics/juce_graphics.h>
@@ -20,8 +19,6 @@ namespace halo
     // component painting off, so no JUCE component can draw over it. Redesign
     // overlays (stageClip treatments, opxy-* mockups) must sit beside the stage
     // or be drawn in GL by the stage itself.
-    inline constexpr int kRingStateCount = 7; // RingState::Kind, in declaration order
-
     struct StageLook
     {
         // The backdrop the stage clears to; the stage border equals it exactly.
@@ -34,9 +31,6 @@ namespace halo
         float floorGridMm = 5.0f;          // the perspective floor's graph paper: minor cell (mm), a major line every 5
         juce::Colour shadowTint;           // what the contact shadow darkens toward
 
-        // The ring pool: one colour per RingState::Kind (disconnected is never drawn).
-        std::array<juce::Colour, kRingStateCount> ring;
-
         float exposure = 1.0f;
         ToneMapper toneMapper = ToneMapper::neutral;
         float keyIntensity = 1.0f, rimIntensity = 1.0f, fillIntensity = 1.0f;
@@ -45,11 +39,6 @@ namespace halo
         // shows the contact shadow (0 = the floor is the backdrop exactly).
         float floorSpot = 0.0f;
         juce::Image floorTexture; // by value; the M3 perspective floor (graph paper by default, O2)
-
-        static juce::Colour ringColour (const StageLook& look, RingState::Kind kind)
-        {
-            return look.ring[(size_t) kind];
-        }
 
         // Default: DD-GATE Palette A "graph paper", today's values exactly.
         static StageLook paper()
@@ -60,7 +49,6 @@ namespace halo
             l.gridMinor = juce::Colour (0xffCAD3D6).withAlpha (0.52f);
             l.gridMajor = juce::Colour (0xff869399).withAlpha (0.34f);
             l.shadowTint = juce::Colour (0xff111315);
-            l.ring = ringPalette (juce::Colour (0xffFF5A1F), juce::Colour (0xffD94A24));
             return l;
         }
 
@@ -74,7 +62,6 @@ namespace halo
             l.gridMinor = juce::Colour (0xff38383F).withAlpha (0.0f);
             l.gridMajor = juce::Colour (0xff38383F).withAlpha (0.0f);
             l.shadowTint = juce::Colour (0xff000000);
-            l.ring = ringPalette (juce::Colour (0xffFF5A1F), juce::Colour (0xffFF3B1F));
             l.floorSpot = 0.11f;
             l.floorReflection = 0.15f;
             return l;
@@ -85,16 +72,5 @@ namespace halo
             return name.equalsIgnoreCase ("dark") ? dark() : paper();
         }
 
-    private:
-        // Halo's ring is orange whatever it says (HaloRingRig.swift); an error
-        // is the warning red. Levels and pulses come from RingState, not colour.
-        static std::array<juce::Colour, kRingStateCount> ringPalette (juce::Colour orange, juce::Colour warning)
-        {
-            std::array<juce::Colour, kRingStateCount> r;
-            r.fill (orange);
-            r[(size_t) RingState::Kind::disconnected] = juce::Colours::transparentBlack;
-            r[(size_t) RingState::Kind::error] = warning;
-            return r;
-        }
     };
 }
