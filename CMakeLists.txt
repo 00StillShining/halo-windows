@@ -58,14 +58,14 @@ juce_add_gui_app(Halo
     COMPANY_NAME "stillshining"
     VERSION ${PROJECT_VERSION})
 
-# JUCE turns the icon PNGs into icon.ico at configure time and compiles it into
-# the exe's .rc, but neither step tracks the icon: reconfigure when the PNGs
-# change, and recompile the .rc when icon.ico does.
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/halo-1024.png"
-    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/halo-small.png")
-set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/Halo_artefacts/JuceLibraryCode/Halo_resources.rc"
-    PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/Halo_artefacts/JuceLibraryCode/icon.ico")
+# Ship the hand-tuned multi-size icon (tools/icon/render.py: 16-32 px are drawn
+# on the pixel grid) rather than JUCE's resampling of the two PNGs. JUCE writes
+# icon.ico while juce_add_gui_app configures, so copying ours over it here
+# wins; configure_file re-runs whenever halo.ico changes, and the .rc
+# recompiles when icon.ico does.
+get_target_property(halo_juce_code Halo JUCE_GENERATED_SOURCES_DIRECTORY)
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/halo.ico" "${halo_juce_code}/icon.ico" COPYONLY)
+set_source_files_properties("${halo_juce_code}/Halo_resources.rc" PROPERTIES OBJECT_DEPENDS "${halo_juce_code}/icon.ico")
 
 target_sources(Halo PRIVATE
     Source/App/Main.cpp
