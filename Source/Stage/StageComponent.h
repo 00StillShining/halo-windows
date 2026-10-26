@@ -42,6 +42,7 @@ namespace halo
 
         void mouseDown (const juce::MouseEvent&) override;
         void mouseDrag (const juce::MouseEvent&) override;
+        void mouseUp (const juce::MouseEvent&) override;
         void mouseDoubleClick (const juce::MouseEvent&) override;
         void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
         void resized() override;
@@ -241,6 +242,14 @@ namespace halo
         Vec3f presetOffset; // world metres, set once by HALO_STAGE_PRESET before the GL thread starts
         std::atomic<bool> presetOffsetActive { true };
         float dragStartYaw = 0.0f, dragStartPitch = 0.0f;
+        // Orbit inertia (M10): a released drag glides on and eases to a stop.
+        // Any other camera change (the ORBIT API, a reset, a new drag) stops it.
+        float dragYawRate = 0.0f, dragPitchRate = 0.0f;   // degrees per second, smoothed
+        double lastDragTime = 0.0;
+        float lastDragYaw = 0.0f, lastDragPitch = 0.0f;
+        float flingYaw = 0.0f, flingPitch = 0.0f;         // degrees per second while gliding
+        float flingWroteYaw = 0.0f, flingWrotePitch = 0.0f;
+        double lastTimerTime = 0.0;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (StageComponent)
     };

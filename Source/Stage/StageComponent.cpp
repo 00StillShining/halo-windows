@@ -221,6 +221,18 @@ namespace halo
         }
 
         // Last, so the GL thread never sees a half-configured stage.
+       #if JUCE_DEBUG
+        // HALO_STAGE_FLING=deg/s: start an orbit glide as if a drag had been
+        // released (inertia check without driving the mouse).
+        if (const auto fling = env ("HALO_STAGE_FLING"); fling.isNotEmpty())
+        {
+            flingYaw = fling.getFloatValue();
+            flingWroteYaw = yawDegrees.load();
+            flingWrotePitch = pitchDegrees.load();
+            lastTimerTime = juce::Time::getMillisecondCounterHiRes() * 0.001 + 1.5; // after the first frames
+            log.line ("fling: " + fling + " deg/s from yaw " + juce::String (flingWroteYaw));
+        }
+       #endif
         // The camera as set up above, so the first timer tick is not a "change".
         lastCamera = { yawDegrees.load(), pitchDegrees.load(), zoom.load(), orthoView.load() ? 1.0f : 0.0f };
         if (tierRequest == "still")
@@ -259,6 +271,31 @@ namespace halo
 
     void StageComponent::timerCallback()
     {
+        if (flingYaw != 0.0f || flingPitch != 0.0f)
+        {
+            // Someone else moved the camera (ORBIT API, reset): stop gliding.
+            if (yawDegrees.load() != flingWroteYaw || pitchDegrees.load() != flingWrotePitch)
+                flingYaw = flingPitch = 0.0f;
+            else
+            {
+                const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+                const float dt = (float) juce::jlimit (0.0, 0.1, now - lastTimerTime);
+                lastTimerTime = juce::jmax (lastTimerTime, now);
+                const float yaw = juce::jlimit (-60.0f, 110.0f, yawDegrees.load() + flingYaw * dt);
+                const float pitch = juce::jlimit (StageCamera::minPitch, StageCamera::maxPitch, pitchDegrees.load() + flingPitch * dt);
+                yawDegrees = flingWroteYaw = yaw;
+                pitchDegrees = flingWrotePitch = pitch;
+                const float decay = std::exp (-dt / 0.25f);   // eases out over ~0.75 s
+                flingYaw *= decay;
+                flingPitch *= decay;
+                if (std::abs (flingYaw) < 1.0f && std::abs (flingPitch) < 1.0f)
+                {
+                    flingYaw = flingPitch = 0.0f;
+                    log.line ("fling: settled at yaw " + juce::String (yaw, 2));
+                }
+                if (onCameraChanged) onCameraChanged(); // UI redesign camera API
+            }
+        }
         const std::array<float, 4> camera { yawDegrees.load(), pitchDegrees.load(), zoom.load(),
                                             orthoView.load() ? 1.0f : 0.0f };
         if (camera != lastCamera)
@@ -457,8 +494,26 @@ namespace halo
     //==============================================================================
     void StageComponent::mouseDown (const juce::MouseEvent&)
     {
-        dragStartYaw = yawDegrees.load();
-        dragStartPitch = pitchDegrees.load();
+        flingYaw = flingPitch = 0.0f;
+        dragYawRate = dragPitchRate = 0.0f;
+        dragStartYaw = lastDragYaw = yawDegrees.load();
+        dragStartPitch = lastDragPitch = pitchDegrees.load();
+        lastDragTime = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    }
+
+    void StageComponent::mouseUp (const juce::MouseEvent&)
+    {
+        // Glide only if the pointer was still moving when it let go.
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (now - lastDragTime > 0.08)
+            return;
+        flingYaw = juce::jlimit (-240.0f, 240.0f, dragYawRate);
+        flingPitch = juce::jlimit (-120.0f, 120.0f, dragPitchRate);
+        flingWroteYaw = yawDegrees.load();
+        flingWrotePitch = pitchDegrees.load();
+        lastTimerTime = now;
+        if (! isTimerRunning())
+            startTimerHz (30);
     }
 
     void StageComponent::mouseDrag (const juce::MouseEvent& e)
@@ -467,6 +522,16 @@ namespace halo
         pitchDegrees = juce::jlimit (StageCamera::minPitch, StageCamera::maxPitch,
                                      dragStartPitch + (float) e.getDistanceFromDragStartY() * 0.3f);
         orthoView = false;
+        const double now = juce::Time::getMillisecondCounterHiRes() * 0.001;
+        if (const double dt = now - lastDragTime; dt > 1.0e-3)
+        {
+            const float k = (float) juce::jmin (1.0, dt / 0.05);   // ~50 ms smoothing
+            dragYawRate += ((yawDegrees.load() - lastDragYaw) / (float) dt - dragYawRate) * k;
+            dragPitchRate += ((pitchDegrees.load() - lastDragPitch) / (float) dt - dragPitchRate) * k;
+            lastDragYaw = yawDegrees.load();
+            lastDragPitch = pitchDegrees.load();
+            lastDragTime = now;
+        }
         if (onCameraChanged) onCameraChanged(); // UI redesign camera API
     }
 
