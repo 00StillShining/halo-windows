@@ -1610,7 +1610,7 @@ Verified on screen before the owner's GUI cutoff (19:21):
   The height-map AO, its target, pass and re-mip are deleted; the floor's contact term is
   analytic. Hero / keys, both looks: deck L* 86.0, gaps 6.9, mean change 2.6 / 255.
 
-Built and tested headless after the cutoff ("shots pending"):
+Built headless after the cutoff, now **verified on screen** (shots q1-q8, see below):
 - **PCSS-lite** (d6f1771): a blocker search in an R32F copy of the shadow depth; the PCF radius
   follows the receiver's distance behind the blocker times the softbox's angular size.
 - **Floor reflection, dark look** (2e22162): the device mirrored in the floor into the floor
@@ -1643,3 +1643,38 @@ reflection, stems, LCD in place); `DEBUG=2` keys crop (penumbra crisp at contact
 (reflection subtle, no mirror); `hit` dark with `DEBUG=8` (emission only on the liner);
 `HALO_STAGE_STATS=1` idle (0 frames over 60 s, connected mock) and a pad burst; preview and
 waiting LCD on the device; `HALO_STAGE_TIER=low` and `=still` canonical sets; `gl_errors=0`.
+
+### Verification day (shots q1-q9) and the M10 / M11 remainder
+
+- **PCSS-lite** (q1, `DEBUG=2`): contact shadows are crisp at the key bases and open out away from
+  them; no fixed grain. Hero both looks: deck L* 86.1, gaps 6.9, PLAY +0.079 (RECORD waived).
+- **Floor reflection** (q1 `low` dark): a faint warm band of the shell under the case, fading
+  within ~20 mm; it reads as black glass, not a mirror. Paper unchanged.
+- **Underglow** (q2 `hit`, `DEBUG=8`): emission only on the struck pad's aperture liner; caps
+  unchanged. **Point lights** (5640313, q6b): the four brightest cues each warm their
+  neighbours through a 30 mm diffuse light: the facing walls change by up to dE 8 (149 px above
+  dE 2), nothing else moves.
+- **LCD on the device** (q4): live "120" at full backlight, waiting "___" dim with nothing lit,
+  preview "SIM" with the demo's icons on the dimmest backlight. No haze over the LCD.
+- **On-demand frames** (q3, Debug stats): at rest with the mock connected, 77 startup frames,
+  then **0 frames** for the remaining 30-60 s; the discovering ring keeps drawing (motion, 0
+  shadow re-renders) so the comet animates; with live mock input the stage legitimately draws
+  continuously (the mock's pads and LCD change every few frames: reasons display / motion).
+  Two fixes (1323073): a held pad's steady glow no longer keeps frames coming; the first camera
+  poll is not a "change".
+- **Tiers** (q5): `HALO_STAGE_TIER=low` gives complete hero, keys, top, low and hit sets in both
+  looks; `=still` shows TE's plan view with the live LCD and the struck pad's cue (it now logs
+  READY so the harness can capture it). No KHR_debug errors in any Debug run.
+- **Orbit inertia** (d0458c3): a released drag glides and eases out over ~0.75 s; it stops as soon
+  as anything else moves the camera (the ORBIT API, a reset, a new drag), and reports each step
+  through `onCameraChanged`. Debug `HALO_STAGE_FLING=120`: from yaw 28 it settled at 59.8.
+- **O3 LED echo: not built.** The LEDs mark parameter selection on the device; echoing pad hits
+  on them would show state the device does not (D4), and O3 is still the owner's call.
+- **Release timing, RTX 5080** (q8, mock MIDI running, hero 960 x 546): GPU p50 0.30-0.34 ms, p95
+  0.30-0.46 ms (budget 1.5 ms), 3-4 geometry draws, 144 fps vsync. The shadow map re-renders on
+  every frame a pad moves, as designed. AMD iGPU still unmeasured (owner's GPU switch).
+- **Soak** (q9, 30 min, Debug, mock MIDI): 1800 s of live mock input at 144 fps, 898 stats windows: gl_errors 0 throughout (KHR_debug), render targets allocated twice at startup and never again, GPU p95 0.38-0.94 ms (Debug); process private memory 381 MB at minute 1, 363-365 MB from minute 6 to 21 (stable), whole-GPU memory 1086-1129 MiB (per-process VRAM is not reported under WDDM).
+- Release build fix: `Source/App/Main.cpp` read `HALO_REDUCED_MOTION` through a Debug-only helper
+  and did not compile in Release.
+- **G3 review sheet:** `build/review/g3_sheet.png` (hero, keys, low / top and the cue / LCD rows,
+  dark and paper, beside TE's photos). For the owner's sign-off; O3 to decide.
