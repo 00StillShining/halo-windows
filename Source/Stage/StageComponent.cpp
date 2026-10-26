@@ -132,7 +132,10 @@ namespace halo
 
         statsEnabled = env ("HALO_STAGE_STATS") == "1";
         tierRequest = env ("HALO_STAGE_TIER").toLowerCase();
-        // HALO_STAGE_COLOURWAY=te|graphite|field|blackglass (any build).
+        // The device's colourway: graphite, matching the app (owner decision,
+        // plan D7); HALO_STAGE_COLOURWAY=te|graphite|field|blackglass picks
+        // another (any build; te is TE's original).
+        shared.colourway = DeviceColourway::graphite();
         if (const auto name = env ("HALO_STAGE_COLOURWAY"); name.isNotEmpty())
             shared.colourway = DeviceColourway::named (name);
         displayRenderer.setPalette (shared.colourway.lcd);

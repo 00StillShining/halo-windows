@@ -30,7 +30,8 @@ namespace halo
     // colours may follow the app's design). Applied at runtime, with no
     // re-bake: plastic albedo and roughness by material role, the decal inks
     // of the keys atlas and the face silkscreen, the LCD palette and the pad
-    // cue. TE's original stays selectable ("te").
+    // cue. Graphite is the app's default (owner's pick); TE's original
+    // ("te"), field and black glass stay selectable.
     //
     // Materials are named "role:palette" by the model compiler
     // (tools/model/usdz_to_hmesh.py material_role): roles shell, body, side,
