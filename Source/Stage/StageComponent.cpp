@@ -220,6 +220,8 @@ namespace halo
         }
 
         // Last, so the GL thread never sees a half-configured stage.
+        // The camera as set up above, so the first timer tick is not a "change".
+        lastCamera = { yawDegrees.load(), pitchDegrees.load(), zoom.load(), orthoView.load() ? 1.0f : 0.0f };
         if (tierRequest == "still")
             enterStillTier ("requested");
         else
@@ -337,7 +339,8 @@ namespace halo
         for (size_t i = 0; i < padAnim.size(); ++i)
         {
             const float target = state.pads[i].held ? keyTravel : 0.0f;
-            if (! padAnim[i].spring.settled (target) || padAnim[i].glow > 0.003f)
+            // A held pad's glow is steady; only a released one fades.
+            if (! padAnim[i].spring.settled (target) || (! state.pads[i].held && padAnim[i].glow > 0.01f))
                 return true;
         }
         // The ring's own animation: the recording pulse and the discovering

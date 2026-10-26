@@ -102,6 +102,7 @@ foreach ($look in $Looks) {
         $env:HALO_STAGE_PRESET = $def.preset
         $env:HALO_STAGE_LOOK = $look
         $env:HALO_STAGE_POSE = $(if ($def.pose) { $def.pose } else { $Pose })
+        if ($env:HALO_STAGE_POSE -eq "none") { Remove-Item Env:HALO_STAGE_POSE }   # -Pose none: live mock input
         if ($def.debug) { $env:HALO_STAGE_DEBUG = $def.debug }
         if ($Stats) { $env:HALO_STAGE_STATS = "1" }
         if ($def.env) { foreach ($k in $def.env.Keys) { Set-Item "Env:$k" $def.env[$k] } }
