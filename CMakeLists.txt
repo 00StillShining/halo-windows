@@ -58,6 +58,15 @@ juce_add_gui_app(Halo
     COMPANY_NAME "stillshining"
     VERSION ${PROJECT_VERSION})
 
+# JUCE turns the icon PNGs into icon.ico at configure time and compiles it into
+# the exe's .rc, but neither step tracks the icon: reconfigure when the PNGs
+# change, and recompile the .rc when icon.ico does.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/halo-1024.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon/halo-small.png")
+set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/Halo_artefacts/JuceLibraryCode/Halo_resources.rc"
+    PROPERTIES OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/Halo_artefacts/JuceLibraryCode/icon.ico")
+
 target_sources(Halo PRIVATE
     Source/App/Main.cpp
     Source/App/MainComponent.cpp
