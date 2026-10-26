@@ -5,6 +5,7 @@
 #include "Core/PadSpring.h"
 #include "Core/StagePose.h"
 #include "Stage/DecalAtlas.h"
+#include "Stage/DeviceColourway.h"
 #include "Stage/DisplayRenderer.h"
 #include "Stage/Environment.h"
 #include "Stage/GlProgram.h"
@@ -51,6 +52,10 @@ namespace halo
         // The stage's surroundings (backdrop, floor, shadow). Copied
         // under the lock; the GL thread picks it up on its next frame.
         void setLook (const StageLook&);
+
+        // The device's colourway (Stage/DeviceColourway.h): TE's original or
+        // one matching the app. Applied live, no re-bake.
+        void setColourway (const DeviceColourway&);
 
         // ---- UI redesign camera API (plan R5: the ORBIT encoder). Additive and
         // owned by the UI work; the stage's own drag / wheel handling is unchanged.
@@ -126,6 +131,8 @@ namespace halo
             bool displayDirty = false;
             StageLook look = StageLook::paper();
             bool lookDirty = true;
+            DeviceColourway colourway;
+            bool colourwayDirty = true;
         };
 
         struct PadAnim
@@ -201,6 +208,7 @@ namespace halo
         // Per-slot motion (slot 0 static, 1-12 pads, 13-16 groups), this frame.
         std::array<juce::Vector3D<float>, Hmesh::maxSlots> slotOffsets {}, slotPivots {};
         StageLook look = StageLook::paper();   // GL thread's copy
+        DeviceColourway colourway;             // GL thread's copy
         float groundZ = -0.008f;               // model z of the floor: lowest shadow-casting point
         StageBox deviceBox;                    // world-space bounds of the shadow-casting parts
         std::array<PadAnim, 12> padAnim {};

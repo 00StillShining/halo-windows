@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Core/HmeshFormat.h"
+#include "Stage/DeviceColourway.h"
 
 #include <juce_opengl/juce_opengl.h>
 
@@ -28,7 +29,9 @@ namespace halo
         bool parse (const void* data, size_t size, std::string& error);
         bool empty() const noexcept { return model.indices.empty(); }
 
-        void upload();  // GL thread
+        void upload (const DeviceColourway& = DeviceColourway::te());  // GL thread
+        // The material table again, recoloured (GL thread; no re-bake, M-colourway).
+        void uploadMaterials (const DeviceColourway&);
         void release(); // GL thread
         // The compiler puts glass parts last (tools/model/build_ep40.py), so the
         // opaque parts are one range and the glass another.

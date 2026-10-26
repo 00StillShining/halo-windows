@@ -25,7 +25,7 @@ namespace halo
         return true;
     }
 
-    void HaloMesh::upload()
+    void HaloMesh::upload (const DeviceColourway& colourway)
     {
         release();
         glGenVertexArrays (1, &vao);
@@ -53,16 +53,31 @@ namespace halo
         glVertexAttribPointer (3, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, at (offsetof (HmeshVertex, material)));
         glBindVertexArray (0);
 
+        uploadMaterials (colourway);
+    }
+
+    void HaloMesh::uploadMaterials (const DeviceColourway& colourway)
+    {
+        auto decode = [] (float c) { return c <= 0.04045f ? c / 12.92f : std::pow ((c + 0.055f) / 1.055f, 2.4f); };
         std::vector<float> table (model.materials.size() * 16, 0.0f);
         for (size_t i = 0; i < model.materials.size(); ++i)
         {
             const auto& m = model.materials[i];
             float* t = table.data() + i * 16;
             t[0] = m.base[0]; t[1] = m.base[1]; t[2] = m.base[2]; t[3] = m.roughness;
+            if (const auto o = colourway.lookup (m.name))
+            {
+                t[0] = decode (o->colour.getFloatRed());
+                t[1] = decode (o->colour.getFloatGreen());
+                t[2] = decode (o->colour.getFloatBlue());
+                if (o->roughness >= 0.0f)
+                    t[3] = o->roughness;
+            }
             t[4] = m.emissive[0]; t[5] = m.emissive[1]; t[6] = m.emissive[2]; t[7] = m.metallic;
             t[8] = (float) m.flags; t[9] = m.grain; t[10] = m.clearcoat; t[11] = m.transmission;
         }
-        glGenTextures (1, &materials);
+        if (materials == 0)
+            glGenTextures (1, &materials);
         glBindTexture (GL_TEXTURE_2D, materials);
         glTexImage2D (GL_TEXTURE_2D, 0, GL_RGBA32F, 4, (GLsizei) juce::jmax ((size_t) 1, model.materials.size()), 0,
                       GL_RGBA, GL_FLOAT, table.data());

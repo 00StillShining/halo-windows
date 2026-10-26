@@ -30,6 +30,8 @@ uniform int uFaceAtlasOn;
 uniform vec4 uFaceRect;      // x0, y0, width, depth in reference mm (x from the left, y from the ports)
 uniform sampler2D uKeyAtlas;  // keys' legends: SDF per ink (R green, G orange, B white, A charcoal), at vUV
 uniform int uKeyAtlasOn;
+uniform vec3 uKeyInk[4];     // the colourway's inks for the keys atlas channels (linear)
+uniform vec3 uFaceInk[2];    // ... and for the face silkscreen's green and orange
 uniform vec2 uDeviceSize;     // model width, depth (m)
 
 uniform sampler2DShadow uShadowMap;
@@ -391,8 +393,8 @@ void main()
         if (uFaceAtlasOn != 0 && all (greaterThanEqual (uv, vec2 (0.0))) && all (lessThanEqual (uv, vec2 (1.0))))
         {
             vec2 cover = inkCover (uFaceAtlas, uv).rg;
-            albedo = mix (albedo, srgbDecode (vec3 (1.0, 0.408, 0.114)), cover.g);     // orange #FF681D
-            albedo = mix (albedo, srgbDecode (vec3 (0.0, 0.314, 0.227)), cover.r);     // green #00503A
+            albedo = mix (albedo, uFaceInk[1], cover.g);     // TE: orange #FF681D
+            albedo = mix (albedo, uFaceInk[0], cover.r);     // TE: green #00503A
             roughness = min (roughness + 0.08 * max (cover.r, cover.g), 1.0);
         }
     }
@@ -400,10 +402,10 @@ void main()
     {
         // Laser-printed legends, slightly rougher than the cap.
         vec4 cover = inkCover (uKeyAtlas, vUV);
-        albedo = mix (albedo, srgbDecode (vec3 (0.957, 0.949, 0.925)), cover.b);   // white #F4F2EC
-        albedo = mix (albedo, srgbDecode (vec3 (0.169, 0.169, 0.157)), cover.a);   // charcoal #2B2B28
-        albedo = mix (albedo, srgbDecode (vec3 (1.0, 0.408, 0.114)), cover.g);     // orange #FF681D
-        albedo = mix (albedo, srgbDecode (vec3 (0.0, 0.314, 0.227)), cover.r);     // green #00503A
+        albedo = mix (albedo, uKeyInk[2], cover.b);   // TE: white #F4F2EC
+        albedo = mix (albedo, uKeyInk[3], cover.a);   // TE: charcoal #2B2B28
+        albedo = mix (albedo, uKeyInk[1], cover.g);   // TE: orange #FF681D
+        albedo = mix (albedo, uKeyInk[0], cover.r);   // TE: green #00503A
         roughness = min (roughness + 0.08 * max (max (cover.r, cover.g), max (cover.b, cover.a)), 1.0);
     }
 

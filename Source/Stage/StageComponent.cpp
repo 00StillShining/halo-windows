@@ -19,7 +19,6 @@ namespace halo
 
         // Halo cue colours on the device itself (pad strike, active group). Device
         // facts, not look tokens: the riddim orange and green (plan section 2.5).
-        const juce::Colour cueOrange (0xffFA5A16), cueGreen (0xff0A4A36);
 
         // Device and lighting rig (model space is Z-up metres; world is Y-up).
         constexpr float deviceWidth = 0.176f, deviceDepth = 0.240f;
@@ -133,6 +132,11 @@ namespace halo
 
         statsEnabled = env ("HALO_STAGE_STATS") == "1";
         tierRequest = env ("HALO_STAGE_TIER").toLowerCase();
+        // HALO_STAGE_COLOURWAY=te|graphite|field|blackglass (any build).
+        if (const auto name = env ("HALO_STAGE_COLOURWAY"); name.isNotEmpty())
+            shared.colourway = DeviceColourway::named (name);
+        displayRenderer.setPalette (shared.colourway.lcd);
+        log.line ("colourway: " + shared.colourway.name);
         if (tierRequest.isNotEmpty())
             log.line ("tier: HALO_STAGE_TIER=" + tierRequest);
 
@@ -244,6 +248,23 @@ namespace halo
         }
     }
 
+    void StageComponent::setColourway (const DeviceColourway& c)
+    {
+        {
+            const juce::SpinLock::ScopedLockType sl (lock);
+            shared.colourway = c;
+            shared.colourwayDirty = true;
+        }
+        displayRenderer.setPalette (c.lcd);
+        if (pose)
+            applyPose (*pose);
+        else
+            displayChanged (model.display());
+        if (stillTier)
+            repaint();
+        requestFrame ("colourway");
+    }
+
     void StageComponent::setLook (const StageLook& newLook)
     {
         {
@@ -323,11 +344,13 @@ namespace halo
             return;
         StageLook currentLook;
         juce::Image lcd;
+        juce::Colour cue;
         std::array<bool, 12> held {};
         {
             const juce::SpinLock::ScopedLockType sl (lock);
             currentLook = shared.look;
             lcd = shared.displayImage;
+            cue = shared.colourway.cue;
             for (size_t i = 0; i < held.size(); ++i)
                 held[i] = shared.pads[i].held;
         }
@@ -355,9 +378,9 @@ namespace halo
             if (held[i])
             {
                 const auto cell = mm (columnLeft[i % 3], rowTop[i / 3], columnLeft[i % 3] + 16.0f, rowTop[i / 3] + 16.0f);
-                g.setColour (cueOrange.withAlpha (0.35f));
+                g.setColour (cue.withAlpha (0.35f));
                 g.drawRoundedRectangle (cell.expanded (0.8f * scale), 2.0f * scale, 1.6f * scale);
-                g.setColour (cueOrange);
+                g.setColour (cue);
                 g.drawRoundedRectangle (cell, 1.5f * scale, 0.7f * scale);
             }
         g.setColour (currentLook.backdrop.contrasting (0.55f));
@@ -698,7 +721,14 @@ namespace halo
                 log.line ("mesh: EP40.hmesh rejected: " + juce::String (error));
         }
         if (meshLoaded)
-            mesh.upload();
+        {
+            {
+                const juce::SpinLock::ScopedLockType sl (lock);
+                colourway = shared.colourway;
+                shared.colourwayDirty = false;
+            }
+            mesh.upload (colourway);
+        }
         {
             std::string error;
             if (! keysAtlas.upload (HaloStageAssets::ep40_keys_sdf_htex, (size_t) HaloStageAssets::ep40_keys_sdf_htexSize, error))
@@ -1062,8 +1092,7 @@ namespace halo
     void StageComponent::drawModel (const Mat& viewProj, const SharedState& state, bool mirror)
     {
         const auto toWorld = modelToWorld();
-        const auto orange = linear (cueOrange);
-        const auto green = linear (cueGreen.brighter (0.6f));
+        const auto orange = linear (colourway.cue);
         partProgram.setMat4 ("uViewProj", viewProj.mat);
 
         // Halo's pad cue (D3): the struck pad's aperture liner glows (by the
@@ -1091,7 +1120,7 @@ namespace halo
                 partProgram.set (colourNames[k], c.x, c.y, c.z);
             }
         }
-        juce::ignoreUnused (green, state);
+        juce::ignoreUnused (state);
         static const auto glowNames = []
         {
             std::array<std::string, Hmesh::maxSlots> names;
@@ -1171,6 +1200,13 @@ namespace halo
                 look = shared.look;
                 shared.lookDirty = false;
                 lookChanged = true;
+            }
+            if (shared.colourwayDirty)
+            {
+                colourway = shared.colourway;
+                shared.colourwayDirty = false;
+                if (meshLoaded && mesh.materials != 0)
+                    mesh.uploadMaterials (colourway);
             }
         }
         if (state.displayDirty && state.displayImage.isValid())
@@ -1328,6 +1364,20 @@ namespace halo
         partProgram.set ("uShadowDepthRange", 1.2f - 0.05f);  // keyLightViewProj's near..far (m)
         partProgram.set ("uShadowTexel", 2.0f * shadowExtent);   // metres across the map
         partProgram.set ("uKeyAtlasOn", keysAtlas.valid() ? 1 : 0);
+        {
+            static const char* keyNames[] { "uKeyInk[0]", "uKeyInk[1]", "uKeyInk[2]", "uKeyInk[3]" };
+            for (size_t i = 0; i < 4; ++i)
+            {
+                const auto c = linear (colourway.keyInks[i]);
+                partProgram.set (keyNames[i], c.x, c.y, c.z);
+            }
+            static const char* faceNames[] { "uFaceInk[0]", "uFaceInk[1]" };
+            for (size_t i = 0; i < 2; ++i)
+            {
+                const auto c = linear (colourway.faceInks[i]);
+                partProgram.set (faceNames[i], c.x, c.y, c.z);
+            }
+        }
         partProgram.set ("uEnv", 4);
         partProgram.set ("uBrdfLut", 5);
         partProgram.set ("uEnvMaxMip", environment.maxMip());

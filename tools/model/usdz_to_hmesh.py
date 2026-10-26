@@ -485,7 +485,46 @@ KEY_TRAVEL = 0.0026  # metres (plan O5 default; the stage's own spring decides t
 
 PALETTE_NAMES = {CREAM: "cream", LABEL: "label", KEY_WHITE: "key white", KEY_BEIGE: "key beige", GREEN: "green",
                  ORANGE: "orange", INK_GREEN: "ink green", INK_ORANGE: "ink orange", INK_WHITE: "ink white",
-                 INK_CHARCOAL: "ink charcoal", GAP: "gap", FRAME: "frame", LED_OFF: "led off"}
+                 INK_CHARCOAL: "ink charcoal", GAP: "gap", FRAME: "frame", LED_OFF: "led off",
+                 srgb("#EDEBE3"): "stem", srgb("#1E6B4F"): "glass"}
+
+
+# Material roles: what a part is on the device, so a colourway can recolour
+# (say) the shell's green apart from PLAY's green. Short: role:palette <= 16.
+def material_role(name):
+    if name in ("chassis_base",):
+        return "shell"
+    if name in ("chassis_topPlate", "chassis_edgeBand", "ports_strip"):
+        return "body"
+    if name == "chassis_sideDetail":
+        return "side"
+    if name.endswith("_well"):
+        return "well"
+    if name.endswith("_secondary"):
+        return "plate"
+    if name in GRID_PARTS:
+        return "pad"
+    if name in GROUP_PARTS:
+        return "group"
+    if name.startswith("button_") or name == "fader_mode_button":
+        return "key"
+    if name.startswith("knob_"):
+        return "knob"
+    if name.startswith("fader_"):
+        return "fader"
+    if name.startswith("port_") and name.endswith("_tab"):
+        return "insert"
+    if name.startswith("port") or name == "ports_usb":
+        return "port"
+    if name == "brand_panel":
+        return "label"
+    if name.startswith(("speaker_", "mic_")):
+        return "spkr"
+    if name.startswith("display_"):
+        return "screen"
+    if name.startswith(LAMP_PREFIX):
+        return "led"
+    return "misc"
 
 
 def part_kind(name):
@@ -556,18 +595,17 @@ def to_v3(parts, source_name, decal_parts=(), ao_fn=None, transmission=None):
             flags_for_part |= hmesh_io.MATERIAL_FLAGS["decalTarget"]
 
         mat_ids = np.zeros(n_vert, dtype=np.uint8)
-        part_area = {}
+        role = material_role(name)
         for i in range(n_vert):
             colour = tuple(round(float(c), 6) for c in v[i, 6:9])
-            key = (colour, round(float(v[i, 9]), 6), round(float(v[i, 12]), 6), round(float(v[i, 13]), 6), flags_for_part)
+            key = (colour, round(float(v[i, 9]), 6), round(float(v[i, 12]), 6), round(float(v[i, 13]), 6), flags_for_part, role)
             if key not in material_index:
                 material_index[key] = len(materials)
-                label = next((nm for rgb, nm in PALETTE_NAMES.items()
-                              if all(abs(a - b) < 1e-6 for a, b in zip(rgb, colour))), f"m{len(materials)}")
-                if flags_for_part & hmesh_io.MATERIAL_FLAGS["lcd"]:
-                    label = "lcd"
-                elif flags_for_part & hmesh_io.MATERIAL_FLAGS["decalTarget"]:
-                    label = "deck"
+                # "role:palette" (Stage/DeviceColourway.h recolours by it at runtime).
+                palette = next((nm for rgb, nm in PALETTE_NAMES.items()
+                                if all(abs(a - b) < 1e-6 for a, b in zip(rgb, colour))), f"m{len(materials)}")
+                label = f"{role}:{palette}"
+                assert len(label) <= 16, label
                 trans = 0.0
                 for rgb, t in (transmission or {}).items():
                     if all(abs(a - b) < 1e-6 for a, b in zip(rgb, colour)):
